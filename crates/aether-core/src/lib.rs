@@ -188,6 +188,10 @@ impl OllamaProvider {
             }],
             stream: true,
             keep_alive: Some("30m".to_string()),
+            options: Some(ChatOptions {
+                num_predict: 16,
+                temperature: 0.0,
+            }),
         };
 
         let start = Instant::now();
@@ -298,6 +302,14 @@ struct ChatRequest {
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     keep_alive: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    options: Option<ChatOptions>,
+}
+
+#[derive(Serialize)]
+struct ChatOptions {
+    num_predict: u32,
+    temperature: f32,
 }
 
 #[derive(Serialize, Deserialize)]

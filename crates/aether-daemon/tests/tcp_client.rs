@@ -4,7 +4,7 @@ use std::time::Duration;
 
 #[test]
 fn tcp_ping_and_run_task_smoke() {
-    let addr = std::env::var("AETHER_DAEMON_ADDR").unwrap_or_else(|_| "127.0.0.1:9731".to_string());
+    let addr = std::env::var("AETHER_DAEMON_ADDR").unwrap_or_else(|_| "127.0.0.1:7433".to_string());
 
     let Ok(mut stream) = TcpStream::connect_timeout(
         &addr.parse().expect("valid addr"),

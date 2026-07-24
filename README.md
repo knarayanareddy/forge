@@ -5,7 +5,7 @@ AetherForge MVP — **Phase 1 Foundation** complete on Darwin.
 ## Harness score (Darwin, canonical)
 
 ```text
-cargo run -p golden-harness
+cargo run -p golden-harness --bin golden-harness
 → 10/10 harness (10 hard / 0 soft)
 ```
 
@@ -39,7 +39,7 @@ See [docs/ROADMAP_PHASES_1-5.md](docs/ROADMAP_PHASES_1-5.md) for acceptance crit
 
 ```bash
 cargo build --workspace
-cargo run -p golden-harness
+cargo run -p golden-harness --bin golden-harness
 ```
 
 **Requirements (Darwin):** `sandbox-exec` (macOS), Ollama with `all-minilm` (MEM-01) and a chat model such as `qwen2.5:3b` (ROUT-01).

@@ -1,26 +1,36 @@
-//! Example TCP client for aether-daemon streaming.
-use aether_core::default_daemon_addr;
-use std::io::{BufRead, BufWrite, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
+use std::time::Duration;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let addr = default_daemon_addr();
-    let mut stream = TcpStream::connect(&addr)?;
-    stream.set_read_timeout(Some(std::time::Duration::from_secs(60)))?;
+    let addr = std::env::var("AETHER_DAEMON_ADDR")
+        .unwrap_or_else(|_| aether_core::default_daemon_addr());
 
-    let request = r#"{"method":"run_task","params":{"prompt":"Reply with one word: forge"}}"#;
-    stream.write_all(request.as_bytes())?;
-    stream.write_all(b"\n")?;
+    let mut stream = TcpStream::connect_timeout(
+        &addr.parse()?,
+        Duration::from_secs(5),
+    )?;
+    stream.set_read_timeout(Some(Duration::from_secs(60)))?;
+
+    let prompt = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "Reply with one word: forge".to_string());
+
+    let request = format!(
+        r#"{{"method":"run_task","params":{{"prompt":"{}"}}}}"#,
+        prompt.replace('\\', "\\\\").replace('"', "\\\"")
+    );
+    writeln!(stream, "{}", request)?;
     stream.flush()?;
 
-    let reader = std::io::BufReader::new(&stream);
+    let reader = BufReader::new(stream);
     for line in reader.lines() {
         let line = line?;
         if line.trim().is_empty() {
             continue;
         }
         println!("{}", line);
-        if line.contains("\"type\":\"done\"") || line.contains("\"type\":\"error\"") {
+        if line.contains(r#""type":"done""#) || line.contains(r#""type":"error""#) {
             break;
         }
     }
