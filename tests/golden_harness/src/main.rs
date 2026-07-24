@@ -274,7 +274,7 @@ async fn test_mem_01(db: &Database) -> Result<(), String> {
     let query_emb = aether_core::fetch_ollama_embedding(endpoint, model, query_text).await
         .map_err(|e| e.to_string())?;
 
-    let results = db.search_semantic_memory(&query_emb, 3)
+    let results = db.search_semantic_memory_hybrid(query_text, &query_emb, 3)
         .map_err(|e| e.to_string())?;
 
     if results.is_empty() {

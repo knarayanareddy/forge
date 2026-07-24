@@ -1,0 +1,102 @@
+# AetherForge Install Guide (Phase 5)
+
+## macOS (canonical)
+
+### Requirements
+
+- macOS 15+ (Apple Silicon recommended)
+- [Ollama](https://ollama.com) with `all-minilm` (embeddings) and a chat model such as `qwen2.5:3b`
+- Node.js + `@modelcontextprotocol/server-filesystem` (for MCP harness / optional tools)
+- Rust toolchain + Swift 6 (`swift build`)
+
+### From source
+
+```bash
+git clone https://github.com/knarayanareddy/forge.git
+cd forge
+cargo build --release -p aether-daemon
+./scripts/build-ffi.sh release
+swift build -c release
+```
+
+**Terminal 1 — daemon**
+
+```bash
+cargo run -p aether-daemon
+# listens on 127.0.0.1:7433
+```
+
+**Terminal 2 — app**
+
+```bash
+swift run AetherForgeApp
+```
+
+Select a workspace folder during onboarding. Prompts stream tokens from the daemon over TCP JSON-lines.
+
+### BYOK (Bring Your Own Key)
+
+API keys are stored in the **macOS Keychain** (never in plaintext env files):
+
+```rust
+// Programmatic store (macOS only):
+use aether_core::store_byok_key;
+store_byok_key("sk-...")?;
+```
+
+```bash
+export AETHER_BYOK_PROVIDER=openai
+export AETHER_BYOK_MODEL=gpt-4o-mini   # optional
+cargo run -p aether-daemon
+```
+
+On non-macOS platforms, BYOK is **fail-closed** if `AETHER_BYOK_PROVIDER` is set.
+
+Keychain entry: service `AetherForge`, account `byok-api-key`.
+
+### DMG distribution
+
+```bash
+chmod +x scripts/create-dmg.sh scripts/notarize.sh
+./scripts/create-dmg.sh
+# Output: build/dmg/AetherForge-0.1.0.dmg
+```
+
+**Signing & notarization** (requires Apple Developer ID):
+
+1. Sign the `.app` inside staging before `hdiutil create`:
+   ```bash
+   codesign --force --deep --sign "Developer ID Application: Your Name (TEAMID)" build/dmg/staging/AetherForge.app
+   ```
+2. Re-create DMG if needed, then:
+   ```bash
+   xcrun notarytool store-credentials AetherForge-notary \
+     --apple-id "you@example.com" --team-id TEAMID --password "@keychain:AC_PASSWORD"
+   ./scripts/notarize.sh build/dmg/AetherForge-0.1.0.dmg
+   ```
+
+Without a Developer certificate, use ad-hoc distribution from source (`swift run` + `cargo run`).
+
+## Linux (CI / development)
+
+Darwin is canonical. On Linux, the golden harness **fail-closes** tasks that require macOS sandbox or local Ollama:
+
+| Task | Linux expectation |
+|------|-------------------|
+| FS-01, GIT-01, CODE-01, MCP-01, SKILL-01, SAFE-01, RES-01, LOOP-01 | PASS |
+| FS-02 | FAIL (no `sandbox-exec`) |
+| MEM-01 | FAIL (Ollama/embedder absent in CI) |
+| ROUT-01 | FAIL (Ollama absent in CI) |
+
+Expected score: **8/11 PASS**, 3 explicit fail-closed.
+
+See [LINUX_CI.md](LINUX_CI.md) for CI matrix details.
+
+## Verify install
+
+```bash
+cargo run -p golden-harness
+# Darwin with Ollama: 11/11 (11 hard)
+swift build
+./scripts/build-ffi.sh
+```

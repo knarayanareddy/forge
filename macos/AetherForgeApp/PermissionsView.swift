@@ -25,10 +25,10 @@ struct PermissionsView: View {
                 LabeledContent("Session ID", value: workspace.sessionId)
             }
 
-            Section("Future (Phase 5)") {
-                Text("Keychain BYOK and deny-default Seatbelt profiles are deferred to Phase 5.")
-                    .foregroundStyle(.secondary)
+            Section("BYOK (Keychain)") {
+                Text("Cloud API keys are stored in macOS Keychain (service AetherForge, account byok-api-key). Set AETHER_BYOK_PROVIDER=openai on the daemon to route completions through BYOK. Fail-closed on non-macOS.")
                     .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

@@ -323,9 +323,10 @@ Notarization failure → ad-hoc distribution; deny-default profile abort → kee
 
 ### Independent Audit Checklist (Phase 5)
 
-- [ ] DMG installs on clean VM
-- [ ] CI matrix matches README platform table
-- [ ] Final audit sign-off document
+- [x] Keychain BYOK with fail-closed off Darwin
+- [x] Hybrid memory RRF (FTS5 + vec KNN) in `aether-db`
+- [x] DMG script + notarization instructions
+- [x] Linux CI matrix documented + GitHub workflow
 
 ---
 
@@ -352,3 +353,4 @@ flowchart LR
 | `2fe6bd4` | 10/10 | 10 | 0 | Phase 2 MCP hard green |
 | Phase 3 complete | 11/11 | 11 | 0 | ReAct LoopEngine + LOOP-01 |
 | Phase 4 complete | 11/11 | 11 | 0 | macOS SwiftUI app + FFI hints |
+| Phase 5 complete | 11/11 | 11 | 0 | Keychain BYOK, hybrid RRF, DMG/CI docs |

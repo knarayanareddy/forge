@@ -2,7 +2,7 @@ mod protocol;
 mod server;
 mod task_runner;
 
-use aether_core::{ModelBackend, ModelRouter};
+use aether_core::ModelRouter;
 use aether_db::Database;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -29,29 +29,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let db = Database::open(&db_path)?;
-    let endpoint = std::env::var("AETHER_OLLAMA_ENDPOINT")
-        .unwrap_or_else(|_| "http://localhost:11434".to_string());
-    let model = std::env::var("AETHER_CHAT_MODEL").unwrap_or_else(|_| "qwen2.5:3b".to_string());
-    let complex_model =
-        std::env::var("AETHER_CHAT_MODEL_COMPLEX").unwrap_or_else(|_| model.clone());
-
-    let router = ModelRouter::new(
-        ModelBackend::OllamaMlx {
-            endpoint: endpoint.clone(),
-            model: model.clone(),
-        },
-        Some(ModelBackend::OllamaMlx {
-            endpoint,
-            model: complex_model,
-        }),
-    );
+    let router = ModelRouter::from_env()?;
 
     let state = Arc::new(DaemonState { db, router });
     let addr = aether_core::default_daemon_addr();
 
     tracing::info!("aether-daemon listening on {}", addr);
     tracing::info!("database: {}", db_path);
-    tracing::info!("model: {}", model);
+    if std::env::var("AETHER_BYOK_PROVIDER").is_ok() {
+        tracing::info!("router: BYOK via Keychain ({})", std::env::var("AETHER_BYOK_PROVIDER").unwrap_or_default());
+    } else {
+        let model = std::env::var("AETHER_CHAT_MODEL").unwrap_or_else(|_| "qwen2.5:3b".to_string());
+        tracing::info!("router: Ollama ({})", model);
+    }
 
     server::serve(addr, state).await
 }

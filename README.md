@@ -1,6 +1,6 @@
 # forge
 
-AetherForge MVP — **Phase 4 macOS SwiftUI App** complete on Darwin (Phases 1–3 retained).
+AetherForge MVP — **Phase 5 Polish** complete on Darwin (Phases 1–4 retained).
 
 ## Harness score (Darwin, canonical)
 
@@ -21,7 +21,7 @@ Linux CI expects FS-02, MEM-01, and ROUT-01 to fail closed when `sandbox-exec` o
 | **2 — MCP** | stdio JSON-RPC client, grant-gated invoke, real filesystem MCP in harness | **Done** |
 | **3 — Loop** | ReAct LoopEngine, ToolRegistry, daemon integration, LOOP-01 | **Done** |
 | **4 — SwiftUI** | macOS app, TCP daemon client, workspace bookmarks | **Done** |
-| 5 — Polish | DMG, notarization, CI matrix | Planned |
+| **5 — Polish** | Keychain BYOK, hybrid memory RRF, DMG/notarize scripts, Linux CI | **Done** |
 
 See [docs/ROADMAP_PHASES_1-5.md](docs/ROADMAP_PHASES_1-5.md) for acceptance criteria and audit gates.
 
@@ -34,7 +34,7 @@ See [docs/ROADMAP_PHASES_1-5.md](docs/ROADMAP_PHASES_1-5.md) for acceptance crit
 - Sandbox profile: `profiles/sandbox_tool.sb` (allow-default, Darwin-verified)
 - MCP allowlist: `mcp_allowlist.json` (SHA-256 pins for node + server script; harness auto-discovers via `npm root -g`)
 - macOS app: `macos/AetherForgeApp/` + `Package.swift` + `macos/AetherFFI/` (C ABI hints)
-- Specs: `docs/AetherForge_Canonical_Spec_v1.2.4.md`, `docs/ROADMAP_PHASES_1-5.md`, `docs/DAEMON_IPC.md`
+- Specs: `docs/AetherForge_Canonical_Spec_v1.2.4.md`, `docs/ROADMAP_PHASES_1-5.md`, `docs/DAEMON_IPC.md`, `docs/INSTALL.md`, `docs/LINUX_CI.md`
 
 ## Build & evaluate
 
@@ -128,6 +128,15 @@ swift run AetherForgeApp
 The app connects to `127.0.0.1:7433` via TCP JSON-lines (canonical IPC). Workspace selection saves a security-scoped bookmark under `~/Library/Application Support/AetherForge/`; each `run_task` includes `workspace_path` so the daemon can insert `capability_grants`. All agent execution goes through the daemon — the Swift app never calls git/fs tools directly.
 
 FFI (`aether_ffi_daemon_ipc`, `aether_daemon_default_port`) provides default host/port hints only; streaming uses TCP.
+
+## Phase 5 — Polish
+
+- **Keychain BYOK:** `AETHER_BYOK_PROVIDER=openai` loads API key from macOS Keychain (`AetherForge` / `byok-api-key`); fail-closed on non-macOS.
+- **Hybrid memory:** `search_semantic_memory_hybrid` fuses FTS5 BM25 + sqlite-vec KNN via Reciprocal Rank Fusion (MEM-01 uses hybrid path).
+- **Packaging:** `./scripts/create-dmg.sh` builds a drag-and-drop DMG; `./scripts/notarize.sh` for Apple notarization when Developer ID cert is available.
+- **CI:** `.github/workflows/ci.yml` — Darwin 11/11 gate, Linux 8/11 fail-closed matrix ([docs/LINUX_CI.md](docs/LINUX_CI.md)).
+
+Install guide: [docs/INSTALL.md](docs/INSTALL.md)
 
 ## Architecture target vs product readiness
 

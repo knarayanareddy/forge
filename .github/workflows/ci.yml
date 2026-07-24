@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Node (MCP harness)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install MCP filesystem server
+        run: npm install -g @modelcontextprotocol/server-filesystem
+
+      - name: Build workspace
+        run: cargo build --workspace
+
+      - name: Unit tests
+        run: cargo test --workspace
+
+      - name: Golden harness (Linux fail-closed matrix)
+        run: |
+          set +e
+          cargo run -p golden-harness 2>&1 | tee harness.log
+          PASS=$(grep -oP 'Passed: \K[0-9]+' harness.log | tail -1)
+          echo "Harness passed: ${PASS:-0}/11"
+          if [[ "${PASS:-0}" -lt 8 ]]; then
+            echo "Expected at least 8/11 on Linux (FS-02, MEM-01, ROUT-01 fail-closed)"
+            exit 1
+          fi
+
+  darwin:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Node (MCP harness)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install MCP filesystem server
+        run: npm install -g @modelcontextprotocol/server-filesystem
+
+      - name: Install Ollama models
+        run: |
+          brew install ollama || true
+          ollama serve &
+          sleep 5
+          ollama pull all-minilm
+          ollama pull qwen2.5:3b
+
+      - name: Build workspace
+        run: cargo build --workspace
+
+      - name: Golden harness (Darwin canonical)
+        run: cargo run -p golden-harness
+
+      - name: Swift build
+        run: |
+          ./scripts/build-ffi.sh
+          swift build

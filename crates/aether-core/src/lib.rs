@@ -1,4 +1,10 @@
+mod keychain;
 mod loop_engine;
+
+pub use keychain::{
+    load_byok_key, require_byok_key_if_configured, store_byok_key, KeychainError, BYOK_ACCOUNT,
+    BYOK_SERVICE,
+};
 
 pub use loop_engine::{
     GoalStopHook, LoopConfig, LoopRunResult, LoopStreamEvent, PythonLintVerifier, ReActLoopEngine,
@@ -37,6 +43,39 @@ pub struct ModelRouter {
 impl ModelRouter {
     pub fn new(primary: ModelBackend, fallback: Option<ModelBackend>) -> Self {
         Self { primary, fallback }
+    }
+
+    /// Build router from env. When `AETHER_BYOK_PROVIDER` is set, loads API key from macOS Keychain.
+    pub fn from_env() -> Result<Self, KeychainError> {
+        if let Some(api_key) = require_byok_key_if_configured()? {
+            let provider = std::env::var("AETHER_BYOK_PROVIDER").unwrap_or_else(|_| "openai".into());
+            let model = std::env::var("AETHER_BYOK_MODEL").unwrap_or_else(|_| "gpt-4o-mini".into());
+            return Ok(Self::new(
+                ModelBackend::ByokCloud {
+                    provider,
+                    api_key,
+                    model,
+                },
+                None,
+            ));
+        }
+
+        let endpoint = std::env::var("AETHER_OLLAMA_ENDPOINT")
+            .unwrap_or_else(|_| "http://localhost:11434".to_string());
+        let model = std::env::var("AETHER_CHAT_MODEL").unwrap_or_else(|_| "qwen2.5:3b".to_string());
+        let complex_model =
+            std::env::var("AETHER_CHAT_MODEL_COMPLEX").unwrap_or_else(|_| model.clone());
+
+        Ok(Self::new(
+            ModelBackend::OllamaMlx {
+                endpoint: endpoint.clone(),
+                model: model.clone(),
+            },
+            Some(ModelBackend::OllamaMlx {
+                endpoint,
+                model: complex_model,
+            }),
+        ))
     }
 
     pub fn primary(&self) -> &ModelBackend {
@@ -175,17 +214,27 @@ impl OllamaProvider {
         backend: &ModelBackend,
         prompt: &str,
     ) -> Result<TokenStream, CompleteError> {
-        let (endpoint, model) = match backend {
-            ModelBackend::OllamaMlx { endpoint, model } => (endpoint.as_str(), model.as_str()),
-            _ => {
-                return Err(CompleteError::Api(
-                    "Only OllamaMlx backend supported in MVP router".into(),
-                ))
+        match backend {
+            ModelBackend::OllamaMlx { endpoint, model } => {
+                Self::complete_stream_ollama(endpoint, model, prompt).await
             }
-        };
+            ModelBackend::ByokCloud {
+                provider,
+                api_key,
+                model,
+            } => Self::complete_stream_byok(provider, api_key, model, prompt).await,
+            ModelBackend::LlamaCpp { .. } => Err(CompleteError::Api(
+                "LlamaCpp backend not implemented in MVP router".into(),
+            )),
+        }
+    }
 
+    async fn complete_stream_ollama(
+        endpoint: &str,
+        model: &str,
+        prompt: &str,
+    ) -> Result<TokenStream, CompleteError> {
         let client = ollama_client();
-
         let url = format!("{}/api/chat", endpoint.trim_end_matches('/'));
         let req = ChatRequest {
             model: model.to_string(),
@@ -258,6 +307,99 @@ impl OllamaProvider {
 
         Ok(Box::pin(stream))
     }
+
+    async fn complete_stream_byok(
+        provider: &str,
+        api_key: &str,
+        model: &str,
+        prompt: &str,
+    ) -> Result<TokenStream, CompleteError> {
+        let base = std::env::var("AETHER_BYOK_ENDPOINT").unwrap_or_else(|_| {
+            match provider {
+                "openai" => "https://api.openai.com/v1".into(),
+                other => format!("https://api.{}.com/v1", other),
+            }
+        });
+        let url = format!("{}/chat/completions", base.trim_end_matches('/'));
+        let client = ollama_client();
+        let req = OpenAiChatRequest {
+            model: model.to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: prompt.to_string(),
+            }],
+            stream: true,
+        };
+
+        let start = Instant::now();
+        let resp = client
+            .post(&url)
+            .bearer_auth(api_key)
+            .json(&req)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(CompleteError::Api(format!(
+                "BYOK {} HTTP {}: {}",
+                provider, status, body
+            )));
+        }
+
+        let model_name = model.to_string();
+        let byte_stream = resp.bytes_stream();
+        let stream = try_stream! {
+            let mut buffer = String::new();
+            let mut ttft_recorded = false;
+            futures_util::pin_mut!(byte_stream);
+
+            while let Some(chunk_result) = byte_stream.next().await {
+                let bytes = chunk_result.map_err(CompleteError::Http)?;
+                buffer.push_str(&String::from_utf8_lossy(&bytes));
+
+                while let Some(newline_pos) = buffer.find('\n') {
+                    let line = buffer[..newline_pos].trim().to_string();
+                    buffer = buffer[newline_pos + 1..].to_string();
+                    if line.is_empty() || line == "data: [DONE]" {
+                        continue;
+                    }
+                    let json = line.strip_prefix("data: ").unwrap_or(&line);
+                    let data: OpenAiStreamChunk = serde_json::from_str(json)
+                        .map_err(|e| CompleteError::Api(format!("BYOK SSE parse: {}", e)))?;
+
+                    if let Some(choice) = data.choices.first() {
+                        if !choice.delta.content.is_empty() {
+                            let ttft_ms = if ttft_recorded {
+                                None
+                            } else {
+                                ttft_recorded = true;
+                                Some(start.elapsed().as_millis())
+                            };
+                            yield TokenChunk {
+                                text: choice.delta.content.clone(),
+                                ttft_ms,
+                                model: model_name.clone(),
+                                done: false,
+                            };
+                        }
+                        if choice.finish_reason.as_deref() == Some("stop") {
+                            yield TokenChunk {
+                                text: String::new(),
+                                ttft_ms: None,
+                                model: model_name.clone(),
+                                done: true,
+                            };
+                            return;
+                        }
+                    }
+                }
+            }
+        };
+
+        Ok(Box::pin(stream))
+    }
 }
 
 fn parse_stream_line(line: &str) -> Result<StreamChatResponse, CompleteError> {
@@ -300,6 +442,30 @@ struct EmbeddingRequest {
 #[derive(Deserialize)]
 struct EmbeddingResponse {
     embedding: Vec<f32>,
+}
+
+#[derive(Serialize)]
+struct OpenAiChatRequest {
+    model: String,
+    messages: Vec<ChatMessage>,
+    stream: bool,
+}
+
+#[derive(Deserialize)]
+struct OpenAiStreamChunk {
+    choices: Vec<OpenAiStreamChoice>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiStreamChoice {
+    delta: OpenAiStreamDelta,
+    finish_reason: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiStreamDelta {
+    #[serde(default)]
+    content: String,
 }
 
 #[derive(Serialize)]

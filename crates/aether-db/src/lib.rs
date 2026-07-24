@@ -190,6 +190,89 @@ impl Database {
         Ok(surrogate_id)
     }
 
+    /// Hybrid retrieval: Reciprocal Rank Fusion of FTS5 BM25 keyword rank + sqlite-vec KNN.
+    pub fn search_semantic_memory_hybrid(
+        &self,
+        query_text: &str,
+        query_embedding: &[f32],
+        limit: usize,
+    ) -> Result<Vec<(String, String, f32)>> {
+        assert_eq!(query_embedding.len(), 384, "Query embedding dimension must be exactly 384");
+
+        const RRF_K: f64 = 60.0;
+        let fetch = limit.saturating_mul(4).max(limit);
+
+        let fts_ranks = self.search_fts_ranked(query_text, fetch)?;
+        let vec_ranks = self.search_semantic_memory_knn(query_embedding, fetch)
+            .or_else(|_| self.search_semantic_memory_linear(query_embedding, fetch))?;
+
+        let mut scores: std::collections::HashMap<String, (String, f64)> = std::collections::HashMap::new();
+        let mut vec_similarity: std::collections::HashMap<String, f32> = std::collections::HashMap::new();
+
+        for (rank, (chunk_id, chunk_text, _)) in fts_ranks.into_iter().enumerate() {
+            let rrf = 1.0 / (RRF_K + (rank as f64) + 1.0);
+            scores
+                .entry(chunk_id)
+                .and_modify(|(_, s)| *s += rrf)
+                .or_insert((chunk_text, rrf));
+        }
+
+        for (rank, (chunk_id, chunk_text, similarity)) in vec_ranks.into_iter().enumerate() {
+            vec_similarity.insert(chunk_id.clone(), similarity);
+            let rrf = 1.0 / (RRF_K + (rank as f64) + 1.0);
+            scores
+                .entry(chunk_id.clone())
+                .and_modify(|(_, s)| *s += rrf)
+                .or_insert((chunk_text, rrf));
+        }
+
+        let mut fused: Vec<(String, String, f64, f32)> = scores
+            .into_iter()
+            .map(|(id, (text, rrf_score))| {
+                let sim = vec_similarity.get(&id).copied().unwrap_or(0.0);
+                (id, text, rrf_score, sim)
+            })
+            .collect();
+        fused.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+        fused.truncate(limit);
+        Ok(fused
+            .into_iter()
+            .map(|(id, text, _, sim)| (id, text, sim))
+            .collect())
+    }
+
+    fn search_fts_ranked(
+        &self,
+        query_text: &str,
+        limit: usize,
+    ) -> Result<Vec<(String, String, f32)>> {
+        let conn = self.conn.lock().unwrap();
+        let fts_query = fts5_query_from_text(query_text);
+        if fts_query.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut stmt = conn.prepare(
+            "SELECT sm.chunk_id, sm.chunk_text, bm25(semantic_memory_fts) AS rank
+             FROM semantic_memory_fts
+             JOIN semantic_memory sm ON sm.id = semantic_memory_fts.rowid
+             WHERE semantic_memory_fts MATCH ?1
+             ORDER BY rank
+             LIMIT ?2",
+        )?;
+
+        let mut rows = stmt.query(rusqlite::params![fts_query, limit as i64])?;
+        let mut results = Vec::new();
+        while let Some(row) = rows.next()? {
+            let chunk_id: String = row.get(0)?;
+            let chunk_text: String = row.get(1)?;
+            let rank: f64 = row.get(2)?;
+            let score = (-rank).max(0.0) as f32;
+            results.push((chunk_id, chunk_text, score));
+        }
+        Ok(results)
+    }
+
     /// Semantic vector search via sqlite-vec KNN `MATCH ... k=N`, with linear cosine fallback.
     pub fn search_semantic_memory(
         &self,
@@ -287,6 +370,22 @@ fn register_sqlite_vec() {
     }
 }
 
+fn fts5_query_from_text(text: &str) -> String {
+    text.split_whitespace()
+        .filter(|w| w.chars().any(|c| c.is_alphanumeric()))
+        .map(|w| {
+            let escaped: String = w.chars().filter(|c| c.is_alphanumeric()).collect();
+            if escaped.is_empty() {
+                String::new()
+            } else {
+                format!("\"{}\"", escaped)
+            }
+        })
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<_>>()
+        .join(" OR ")
+}
+
 fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     let dot: f32 = a.iter().zip(b).map(|(x, y)| x * y).sum();
     let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
@@ -350,15 +449,80 @@ mod tests {
     }
 
     #[test]
+    fn test_hybrid_rrf_prefers_semantic_match() {
+        let db = Database::open_in_memory().unwrap();
+        let emb_a = vec![1.0f32; 384];
+        let mut emb_b = vec![0.0f32; 384];
+        emb_b[0] = 1.0;
+
+        db.insert_memory_chunk(
+            "chk-fact-a",
+            "memory://fact-a",
+            "AetherForge secure local Mac agent runtime",
+            &emb_a,
+        )
+        .unwrap();
+        db.insert_memory_chunk(
+            "chk-fact-b",
+            "memory://fact-b",
+            "Python data science web backend programming",
+            &emb_b,
+        )
+        .unwrap();
+
+        let query_emb = emb_a.clone();
+        let results = db
+            .search_semantic_memory_hybrid("AetherForge Mac agent platform", &query_emb, 2)
+            .unwrap();
+        assert!(!results.is_empty());
+        assert_eq!(results[0].0, "chk-fact-a");
+    }
+
+    #[test]
     fn test_vector_insertion_and_search() {
         let db = Database::open_in_memory().unwrap();
         let embedding = vec![0.1f32; 384];
-        let id = db.insert_memory_chunk("chunk-1", "file://test.txt", "Hello AetherForge", &embedding).unwrap();
+        let id = db
+            .insert_memory_chunk("chunk-1", "file://test.txt", "Hello AetherForge", &embedding)
+            .unwrap();
         assert!(id > 0);
 
         let results = db.search_semantic_memory(&embedding, 5).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0, "chunk-1");
         assert!(results[0].2 > 0.85);
+    }
+
+    #[test]
+    fn test_hybrid_rrf_prefers_keyword_overlap() {
+        let db = Database::open_in_memory().unwrap();
+        let emb_a = vec![1.0f32; 384];
+        let mut emb_b = vec![0.0f32; 384];
+        emb_b[0] = 1.0;
+
+        db.insert_memory_chunk(
+            "chk-aether",
+            "memory://a",
+            "AetherForge secure local Mac agent runtime MLX",
+            &emb_a,
+        )
+        .unwrap();
+        db.insert_memory_chunk(
+            "chk-python",
+            "memory://b",
+            "Python programming language data science web backend",
+            &emb_b,
+        )
+        .unwrap();
+
+        let query_emb = emb_b.clone();
+        let vec_only = db.search_semantic_memory(&query_emb, 2).unwrap();
+        assert_eq!(vec_only[0].0, "chk-python");
+
+        let hybrid = db
+            .search_semantic_memory_hybrid("AetherForge Mac agent MLX", &query_emb, 2)
+            .unwrap();
+        assert_eq!(hybrid[0].0, "chk-aether");
+        assert!(hybrid[0].2 > 0.0);
     }
 }
