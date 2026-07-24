@@ -10,21 +10,12 @@ let package = Package(
         .executable(
             name: "AetherForgeApp",
             targets: ["AetherForgeApp"]
-        ),
-        .library(
-            name: "AetherForgeCore",
-            targets: ["AetherForgeCore"]
         )
     ],
     targets: [
         .executableTarget(
             name: "AetherForgeApp",
             path: "macos/AetherForgeApp"
-        ),
-        .target(
-            name: "AetherForgeCore",
-            path: "macos/AetherForgeApp",
-            sources: ["BookmarkManager.swift"]
         )
     ]
 )

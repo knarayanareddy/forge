@@ -1,4 +1,5 @@
 /target/
+.build/
 **/*.db
 .DS_Store
 .cargo/
