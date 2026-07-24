@@ -26,9 +26,32 @@ One JSON object per line (JSON-lines). Client sends requests; server streams eve
 
 ### Request: `run_task`
 
+Plain prompt (streams Ollama tokens):
+
 ```json
 {"method":"run_task","params":{"prompt":"Say hello in one word","session_id":"demo-1"}}
 ```
+
+Structured loop plan (Phase 3 — emits `plan`/`tool`/`observe`/`verify` events):
+
+```json
+{
+  "method": "run_task",
+  "params": {
+    "session_id": "loop-1",
+    "workspace_path": "/tmp/aether-workspace",
+    "max_iterations": 8,
+    "prompt": "{\"loop\":[{\"tool\":\"fs_write\",\"path\":\"out.txt\",\"content\":\"forge\"},{\"tool\":\"verify_contains\",\"path\":\"out.txt\",\"text\":\"forge\"},{\"tool\":\"done\"}]}"
+  }
+}
+```
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `prompt` | yes | Plain text for Ollama, or JSON with `"loop":[...]` tool steps |
+| `session_id` | no | Session for grants / audit |
+| `workspace_path` | loop only | Workspace directory (or set `AETHER_WORKSPACE`) |
+| `max_iterations` | no | Loop cap (default 8) |
 
 Optional params (Phase 3 loop):
 

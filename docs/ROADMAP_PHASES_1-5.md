@@ -33,6 +33,7 @@ These apply to **every phase**. No exceptions.
 | MEM-01 | soft | Requires live Ollama + `all-minilm` |
 | SKILL-01 | soft | Procedural skill loader/executor |
 | CODE-01 | soft | Python syntax lint via `py_compile` |
+| LOOP-01 | **hard** | ReAct loop plan→tool→observe→verify via production `LoopEngine` |
 
 **Phase 1 target:** 10/10 with **10 hard** (RES, GIT, ROUT upgraded from soft/simulated to hard).
 
