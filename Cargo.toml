@@ -6,6 +6,7 @@ members = [
     "crates/aether-mcp",
     "crates/aether-sandbox",
     "crates/aether-permissions",
+    "crates/aether-skills",
     "tests/golden_harness"
 ]
 resolver = "2"

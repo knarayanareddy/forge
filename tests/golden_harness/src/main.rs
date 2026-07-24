@@ -12,11 +12,17 @@ use fs02::test_fs_02_impl;
 mod mcp01;
 use mcp01::test_mcp_01_impl;
 
+mod skill01;
+use skill01::test_skill_01_impl;
+
+mod audit_chain;
+use audit_chain::verify_audit_hash_chain;
+
 #[tokio::main]
 async fn main() {
     println!("=== AetherForge Golden Task Evaluation Harness ===");
-    println!("Constitution: v1.2.3 (Spec-Anchored, Eval-Driven)");
-    println!("Active Vertical Slices: SAFE-01, FS-01 + undo_journal, RES-01, FS-02 + Seatbelt, MEM-01, & MCP-01\n");
+    println!("Constitution: v1.2.4 (Spec-Anchored, Eval-Driven)");
+    println!("Active Vertical Slices: SAFE-01, FS-01 + undo_journal, RES-01, FS-02 + Seatbelt, MEM-01, MCP-01, & SKILL-01\n");
     
     let db = Database::open_in_memory().expect("In-memory DB init failed");
     
@@ -168,7 +174,7 @@ async fn test_mem_01(db: &Database) -> Result<(), String> {
 }
 
 async fn test_skill_01() -> Result<(), String> {
-    Err("Not implemented (RED)".into())
+    test_skill_01_impl().await
 }
 
 async fn test_safe_01(db: &Database) -> Result<(), String> {
@@ -218,6 +224,8 @@ async fn test_safe_01(db: &Database) -> Result<(), String> {
     if denied_count < 2 {
         return Err("Expected at least 2 denied audit entries".into());
     }
+
+    verify_audit_hash_chain(&*conn)?;
 
     Ok(())
 }

@@ -15,3 +15,4 @@ aether-mcp = { path = "../../crates/aether-mcp" }
 aether-sandbox = { path = "../../crates/aether-sandbox" }
 aether-permissions = { path = "../../crates/aether-permissions" }
 aether-core = { path = "../../crates/aether-core" }
+aether-skills = { path = "../../crates/aether-skills" }

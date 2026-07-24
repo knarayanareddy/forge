@@ -3,10 +3,18 @@
     {
       "name": "filesystem",
       "version": "1.0.0",
-      "command": "node",
-      "args": ["/usr/local/lib/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js"],
-      "sha256_pin": "PENDING_HASH_PIN_REPLACE_WITH_REAL_SHA256",
+      "command": "/opt/homebrew/bin/node",
+      "args": ["/opt/homebrew/lib/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js"],
+      "sha256_pin": "PENDING_VERIFIED_DIGEST_TO_BE_PINNED_AT_BUILD",
       "default_policy": "prompt_always"
+    },
+    {
+      "name": "sqlite",
+      "version": "1.0.0",
+      "command": "/opt/homebrew/bin/node",
+      "args": ["/opt/homebrew/lib/node_modules/@modelcontextprotocol/server-sqlite/dist/index.js"],
+      "sha256_pin": "PENDING_VERIFIED_DIGEST_TO_BE_PINNED_AT_BUILD",
+      "default_policy": "auto_allow_read"
     }
   ]
 }

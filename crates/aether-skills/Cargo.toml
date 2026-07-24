@@ -1,0 +1,10 @@
+[package]
+name = "aether-skills"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rusqlite = { version = "0.31", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "2.0"
+aether-permissions = { path = "../aether-permissions" }

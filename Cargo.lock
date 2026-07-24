@@ -72,6 +72,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "aether-skills"
+version = "0.1.0"
+dependencies = [
+ "aether-permissions",
+ "rusqlite",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -372,6 +382,7 @@ dependencies = [
  "aether-mcp",
  "aether-permissions",
  "aether-sandbox",
+ "aether-skills",
  "rusqlite",
  "serde",
  "serde_json",
