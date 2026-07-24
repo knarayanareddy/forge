@@ -1,52 +1,47 @@
 use rusqlite::{Connection, Result};
 use std::path::Path;
-use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
 
 pub struct Database {
-    conn: RefCell<Connection>,
+    conn: Arc<Mutex<Connection>>,
 }
 
 impl Database {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
-        unsafe {
-            rusqlite::ffi::sqlite3_auto_extension(Some(
-                std::mem::transmute(sqlite_vec::sqlite3_vec_init as *const ())
-            ));
-        }
+        register_sqlite_vec();
 
         let conn = Connection::open(path)?;
 
-        // Enable WAL mode & foreign keys
         conn.execute_batch("
             PRAGMA journal_mode = WAL;
             PRAGMA foreign_keys = ON;
         ")?;
 
-        let db = Self { conn: RefCell::new(conn) };
+        let db = Self {
+            conn: Arc::new(Mutex::new(conn)),
+        };
         db.init_schema()?;
         Ok(db)
     }
 
     pub fn open_in_memory() -> Result<Self> {
-        unsafe {
-            rusqlite::ffi::sqlite3_auto_extension(Some(
-                std::mem::transmute(sqlite_vec::sqlite3_vec_init as *const ())
-            ));
-        }
+        register_sqlite_vec();
 
         let conn = Connection::open_in_memory()?;
         conn.execute_batch("
             PRAGMA journal_mode = WAL;
             PRAGMA foreign_keys = ON;
         ")?;
-        
-        let db = Self { conn: RefCell::new(conn) };
+
+        let db = Self {
+            conn: Arc::new(Mutex::new(conn)),
+        };
         db.init_schema()?;
         Ok(db)
     }
 
     pub fn init_schema(&self) -> Result<()> {
-        let conn = self.conn.borrow();
+        let conn = self.conn.lock().unwrap();
         conn.execute_batch("
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
@@ -107,7 +102,7 @@ impl Database {
             END;
 
             CREATE VIRTUAL TABLE IF NOT EXISTS semantic_memory_vec USING vec0(
-                embedding float[384]
+                embedding float[384] distance_metric=cosine
             );
 
             CREATE TABLE IF NOT EXISTS procedural_skills (
@@ -151,12 +146,10 @@ impl Database {
         ")
     }
 
-    /// Exposes a temporary Ref to Connection for operations like conn.execute()
-    pub fn conn(&self) -> std::cell::Ref<'_, Connection> {
-        self.conn.borrow()
+    pub fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
+        self.conn.lock().unwrap()
     }
 
-    /// Inserts a semantic memory chunk and its corresponding vector embedding atomically (Spec §3 protocol)
     pub fn insert_memory_chunk(
         &self,
         chunk_id: &str,
@@ -165,10 +158,10 @@ impl Database {
         embedding: &[f32],
     ) -> Result<i64> {
         assert_eq!(embedding.len(), 384, "Embedding dimension must be exactly 384");
-        
-        let mut conn = self.conn.borrow_mut();
+
+        let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
-        
+
         tx.execute(
             "INSERT INTO semantic_memory (chunk_id, source_uri, model_id, dimension, chunk_text) VALUES (?1, ?2, ?3, ?4, ?5)",
             rusqlite::params![chunk_id, source_uri, "all-MiniLM-L6-v2", 384, chunk_text],
@@ -191,7 +184,7 @@ impl Database {
         Ok(surrogate_id)
     }
 
-    /// Performs semantic vector search using true mathematical Cosine Similarity in Rust over fetched vectors
+    /// Semantic vector search via sqlite-vec KNN `MATCH ... k=N`, with linear cosine fallback.
     pub fn search_semantic_memory(
         &self,
         query_embedding: &[f32],
@@ -199,9 +192,55 @@ impl Database {
     ) -> Result<Vec<(String, String, f32)>> {
         assert_eq!(query_embedding.len(), 384, "Query embedding dimension must be exactly 384");
 
-        let conn = self.conn.borrow();
+        match self.search_semantic_memory_knn(query_embedding, limit) {
+            Ok(results) if !results.is_empty() => Ok(results),
+            _ => self.search_semantic_memory_linear(query_embedding, limit),
+        }
+    }
+
+    fn search_semantic_memory_knn(
+        &self,
+        query_embedding: &[f32],
+        limit: usize,
+    ) -> Result<Vec<(String, String, f32)>> {
+        let conn = self.conn.lock().unwrap();
+        let embedding_bytes: &[u8] = unsafe {
+            std::slice::from_raw_parts(
+                query_embedding.as_ptr() as *const u8,
+                query_embedding.len() * std::mem::size_of::<f32>()
+            )
+        };
+
         let mut stmt = conn.prepare(
-            "SELECT sm.chunk_id, sm.chunk_text, v.embedding 
+            "SELECT sm.chunk_id, sm.chunk_text, v.distance
+             FROM semantic_memory_vec v
+             JOIN semantic_memory sm ON sm.id = v.rowid
+             WHERE v.embedding MATCH ?1 AND k = ?2
+             ORDER BY v.distance"
+        )?;
+
+        let mut rows = stmt.query(rusqlite::params![embedding_bytes, limit as i64])?;
+        let mut results = Vec::new();
+
+        while let Some(row) = rows.next()? {
+            let chunk_id: String = row.get(0)?;
+            let chunk_text: String = row.get(1)?;
+            let distance: f64 = row.get(2)?;
+            let similarity = (1.0 - distance as f32).clamp(0.0, 1.0);
+            results.push((chunk_id, chunk_text, similarity));
+        }
+
+        Ok(results)
+    }
+
+    fn search_semantic_memory_linear(
+        &self,
+        query_embedding: &[f32],
+        limit: usize,
+    ) -> Result<Vec<(String, String, f32)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT sm.chunk_id, sm.chunk_text, v.embedding
              FROM semantic_memory_vec v
              JOIN semantic_memory sm ON sm.id = v.rowid"
         )?;
@@ -214,7 +253,6 @@ impl Database {
             let chunk_text: String = row.get(1)?;
             let embedding_blob: Vec<u8> = row.get(2)?;
 
-            // Reconstruct &[f32] from blob bytes
             if embedding_blob.len() == 384 * std::mem::size_of::<f32>() {
                 let db_vec: &[f32] = unsafe {
                     std::slice::from_raw_parts(
@@ -228,11 +266,18 @@ impl Database {
             }
         }
 
-        // Sort descending by cosine similarity
         scored_results.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
         scored_results.truncate(limit);
 
         Ok(scored_results)
+    }
+}
+
+fn register_sqlite_vec() {
+    unsafe {
+        rusqlite::ffi::sqlite3_auto_extension(Some(
+            std::mem::transmute(sqlite_vec::sqlite3_vec_init as *const ())
+        ));
     }
 }
 

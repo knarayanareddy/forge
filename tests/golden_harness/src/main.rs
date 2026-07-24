@@ -22,7 +22,7 @@ use audit_chain::verify_audit_hash_chain;
 async fn main() {
     println!("=== AetherForge Golden Task Evaluation Harness ===");
     println!("Constitution: v1.2.4 (Spec-Anchored, Eval-Driven)");
-    println!("Active Vertical Slices: SAFE-01, FS-01 + undo_journal, RES-01, FS-02 + Seatbelt, MEM-01, MCP-01, & SKILL-01\n");
+    println!("Active Vertical Slices: SAFE-01, FS-01 + undo_journal, RES-01, FS-02 + Seatbelt, MEM-01, MCP-01, SKILL-01, ROUT-01, GIT-01, CODE-01\n");
     
     let db = Database::open_in_memory().expect("In-memory DB init failed");
     
@@ -31,7 +31,7 @@ async fn main() {
 
     passed += run_task("FS-01", || test_fs_01(&db)).await;
     passed += run_task("FS-02", || test_fs_02()).await;
-    passed += run_task("GIT-01", || test_git_01()).await;
+    passed += run_task("GIT-01", || test_git_01(&db)).await;
     passed += run_task("CODE-01", || test_code_01()).await;
     passed += run_task("MCP-01", || test_mcp_01(&db)).await;
     passed += run_task("MEM-01", || test_mem_01(&db)).await;
@@ -75,7 +75,7 @@ async fn test_fs_01(db: &Database) -> Result<(), String> {
     let dir_path = tmp.path();
     let dir_str = dir_path.to_string_lossy().to_string();
 
-    let ungranted_res = FileMutator::bulk_rename_with_undo(&*conn, session_id, dir_path);
+    let ungranted_res = FileMutator::bulk_rename_with_undo(&conn, session_id, dir_path);
     if ungranted_res.is_ok() {
         return Err("Expected ungranted directory rename to be denied".into());
     }
@@ -93,7 +93,7 @@ async fn test_fs_01(db: &Database) -> Result<(), String> {
     fs::write(&file2, "beta content").map_err(|e| e.to_string())?;
     fs::write(&file3, "other content").map_err(|e| e.to_string())?;
 
-    let renames = FileMutator::bulk_rename_with_undo(&*conn, session_id, dir_path)?;
+    let renames = FileMutator::bulk_rename_with_undo(&conn, session_id, dir_path)?;
     if renames.len() != 2 {
         return Err(format!("Expected 2 renames, got {}", renames.len()));
     }
@@ -104,7 +104,7 @@ async fn test_fs_01(db: &Database) -> Result<(), String> {
     assert!(dir_path.join("archive_beta.txt").exists());
     assert!(dir_path.join("other.txt").exists());
 
-    FileMutator::rollback(&*conn, session_id)?;
+    FileMutator::rollback(&conn, session_id)?;
 
     assert!(dir_path.join("test_alpha.txt").exists());
     assert!(!dir_path.join("archive_alpha.txt").exists());
@@ -118,12 +118,55 @@ async fn test_fs_02() -> Result<(), String> {
     test_fs_02_impl().await
 }
 
-async fn test_git_01() -> Result<(), String> {
-    Err("Not implemented (RED)".into())
+async fn test_git_01(db: &Database) -> Result<(), String> {
+    let conn = db.conn();
+    let session_id = "sess-git-01";
+
+    conn.execute(
+        "INSERT INTO sessions (id, title, status) VALUES (?1, 'GIT-01 Session', 'active')",
+        rusqlite::params![session_id],
+    ).map_err(|e| e.to_string())?;
+
+    let tmp = tempdir().map_err(|e| e.to_string())?;
+    let workspace = tmp.path();
+    let workspace_str = workspace.to_string_lossy().to_string();
+
+    let denied = PermissionManager::check_file_access(&conn, session_id, &workspace_str, "write")
+        .map_err(|e| e.to_string())?;
+    if denied != PermissionDecision::Denied {
+        return Err("Expected ungranted workspace write to be denied".into());
+    }
+
+    conn.execute(
+        "INSERT INTO capability_grants (session_id, resource_path, permission_type) VALUES (?1, ?2, 'write')",
+        rusqlite::params![session_id, workspace_str],
+    ).map_err(|e| e.to_string())?;
+
+    aether_core::GitOps::init_commit_and_branch(workspace, "feature/git-01")
+        .map_err(|e| e.to_string())?;
+
+    if !workspace.join(".git").exists() {
+        return Err("git init did not create .git directory".into());
+    }
+
+    Ok(())
 }
 
 async fn test_code_01() -> Result<(), String> {
-    Err("Not implemented (RED)".into())
+    let bad_snippet = "def broken(\n    x = 1\n    return x\n";
+
+    let issues = aether_core::PythonLinter::check_syntax(bad_snippet)
+        .map_err(|e| e.to_string())?;
+    if issues.is_empty() {
+        return Err("Expected syntax errors from malformed Python snippet".into());
+    }
+
+    let has_actionable_line = issues.iter().any(|i| i.line >= 1 && !i.message.is_empty());
+    if !has_actionable_line {
+        return Err(format!("Expected line-numbered lint issues, got {:?}", issues));
+    }
+
+    Ok(())
 }
 
 async fn test_mcp_01(db: &Database) -> Result<(), String> {
@@ -186,20 +229,20 @@ async fn test_safe_01(db: &Database) -> Result<(), String> {
         rusqlite::params![session_id],
     ).map_err(|e| e.to_string())?;
 
-    let decision_passwd = PermissionManager::check_file_access(&*conn, session_id, "/etc/passwd", "read")
+    let decision_passwd = PermissionManager::check_file_access(&conn, session_id, "/etc/passwd", "read")
         .map_err(|e| e.to_string())?;
     if decision_passwd != PermissionDecision::Denied {
         return Err("Expected /etc/passwd denied without grant".into());
     }
-    PermissionManager::audit_decision(&*conn, session_id, "file_read", r#"{"path": "/etc/passwd"}"#, &decision_passwd, Some(1), Some(5))
+    PermissionManager::audit_decision(&conn, session_id, "file_read", r#"{"path": "/etc/passwd"}"#, &decision_passwd, Some(1), Some(5))
         .map_err(|e| e.to_string())?;
 
-    let decision_tmp = PermissionManager::check_file_access(&*conn, session_id, "/tmp/secret.txt", "read")
+    let decision_tmp = PermissionManager::check_file_access(&conn, session_id, "/tmp/secret.txt", "read")
         .map_err(|e| e.to_string())?;
     if decision_tmp != PermissionDecision::Denied {
         return Err("Expected /tmp/secret.txt denied without grant".into());
     }
-    PermissionManager::audit_decision(&*conn, session_id, "file_read", r#"{"path": "/tmp/secret.txt"}"#, &decision_tmp, Some(1), Some(3))
+    PermissionManager::audit_decision(&conn, session_id, "file_read", r#"{"path": "/tmp/secret.txt"}"#, &decision_tmp, Some(1), Some(3))
         .map_err(|e| e.to_string())?;
 
     conn.execute(
@@ -207,13 +250,19 @@ async fn test_safe_01(db: &Database) -> Result<(), String> {
         rusqlite::params![session_id, "/tmp/secret.txt"],
     ).map_err(|e| e.to_string())?;
 
-    let decision_granted = PermissionManager::check_file_access(&*conn, session_id, "/tmp/secret.txt", "read")
+    let decision_granted = PermissionManager::check_file_access(&conn, session_id, "/tmp/secret.txt", "read")
         .map_err(|e| e.to_string())?;
     if decision_granted != PermissionDecision::Approved {
         return Err("Expected /tmp/secret.txt approved with grant".into());
     }
-    PermissionManager::audit_decision(&*conn, session_id, "file_read", r#"{"path": "/tmp/secret.txt"}"#, &decision_granted, Some(0), Some(4))
+    PermissionManager::audit_decision(&conn, session_id, "file_read", r#"{"path": "/tmp/secret.txt"}"#, &decision_granted, Some(0), Some(4))
         .map_err(|e| e.to_string())?;
+
+    let traversal = PermissionManager::check_file_access(&conn, session_id, "/tmp/../etc/passwd", "read")
+        .map_err(|e| e.to_string())?;
+    if traversal != PermissionDecision::Denied {
+        return Err("Expected path traversal via .. to be denied".into());
+    }
 
     let denied_count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM audit_log WHERE decision = 'denied';",
@@ -225,13 +274,58 @@ async fn test_safe_01(db: &Database) -> Result<(), String> {
         return Err("Expected at least 2 denied audit entries".into());
     }
 
-    verify_audit_hash_chain(&*conn)?;
+    verify_audit_hash_chain(&conn)?;
 
     Ok(())
 }
 
 async fn test_rout_01() -> Result<(), String> {
-    Err("Not implemented (RED)".into())
+    let endpoint = std::env::var("AETHER_OLLAMA_ENDPOINT").unwrap_or_else(|_| "http://localhost:11434".to_string());
+    let fast_model = std::env::var("AETHER_CHAT_MODEL").unwrap_or_else(|_| "qwen2.5:3b".to_string());
+    let slow_model = std::env::var("AETHER_CHAT_MODEL_COMPLEX").unwrap_or_else(|_| fast_model.clone());
+
+    aether_core::OllamaProvider::health_check(&endpoint).await.map_err(|e| {
+        format!("Ollama offline or unreachable: {}. (Rule: ROUT-01 must fail if Ollama is down)", e)
+    })?;
+
+    let router = aether_core::ModelRouter::new(
+        aether_core::ModelBackend::OllamaMlx {
+            endpoint: endpoint.clone(),
+            model: fast_model.clone(),
+        },
+        Some(aether_core::ModelBackend::OllamaMlx {
+            endpoint,
+            model: slow_model,
+        }),
+    );
+
+    let warmup = router
+        .complete("Reply with exactly: ok", aether_core::PromptComplexity::Simple)
+        .await
+        .map_err(|e| format!("Warmup completion failed: {}", e))?;
+
+    if warmup.content.is_empty() {
+        return Err("Warmup returned empty content".into());
+    }
+
+    let timed = router
+        .complete("Reply with one short word: forge", aether_core::PromptComplexity::Simple)
+        .await
+        .map_err(|e| format!("Timed completion failed: {}", e))?;
+
+    if timed.content.is_empty() {
+        return Err("Completion returned empty content".into());
+    }
+
+    const TTFT_WARM_MS: u128 = 2000;
+    if timed.ttft_ms > TTFT_WARM_MS {
+        return Err(format!(
+            "TTFT {}ms exceeds warm threshold {}ms (cold model load may require pulling {})",
+            timed.ttft_ms, TTFT_WARM_MS, fast_model
+        ));
+    }
+
+    Ok(())
 }
 
 async fn test_res_01() -> Result<(), String> {

@@ -23,16 +23,25 @@ v1.2.4 resolves **spec ↔ code drift** identified in independent audits. It doe
 |------|-------------------|----------|
 | FS-01 | PASS | PASS |
 | FS-02 | PASS | FAIL (`sandbox-exec required`) |
-| GIT-01 | RED | RED |
-| CODE-01 | RED | RED |
+| GIT-01 | PASS | RED |
+| CODE-01 | PASS | RED |
 | MCP-01 | PASS | PASS |
 | MEM-01 | PASS (Ollama + `all-minilm`) | FAIL (Ollama offline) |
 | SKILL-01 | PASS | PASS |
 | SAFE-01 | PASS | PASS |
-| ROUT-01 | RED | RED |
+| ROUT-01 | PASS (Ollama chat model) | RED |
 | RES-01 | PASS | PASS |
 
-**Darwin baseline (v1.2.4): 7 / 10** — FS-01, FS-02, MCP-01, MEM-01, SKILL-01, SAFE-01, RES-01.
+**Darwin baseline (v1.2.4 phase patch): 10 / 10** — all golden tasks green on Darwin when Ollama + chat model are available.
+
+### v1.2.4 phase patch (2026-07-24)
+
+- **Permissions:** path canonicalization rejects `..`; subpath grants inherit from parent workspace paths
+- **Memory:** sqlite-vec KNN `MATCH ... k=N` with linear cosine fallback; `Database` uses `Arc<Mutex<Connection>>`
+- **ROUT-01:** `OllamaProvider` + `ModelRouter` wired to `/api/chat`; fail-closed when Ollama offline
+- **GIT-01 / CODE-01:** grant-checked git init/commit/branch; Python syntax lint via `py_compile`
+- **LoopEngine:** `StubLoopEngine` trait stub in `aether-core`
+- **macOS:** minimal `macos/AetherForgeApp/` SwiftUI shell + `BookmarkManager` skeleton
 
 ---
 
@@ -113,14 +122,14 @@ Persistence: `procedural_skills` table (`success_count`, `failure_count`)
 
 ---
 
-## 6. Explicit Backlog (Not in v1.2.4)
+## 6. Explicit Backlog (Not in v1.2.4 phase patch)
 
 - GraphRAG / temporal knowledge graph
 - OpenClaw-style gateway (Slack/Telegram/Discord)
-- Loop engine (`/loop`, `/goal`, maker-checker)
+- Full Loop engine (`/loop`, `/goal`, maker-checker) beyond stub
 - Direct MLX / llama.cpp / Hugging Face model runtime
-- macOS SwiftUI installable app (`macos/AetherForgeApp`)
-- sqlite-vec KNN `MATCH` query (current search is linear cosine scan)
+- macOS installable app (DMG, notarization, full SwiftUI product shell)
+- BYOK Keychain credential storage
 
 ---
 
