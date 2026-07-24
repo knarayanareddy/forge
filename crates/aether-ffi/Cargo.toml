@@ -1,0 +1,16 @@
+[package]
+name = "aether-ffi"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "aether_ffi"
+crate-type = ["staticlib", "cdylib"]
+
+[dependencies]
+aether-core = { path = "../aether-core" }
+aether-db = { path = "../aether-db" }
+aether-mcp = { path = "../aether-mcp" }
+tokio = { version = "1.38", features = ["full"] }
+libc = "0.2"

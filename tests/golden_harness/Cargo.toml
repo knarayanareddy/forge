@@ -1,0 +1,17 @@
+[package]
+name = "golden-harness"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.38", features = ["full"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tempfile = "3.10"
+sha2 = "0.10"
+aether-db = { path = "../../crates/aether-db" }
+aether-mcp = { path = "../../crates/aether-mcp" }
+aether-sandbox = { path = "../../crates/aether-sandbox" }
+aether-permissions = { path = "../../crates/aether-permissions" }
+aether-core = { path = "../../crates/aether-core" }

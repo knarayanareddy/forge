@@ -1,0 +1,12 @@
+{
+  "servers": [
+    {
+      "name": "filesystem",
+      "version": "1.0.0",
+      "command": "node",
+      "args": ["/usr/local/lib/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js"],
+      "sha256_pin": "PENDING_HASH_PIN_REPLACE_WITH_REAL_SHA256",
+      "default_policy": "prompt_always"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+[workspace]
+members = [
+    "crates/aether-core",
+    "crates/aether-db",
+    "crates/aether-ffi",
+    "crates/aether-mcp",
+    "crates/aether-sandbox",
+    "crates/aether-permissions",
+    "tests/golden_harness"
+]
+resolver = "2"
