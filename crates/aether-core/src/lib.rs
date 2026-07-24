@@ -1,3 +1,8 @@
+use aether_permissions::{PermissionDecision, PermissionManager};
+use async_stream::try_stream;
+use futures_util::{Stream, StreamExt};
+use std::pin::Pin;
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Command;
@@ -44,9 +49,49 @@ impl ModelRouter {
         complexity: PromptComplexity,
     ) -> Result<CompletionResult, CompleteError> {
         let backend = self.route_backend(complexity);
-        OllamaProvider::complete_backend(backend, prompt).await
+        let mut content = String::new();
+        let mut ttft_ms = 0u128;
+        let mut model = String::new();
+
+        let mut stream = Box::pin(OllamaProvider::complete_stream_backend(backend, prompt).await?);
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            if ttft_ms == 0 {
+                if let Some(ms) = chunk.ttft_ms {
+                    ttft_ms = ms;
+                }
+            }
+            if model.is_empty() {
+                model = chunk.model.clone();
+            }
+            content.push_str(&chunk.text);
+            if chunk.done {
+                break;
+            }
+        }
+
+        if content.trim().is_empty() {
+            return Err(CompleteError::Api("Empty completion from streaming Ollama".into()));
+        }
+
+        Ok(CompletionResult {
+            content,
+            ttft_ms,
+            model,
+        })
+    }
+
+    pub async fn complete_stream(
+        &self,
+        prompt: &str,
+        complexity: PromptComplexity,
+    ) -> Result<TokenStream, CompleteError> {
+        let backend = self.route_backend(complexity);
+        OllamaProvider::complete_stream_backend(backend, prompt).await
     }
 }
+
+pub type TokenStream = Pin<Box<dyn Stream<Item = Result<TokenChunk, CompleteError>> + Send>>;
 
 #[derive(Debug, Clone)]
 pub struct CompletionResult {
@@ -55,19 +100,42 @@ pub struct CompletionResult {
     pub model: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct TokenChunk {
+    pub text: String,
+    /// Time-to-first-token in milliseconds; set only on the first content chunk.
+    pub ttft_ms: Option<u128>,
+    pub model: String,
+    pub done: bool,
+}
+
+use std::sync::OnceLock;
+
+fn ollama_client() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .pool_max_idle_per_host(4)
+            .build()
+            .expect("ollama reqwest client")
+    })
+}
+
 pub struct OllamaProvider;
 
 impl OllamaProvider {
     pub async fn health_check(endpoint: &str) -> Result<(), CompleteError> {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()?;
+        let client = ollama_client();
         let url = format!("{}/api/tags", endpoint.trim_end_matches('/'));
         let resp = client.get(&url).send().await?;
         if resp.status().is_success() {
             Ok(())
         } else {
-            Err(CompleteError::Api(format!("Ollama health check failed: HTTP {}", resp.status())))
+            Err(CompleteError::Api(format!(
+                "Ollama health check failed: HTTP {}",
+                resp.status()
+            )))
         }
     }
 
@@ -80,13 +148,26 @@ impl OllamaProvider {
             endpoint: endpoint.to_string(),
             model: model.to_string(),
         };
-        Self::complete_backend(&backend, prompt).await
+        let router = ModelRouter::new(backend, None);
+        router.complete(prompt, PromptComplexity::Simple).await
     }
 
-    pub async fn complete_backend(
+    pub async fn complete_stream(
+        endpoint: &str,
+        model: &str,
+        prompt: &str,
+    ) -> Result<TokenStream, CompleteError> {
+        let backend = ModelBackend::OllamaMlx {
+            endpoint: endpoint.to_string(),
+            model: model.to_string(),
+        };
+        Self::complete_stream_backend(&backend, prompt).await
+    }
+
+    pub async fn complete_stream_backend(
         backend: &ModelBackend,
         prompt: &str,
-    ) -> Result<CompletionResult, CompleteError> {
+    ) -> Result<TokenStream, CompleteError> {
         let (endpoint, model) = match backend {
             ModelBackend::OllamaMlx { endpoint, model } => (endpoint.as_str(), model.as_str()),
             _ => {
@@ -96,9 +177,7 @@ impl OllamaProvider {
             }
         };
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()?;
+        let client = ollama_client();
 
         let url = format!("{}/api/chat", endpoint.trim_end_matches('/'));
         let req = ChatRequest {
@@ -107,7 +186,8 @@ impl OllamaProvider {
                 role: "user".to_string(),
                 content: prompt.to_string(),
             }],
-            stream: false,
+            stream: true,
+            keep_alive: Some("30m".to_string()),
         };
 
         let start = Instant::now();
@@ -119,19 +199,67 @@ impl OllamaProvider {
             return Err(CompleteError::Api(format!("HTTP status {}: {}", status, body)));
         }
 
-        let data: ChatResponse = resp.json().await?;
-        let ttft_ms = start.elapsed().as_millis();
+        let model_name = model.to_string();
+        let byte_stream = resp.bytes_stream();
 
-        if data.message.content.trim().is_empty() {
-            return Err(CompleteError::Api("Empty completion from Ollama".into()));
-        }
+        let stream = try_stream! {
+            let mut buffer = String::new();
+            let mut ttft_recorded = false;
+            futures_util::pin_mut!(byte_stream);
 
-        Ok(CompletionResult {
-            content: data.message.content,
-            ttft_ms,
-            model: model.to_string(),
-        })
+            while let Some(chunk_result) = byte_stream.next().await {
+                let bytes = chunk_result.map_err(CompleteError::Http)?;
+                buffer.push_str(&String::from_utf8_lossy(&bytes));
+
+                while let Some(newline_pos) = buffer.find('\n') {
+                    let line = buffer[..newline_pos].trim().to_string();
+                    buffer = buffer[newline_pos + 1..].to_string();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    let data: StreamChatResponse = parse_stream_line(&line)?;
+                    if data.done {
+                        yield TokenChunk {
+                            text: String::new(),
+                            ttft_ms: None,
+                            model: model_name.clone(),
+                            done: true,
+                        };
+                        return;
+                    }
+                    if !data.message.content.is_empty() {
+                        let ttft_ms = if ttft_recorded {
+                            None
+                        } else {
+                            ttft_recorded = true;
+                            Some(start.elapsed().as_millis())
+                        };
+                        yield TokenChunk {
+                            text: data.message.content.clone(),
+                            ttft_ms,
+                            model: model_name.clone(),
+                            done: false,
+                        };
+                    }
+                }
+            }
+        };
+
+        Ok(Box::pin(stream))
     }
+}
+
+fn parse_stream_line(line: &str) -> Result<StreamChatResponse, CompleteError> {
+    let json = line.strip_prefix("data: ").unwrap_or(line).trim();
+    if json == "[DONE]" {
+        return Ok(StreamChatResponse {
+            message: StreamMessage {
+                content: String::new(),
+            },
+            done: true,
+        });
+    }
+    serde_json::from_str(json).map_err(|e| CompleteError::Api(format!("SSE parse error: {}", e)))
 }
 
 #[derive(Error, Debug)]
@@ -168,6 +296,8 @@ struct ChatRequest {
     model: String,
     messages: Vec<ChatMessage>,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    keep_alive: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -177,8 +307,16 @@ struct ChatMessage {
 }
 
 #[derive(Deserialize)]
-struct ChatResponse {
-    message: ChatMessage,
+struct StreamChatResponse {
+    message: StreamMessage,
+    #[serde(default)]
+    done: bool,
+}
+
+#[derive(Deserialize)]
+struct StreamMessage {
+    #[serde(default)]
+    content: String,
 }
 
 pub async fn fetch_ollama_embedding(endpoint: &str, model: &str, text: &str) -> Result<Vec<f32>, EmbedderError> {
@@ -265,22 +403,53 @@ pub enum GitError {
     Command(String),
     #[error("Unexpected git output: {0}")]
     Output(String),
+    #[error("Permission denied: {0}")]
+    Permission(String),
+    #[error("Database error: {0}")]
+    Database(String),
 }
 
 pub struct GitOps;
 
 impl GitOps {
-    pub fn init_commit_and_branch(repo_dir: &Path, branch_name: &str) -> Result<(), GitError> {
-        run_git(repo_dir, &["init"])?;
+    /// Initialize repo, commit, and create branch — grant-checked before any git subprocess.
+    pub fn init_commit_and_branch(
+        conn: &Connection,
+        session_id: &str,
+        repo_dir: &Path,
+        branch_name: &str,
+    ) -> Result<(), GitError> {
+        let workspace = if repo_dir.exists() {
+            repo_dir
+                .canonicalize()
+                .map_err(|e| GitError::Command(e.to_string()))?
+        } else {
+            repo_dir.to_path_buf()
+        };
+        let workspace_str = workspace.to_string_lossy().to_string();
 
-        let readme = repo_dir.join("README.md");
+        let decision = PermissionManager::check_file_access(conn, session_id, &workspace_str, "write")
+            .map_err(|e| GitError::Database(e.to_string()))?;
+
+        if decision != PermissionDecision::Approved {
+            return Err(GitError::Permission(format!(
+                "Write grant required for git operations on {}",
+                workspace_str
+            )));
+        }
+
+        std::fs::create_dir_all(&workspace).map_err(|e| GitError::Command(e.to_string()))?;
+
+        run_git(&workspace, &["init"])?;
+
+        let readme = workspace.join("README.md");
         std::fs::write(&readme, "# AetherForge GIT-01\n").map_err(|e| GitError::Command(e.to_string()))?;
 
-        run_git(repo_dir, &["add", "README.md"])?;
-        run_git(repo_dir, &["commit", "-m", "Initial commit"])?;
-        run_git(repo_dir, &["checkout", "-b", branch_name])?;
+        run_git(&workspace, &["add", "README.md"])?;
+        run_git(&workspace, &["commit", "-m", "Initial commit"])?;
+        run_git(&workspace, &["checkout", "-b", branch_name])?;
 
-        let current = run_git_output(repo_dir, &["branch", "--show-current"])?;
+        let current = run_git_output(&workspace, &["branch", "--show-current"])?;
         if current.trim() != branch_name {
             return Err(GitError::Output(format!(
                 "Expected branch {}, got {}",
@@ -288,7 +457,7 @@ impl GitOps {
             )));
         }
 
-        let log = run_git_output(repo_dir, &["log", "--oneline", "-1"])?;
+        let log = run_git_output(&workspace, &["log", "--oneline", "-1"])?;
         if log.trim().is_empty() {
             return Err(GitError::Output("No commits found after init".into()));
         }
@@ -389,6 +558,20 @@ fn parse_python_syntax_errors(stderr: &str) -> Vec<SyntaxIssue> {
         }
     }
     issues
+}
+
+/// Default TCP port for aether-daemon JSON-lines IPC (Phase 1).
+pub fn default_daemon_port() -> u16 {
+    std::env::var("AETHER_DAEMON_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(7433)
+}
+
+pub fn default_daemon_addr() -> String {
+    std::env::var("AETHER_DAEMON_ADDR").unwrap_or_else(|_| {
+        format!("127.0.0.1:{}", default_daemon_port())
+    })
 }
 
 #[cfg(test)]

@@ -1,3 +1,7 @@
+mod recovery;
+
+pub use recovery::{RecoveryManager, RecoveryReport};
+
 use rusqlite::{Connection, Result};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -21,6 +25,7 @@ impl Database {
             conn: Arc::new(Mutex::new(conn)),
         };
         db.init_schema()?;
+        RecoveryManager::recover_on_startup(&db.conn.lock().unwrap())?;
         Ok(db)
     }
 
@@ -37,6 +42,7 @@ impl Database {
             conn: Arc::new(Mutex::new(conn)),
         };
         db.init_schema()?;
+        RecoveryManager::recover_on_startup(&db.conn.lock().unwrap())?;
         Ok(db)
     }
 
@@ -301,6 +307,46 @@ mod tests {
         let conn = db.conn();
         let stmt = conn.prepare("SELECT name FROM sqlite_master WHERE type='table';");
         assert!(stmt.is_ok());
+    }
+
+    #[test]
+    fn test_recovery_marks_pending_reverted() {
+        let db = Database::open_in_memory().unwrap();
+        let conn = db.conn();
+
+        conn.execute(
+            "INSERT INTO sessions (id, title, status) VALUES ('sess-rec', 'Recovery', 'active')",
+            [],
+        )
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO undo_journal (session_id, op_type, target_path, inverse_patch, status)
+             VALUES ('sess-rec', 'file_rename', '/tmp/x', '{}', 'pending')",
+            [],
+        )
+        .unwrap();
+
+        let report = RecoveryManager::recover_on_startup(&conn).unwrap();
+        assert_eq!(report.pending_reverted, 1);
+
+        let pending: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM undo_journal WHERE status = 'pending'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(pending, 0);
+
+        let reverted: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM undo_journal WHERE status = 'reverted'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(reverted, 1);
     }
 
     #[test]

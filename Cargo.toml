@@ -2,6 +2,7 @@
 members = [
     "crates/aether-core",
     "crates/aether-db",
+    "crates/aether-daemon",
     "crates/aether-ffi",
     "crates/aether-mcp",
     "crates/aether-sandbox",

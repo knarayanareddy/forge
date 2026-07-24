@@ -1,69 +1,120 @@
-use aether_db::Database;
+use aether_db::{Database, RecoveryManager};
+use std::io::{BufRead, BufReader};
+use std::path::Path;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 pub struct CrashRecoveryTest;
 
 impl CrashRecoveryTest {
-    /// Simulates an in-flight mutation interrupted by SIGTERM/crash,
-    /// and verifies WAL reopening, session restoration, and undo_journal consistency.
-    pub fn simulate_sigterm_recovery(db_path: &std::path::Path) -> Result<(), String> {
-        // Phase 1: Open DB, create session, insert pending undo journal item (simulating in-flight crash)
+    /// Spawns a child process that inserts a pending undo_journal entry, sends SIGTERM
+    /// during the in-flight mutation, then verifies RecoveryManager on restart.
+    pub fn simulate_sigterm_recovery(db_path: &Path) -> Result<(), String> {
+        if db_path.exists() {
+            std::fs::remove_file(db_path).map_err(|e| e.to_string())?;
+        }
+
+        let child_bin = std::env::current_exe()
+            .map_err(|e| e.to_string())?
+            .parent()
+            .ok_or("current_exe has no parent")?
+            .join("res-crash-child");
+
+        let mut child = Command::new(&child_bin)
+            .arg(db_path)
+            .stdout(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("spawn res-crash-child: {}", e))?;
+
+        let pid = child.id();
+        let stdout = child.stdout.take().ok_or("missing child stdout")?;
+        let mut reader = BufReader::new(stdout);
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut ready = false;
+        while Instant::now() < deadline {
+            let mut line = String::new();
+            reader.read_line(&mut line).map_err(|e| e.to_string())?;
+            if line.trim() == "READY" {
+                ready = true;
+                break;
+            }
+        }
+
+        if !ready {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("Child never signaled READY with pending undo_journal".into());
+        }
+
+        #[cfg(unix)]
         {
-            let db = Database::open(db_path).map_err(|e| e.to_string())?;
-            let conn = db.conn();
-
-            conn.execute(
-                "INSERT INTO sessions (id, title, status) VALUES ('sess-res-01', 'RES-01 Session', 'active')",
-                [],
-            ).map_err(|e| e.to_string())?;
-
-            // Insert a pending operation that was interrupted mid-flight (status = 'pending')
-            conn.execute(
-                "INSERT INTO undo_journal (session_id, op_type, target_path, inverse_patch, status)
-                 VALUES ('sess-res-01', 'file_rename', '/tmp/target.txt', '{}', 'pending')",
-                [],
-            ).map_err(|e| e.to_string())?;
-        } // db drops / simulates abrupt process termination / SIGTERM
-
-        // Phase 2: Restart daemon / reopen DB (simulating post-crash restart)
+            unsafe {
+                libc::kill(pid as i32, libc::SIGTERM);
+            }
+        }
+        #[cfg(not(unix))]
         {
-            let db = Database::open(db_path).map_err(|e| e.to_string())?;
-            let conn = db.conn();
+            child.kill().map_err(|e| e.to_string())?;
+        }
 
-            // 1. Verify DB opened clean (WAL recovery executed automatically by SQLite)
-            let session_title: String = conn.query_row(
+        let wait_deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Ok(Some(_status)) = child.try_wait() {
+                break;
+            }
+            if Instant::now() > wait_deadline {
+                child.kill().map_err(|e| e.to_string())?;
+                return Err("res-crash-child did not exit after SIGTERM".into());
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
+        let db = Database::open(db_path).map_err(|e| e.to_string())?;
+        let conn = db.conn();
+
+        let session_title: String = conn
+            .query_row(
                 "SELECT title FROM sessions WHERE id = 'sess-res-01';",
                 [],
                 |row| row.get(0),
-            ).map_err(|e| format!("Session restorable check failed: {}", e))?;
+            )
+            .map_err(|e| format!("Session restorable check failed: {}", e))?;
 
-            if session_title != "RES-01 Session" {
-                return Err("Restored session title mismatch".into());
-            }
+        if session_title != "RES-01 Session" {
+            return Err("Restored session title mismatch".into());
+        }
 
-            // 2. Verify undo_journal consistency: orphan 'pending' entries are marked reverted or cleaned up per recovery rule
-            let pending_count: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM undo_journal WHERE session_id = 'sess-res-01' AND status = 'pending';",
+        let pending: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM undo_journal WHERE status = 'pending';",
                 [],
                 |row| row.get(0),
-            ).map_err(|e| e.to_string())?;
+            )
+            .map_err(|e| e.to_string())?;
 
-            if pending_count > 0 {
-                // Apply recovery rule: mark orphan pending operations as reverted/failed on restart
-                conn.execute(
-                    "UPDATE undo_journal SET status = 'reverted' WHERE session_id = 'sess-res-01' AND status = 'pending';",
-                    [],
-                ).map_err(|e| e.to_string())?;
-            }
+        if pending != 0 {
+            return Err(format!(
+                "Expected 0 pending after RecoveryManager, got {}",
+                pending
+            ));
+        }
 
-            let final_pending: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM undo_journal WHERE session_id = 'sess-res-01' AND status = 'pending';",
+        let reverted: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM undo_journal WHERE session_id = 'sess-res-01' AND status = 'reverted';",
                 [],
                 |row| row.get(0),
-            ).map_err(|e| e.to_string())?;
+            )
+            .map_err(|e| e.to_string())?;
 
-            if final_pending != 0 {
-                return Err("Orphan pending journal state remained unhandled after recovery".into());
-            }
+        if reverted != 1 {
+            return Err(format!("Expected 1 reverted journal entry, got {}", reverted));
+        }
+
+        let report = RecoveryManager::recover_on_startup(&conn).map_err(|e| e.to_string())?;
+        if report.pending_reverted != 0 {
+            return Err("RecoveryManager should be idempotent on second call".into());
         }
 
         Ok(())

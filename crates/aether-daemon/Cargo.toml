@@ -1,19 +1,21 @@
 [package]
-name = "aether-core"
+name = "aether-daemon"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "aether-daemon"
+path = "src/main.rs"
+
 [dependencies]
 tokio = { version = "1.38", features = ["full"] }
-reqwest = { version = "0.12", features = ["json", "stream"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
-tempfile = "3.10"
 futures = "0.3"
-futures-util = "0.3"
-async-stream = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
+aether-core = { path = "../aether-core" }
 aether-db = { path = "../aether-db" }
-aether-mcp = { path = "../aether-mcp" }
 aether-permissions = { path = "../aether-permissions" }

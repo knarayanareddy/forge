@@ -1,5 +1,6 @@
 use aether_db::Database;
 use aether_permissions::{PermissionManager, PermissionDecision, FileMutator};
+use futures::StreamExt;
 use std::fs;
 use tempfile::tempdir;
 
@@ -18,47 +19,103 @@ use skill01::test_skill_01_impl;
 mod audit_chain;
 use audit_chain::verify_audit_hash_chain;
 
+struct TaskSpec {
+    name: &'static str,
+    hard_on_darwin: bool,
+    fail_closed_off_darwin: bool,
+}
+
+const TASKS: [TaskSpec; 10] = [
+    TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "FS-02", hard_on_darwin: true, fail_closed_off_darwin: true },
+    TaskSpec { name: "GIT-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "CODE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "MCP-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "MEM-01", hard_on_darwin: true, fail_closed_off_darwin: true },
+    TaskSpec { name: "SKILL-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "SAFE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
+    TaskSpec { name: "RES-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+];
+
+fn is_darwin() -> bool {
+    std::env::consts::OS == "macos"
+}
+
 #[tokio::main]
 async fn main() {
     println!("=== AetherForge Golden Task Evaluation Harness ===");
-    println!("Constitution: v1.2.4 (Spec-Anchored, Eval-Driven)");
-    println!("Active Vertical Slices: SAFE-01, FS-01 + undo_journal, RES-01, FS-02 + Seatbelt, MEM-01, MCP-01, SKILL-01, ROUT-01, GIT-01, CODE-01\n");
-    
-    let db = Database::open_in_memory().expect("In-memory DB init failed");
-    
-    let mut passed = 0;
-    let total = 10;
+    println!("Constitution: v1.2.4 + Phase 1 Foundation");
+    println!("Platform: {} (Darwin canonical)\n", std::env::consts::OS);
 
-    passed += run_task("FS-01", || test_fs_01(&db)).await;
-    passed += run_task("FS-02", || test_fs_02()).await;
-    passed += run_task("GIT-01", || test_git_01(&db)).await;
-    passed += run_task("CODE-01", || test_code_01()).await;
-    passed += run_task("MCP-01", || test_mcp_01(&db)).await;
-    passed += run_task("MEM-01", || test_mem_01(&db)).await;
-    passed += run_task("SKILL-01", || test_skill_01()).await;
-    passed += run_task("SAFE-01", || test_safe_01(&db)).await;
-    passed += run_task("ROUT-01", || test_rout_01()).await;
-    passed += run_task("RES-01", || test_res_01()).await;
+    let db = Database::open_in_memory().expect("In-memory DB init failed");
+
+    let mut passed = 0u32;
+    let mut hard_pass = 0u32;
+    let mut soft_pass = 0u32;
+    let total = TASKS.len() as u32;
+
+    for spec in &TASKS {
+        let result = run_named_task(spec.name, &db).await;
+        match result {
+            Ok(hard) => {
+                passed += 1;
+                if hard {
+                    hard_pass += 1;
+                } else {
+                    soft_pass += 1;
+                }
+            }
+            Err(e) => {
+            if !is_darwin() && spec.fail_closed_off_darwin {
+                println!("FAIL-CLOSED ({})", e);
+            } else {
+                println!("FAIL ({})", e);
+            }
+        }
+        }
+    }
 
     println!("\n=== Evaluation Results ===");
     println!("Passed: {} / {}", passed, total);
+    println!(
+        "Hard green: {} / {} | Soft green: {} / {}",
+        hard_pass,
+        total,
+        soft_pass,
+        total
+    );
+    if is_darwin() {
+        println!("Darwin scoreboard: {}/10 harness ({} hard / {} soft)", passed, hard_pass, soft_pass);
+    } else {
+        println!(
+            "Non-Darwin note: FS-02, MEM-01, ROUT-01 expected fail-closed when sandbox-exec/Ollama absent"
+        );
+    }
 }
 
-async fn run_task<F, Fut>(name: &str, test_fn: F) -> i32
-where
-    F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = Result<(), String>>,
-{
+async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
     print!("[-] Running task [{}] ... ", name);
-    match test_fn().await {
-        Ok(()) => {
-            println!("PASS");
-            1
+    let outcome = match name {
+        "FS-01" => test_fs_01(db).await.map(|_| true),
+        "FS-02" => test_fs_02().await.map(|_| true),
+        "GIT-01" => test_git_01(db).await.map(|_| true),
+        "CODE-01" => test_code_01().await.map(|_| true),
+        "MCP-01" => test_mcp_01(db).await.map(|_| true),
+        "MEM-01" => test_mem_01(db).await.map(|_| true),
+        "SKILL-01" => test_skill_01().await.map(|_| true),
+        "SAFE-01" => test_safe_01(db).await.map(|_| true),
+        "ROUT-01" => test_rout_01().await.map(|_| true),
+        "RES-01" => test_res_01().await.map(|_| true),
+        other => Err(format!("Unknown task {}", other)),
+    };
+
+    match outcome {
+        Ok(hard) => {
+            println!("PASS{}", if hard { " [hard]" } else { " [soft]" });
+            Ok(hard)
         }
-        Err(e) => {
-            println!("FAIL ({})", e);
-            0
-        }
+        Err(e) => Err(e),
     }
 }
 
@@ -137,13 +194,28 @@ async fn test_git_01(db: &Database) -> Result<(), String> {
         return Err("Expected ungranted workspace write to be denied".into());
     }
 
+    let git_denied = aether_core::GitOps::init_commit_and_branch(
+        &conn,
+        session_id,
+        workspace,
+        "feature/git-01",
+    );
+    if git_denied.is_ok() {
+        return Err("GitOps must fail without write grant (hard GIT-01)".into());
+    }
+
     conn.execute(
         "INSERT INTO capability_grants (session_id, resource_path, permission_type) VALUES (?1, ?2, 'write')",
         rusqlite::params![session_id, workspace_str],
     ).map_err(|e| e.to_string())?;
 
-    aether_core::GitOps::init_commit_and_branch(workspace, "feature/git-01")
-        .map_err(|e| e.to_string())?;
+    aether_core::GitOps::init_commit_and_branch(
+        &conn,
+        session_id,
+        workspace,
+        "feature/git-01",
+    )
+    .map_err(|e| e.to_string())?;
 
     if !workspace.join(".git").exists() {
         return Err("git init did not create .git directory".into());
@@ -299,29 +371,50 @@ async fn test_rout_01() -> Result<(), String> {
         }),
     );
 
-    let warmup = router
-        .complete("Reply with exactly: ok", aether_core::PromptComplexity::Simple)
-        .await
-        .map_err(|e| format!("Warmup completion failed: {}", e))?;
-
-    if warmup.content.is_empty() {
-        return Err("Warmup returned empty content".into());
+    for _ in 0..2 {
+        let mut warmup = Box::pin(
+            router
+                .complete_stream("ok", aether_core::PromptComplexity::Simple)
+                .await
+                .map_err(|e| format!("Warmup stream failed: {}", e))?,
+        );
+        while let Some(chunk) = warmup.next().await {
+            let _ = chunk.map_err(|e| format!("Warmup chunk error: {}", e))?;
+        }
     }
 
-    let timed = router
-        .complete("Reply with one short word: forge", aether_core::PromptComplexity::Simple)
-        .await
-        .map_err(|e| format!("Timed completion failed: {}", e))?;
+    let mut stream = Box::pin(
+        router
+            .complete_stream("Reply: forge", aether_core::PromptComplexity::Simple)
+            .await
+            .map_err(|e| format!("Timed stream failed: {}", e))?,
+    );
 
-    if timed.content.is_empty() {
-        return Err("Completion returned empty content".into());
+    let mut ttft_ms = None;
+    let mut content = String::new();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Stream chunk error: {}", e))?;
+        if ttft_ms.is_none() {
+            ttft_ms = chunk.ttft_ms;
+        }
+        content.push_str(&chunk.text);
+        if chunk.done {
+            break;
+        }
     }
 
-    const TTFT_WARM_MS: u128 = 2000;
-    if timed.ttft_ms > TTFT_WARM_MS {
+    if content.trim().is_empty() {
+        return Err("Streamed completion returned empty content".into());
+    }
+
+    let ttft = ttft_ms.ok_or("No TTFT recorded on first streamed token")?;
+
+    const TTFT_WARM_MS: u128 = 200;
+    if ttft > TTFT_WARM_MS {
         return Err(format!(
-            "TTFT {}ms exceeds warm threshold {}ms (cold model load may require pulling {})",
-            timed.ttft_ms, TTFT_WARM_MS, fast_model
+            "Warm TTFT {}ms exceeds threshold {}ms on first token (model {})",
+            ttft, TTFT_WARM_MS, fast_model
         ));
     }
 
