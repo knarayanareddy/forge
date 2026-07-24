@@ -56,13 +56,6 @@ dependencies = [
 [[package]]
 name = "aether-ffi"
 version = "0.1.0"
-dependencies = [
- "aether-core",
- "aether-db",
- "aether-mcp",
- "libc",
- "tokio",
-]
 
 [[package]]
 name = "aether-mcp"

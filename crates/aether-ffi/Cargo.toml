@@ -9,8 +9,4 @@ name = "aether_ffi"
 crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
-aether-core = { path = "../aether-core" }
-aether-db = { path = "../aether-db" }
-aether-mcp = { path = "../aether-mcp" }
-tokio = { version = "1.38", features = ["full"] }
-libc = "0.2"
+# Phase 4: FFI exports are thin C ABI hints only; agent execution stays on TCP IPC.

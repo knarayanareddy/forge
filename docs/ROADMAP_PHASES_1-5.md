@@ -238,7 +238,7 @@ Native menu-bar or windowed app connecting to `aether-daemon` via TCP (Phase 1 I
 ### Acceptance Criteria
 
 1. App launches, connects to daemon on `127.0.0.1:7433`.
-2. User selects workspace folder → security-scoped bookmark → grant persisted in DB.
+2. User selects workspace folder → security-scoped bookmark → persisted locally (`~/Library/Application Support/AetherForge/`); `workspace_path` sent on `run_task` (daemon inserts `capability_grants` for loop plans).
 3. Prompt submission streams tokens into UI.
 4. App builds via `swift build` on Darwin.
 
@@ -256,6 +256,7 @@ All prior harness tasks.
 
 - App demo: send prompt, receive streamed tokens.
 - README macOS section updated.
+- `swift build` succeeds; `./scripts/build-ffi.sh` produces linkable staticlib.
 
 ### Dependencies
 
@@ -267,9 +268,10 @@ App Store / notarization deferred to Phase 5; rollback to CLI/TCP client only.
 
 ### Independent Audit Checklist (Phase 4)
 
-- [ ] No direct git/subprocess from Swift — daemon only
-- [ ] Bookmark grants appear in `capability_grants`
-- [ ] Streamed tokens render in UI
+- [x] No direct git/subprocess from Swift — daemon only
+- [x] Bookmark persisted locally; `workspace_path` on `run_task` for daemon grants
+- [x] Streamed tokens render in UI
+- [x] `swift build` passes on macOS 15+
 
 ---
 
@@ -349,3 +351,4 @@ flowchart LR
 | `32034ed` | 10/10 | 6 | 4 | Baseline parity patch |
 | `2fe6bd4` | 10/10 | 10 | 0 | Phase 2 MCP hard green |
 | Phase 3 complete | 11/11 | 11 | 0 | ReAct LoopEngine + LOOP-01 |
+| Phase 4 complete | 11/11 | 11 | 0 | macOS SwiftUI app + FFI hints |

@@ -2,22 +2,45 @@ import SwiftUI
 
 @main
 struct AetherForgeApp: App {
+    @State private var workspace = WorkspaceStore()
+    @State private var model = AppModel()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootView(workspace: workspace, model: model)
+                .frame(minWidth: 640, minHeight: 480)
+                .task {
+                    await model.refreshConnection()
+                }
         }
     }
 }
 
-struct ContentView: View {
+struct RootView: View {
+    @Bindable var workspace: WorkspaceStore
+    @Bindable var model: AppModel
+
     var body: some View {
-        VStack(spacing: 12) {
-            Text("AetherForge")
-                .font(.title)
-            Text("Local-first Mac agent runtime")
-                .foregroundStyle(.secondary)
+        TabView {
+            Tab("Chat", systemImage: "bubble.left.and.bubble.right") {
+                if workspace.needsOnboarding {
+                    OnboardingView(workspace: workspace)
+                } else {
+                    ChatView(model: model, workspace: workspace)
+                }
+            }
+
+            Tab("Workspace", systemImage: "folder") {
+                OnboardingView(workspace: workspace)
+            }
+
+            Tab("Permissions", systemImage: "lock.shield") {
+                PermissionsView(workspace: workspace)
+            }
+
+            Tab("Activity", systemImage: "waveform.path.ecg") {
+                ActivityView(model: model)
+            }
         }
-        .padding()
-        .frame(minWidth: 420, minHeight: 280)
     }
 }

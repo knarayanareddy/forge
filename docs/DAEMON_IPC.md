@@ -138,6 +138,32 @@ Or run the workspace integration test:
 cargo test -p aether-daemon daemon_stream_smoke -- --ignored
 ```
 
-## FFI contract (Phase 1)
+## FFI contract (Phase 1 + 4)
 
-`aether_ffi_daemon_ipc()` returns a C string like `tcp-json-lines:127.0.0.1:7433`. SwiftUI (Phase 4) should use the same TCP protocol rather than in-process FFI for agent execution.
+`aether_ffi_daemon_ipc()` returns a C string like `tcp-json-lines:127.0.0.1:7433`.  
+`aether_daemon_default_port()` returns `7433` (or `AETHER_DAEMON_PORT`).
+
+Build for Swift linking:
+
+```bash
+./scripts/build-ffi.sh
+```
+
+SwiftUI (Phase 4) uses the same TCP protocol for agent execution; FFI supplies default host/port only.
+
+### Swift client pattern (Phase 4)
+
+```swift
+import AetherFFI
+
+let endpoint = DaemonConfig.load() // host/port from FFI
+// TCP JSON-lines — one request line, streamed event lines
+let payload = ["method": "run_task", "params": [
+    "prompt": "Say hello",
+    "session_id": sessionId,
+    "workspace_path": workspacePath  // optional; daemon grants on loop plans
+]] as [String: Any]
+```
+
+Events are parsed by `type`: `token`, `plan`, `tool`, `observe`, `verify`, `done`, `error`.  
+See `macos/AetherForgeApp/DaemonClient.swift` for the reference implementation.

@@ -13,8 +13,21 @@ let package = Package(
         )
     ],
     targets: [
+        .target(
+            name: "AetherFFI",
+            path: "macos/AetherFFI",
+            publicHeadersPath: "include",
+            linkerSettings: [
+                .linkedLibrary("aether_ffi"),
+                .unsafeFlags([
+                    "-L", "target/debug",
+                    "-L", "target/release"
+                ], .when(platforms: [.macOS]))
+            ]
+        ),
         .executableTarget(
             name: "AetherForgeApp",
+            dependencies: ["AetherFFI"],
             path: "macos/AetherForgeApp"
         )
     ]
