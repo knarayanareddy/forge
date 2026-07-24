@@ -65,7 +65,9 @@ dependencies = [
 name = "aether-mcp"
 version = "0.1.0"
 dependencies = [
+ "aether-permissions",
  "hex",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2",

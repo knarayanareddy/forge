@@ -10,3 +10,5 @@ thiserror = "2.0"
 sha2 = "0.10"
 hex = "0.4"
 tokio = { version = "1.38", features = ["full"] }
+aether-permissions = { path = "../aether-permissions" }
+rusqlite = { version = "0.31", features = ["bundled"] }
