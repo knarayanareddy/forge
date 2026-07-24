@@ -4,6 +4,9 @@ use futures::StreamExt;
 use std::fs;
 use tempfile::tempdir;
 
+mod loop01;
+use loop01::test_loop_01_impl;
+
 mod recovery;
 use recovery::CrashRecoveryTest;
 
@@ -25,17 +28,18 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 10] = [
+const TASKS: [TaskSpec; 11] = [
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "FS-02", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "GIT-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CODE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "MCP-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "MEM-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "SKILL-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "SAFE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
-    TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "RES-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "LOOP-01", hard_on_darwin: true, fail_closed_off_darwin: false },
 ];
 
 fn is_darwin() -> bool {
@@ -45,7 +49,7 @@ fn is_darwin() -> bool {
 #[tokio::main]
 async fn main() {
     println!("=== AetherForge Golden Task Evaluation Harness ===");
-    println!("Constitution: v1.2.4 + Phase 1 Foundation");
+    println!("Constitution: v1.2.4 + Phase 3 Agent Loop");
     println!("Platform: {} (Darwin canonical)\n", std::env::consts::OS);
 
     let db = Database::open_in_memory().expect("In-memory DB init failed");
@@ -86,7 +90,7 @@ async fn main() {
         total
     );
     if is_darwin() {
-        println!("Darwin scoreboard: {}/10 harness ({} hard / {} soft)", passed, hard_pass, soft_pass);
+        println!("Darwin scoreboard: {}/11 harness ({} hard / {} soft)", passed, hard_pass, soft_pass);
     } else {
         println!(
             "Non-Darwin note: FS-02, MEM-01, ROUT-01 expected fail-closed when sandbox-exec/Ollama absent"
@@ -107,6 +111,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "SAFE-01" => test_safe_01(db).await.map(|_| true),
         "ROUT-01" => test_rout_01().await.map(|_| true),
         "RES-01" => test_res_01().await.map(|_| true),
+        "LOOP-01" => test_loop_01(db).await.map(|_| true),
         other => Err(format!("Unknown task {}", other)),
     };
 
@@ -428,6 +433,11 @@ async fn test_rout_01() -> Result<(), String> {
         "Warm TTFT {}ms exceeds threshold {}ms on first token after 3 attempts (model {})",
         last_ttft, TTFT_WARM_MS, fast_model
     ))
+}
+
+async fn test_loop_01(db: &Database) -> Result<(), String> {
+    let conn = db.conn();
+    test_loop_01_impl(&conn).await
 }
 
 async fn test_res_01() -> Result<(), String> {

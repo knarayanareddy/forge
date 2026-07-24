@@ -1,15 +1,15 @@
 # forge
 
-AetherForge MVP — **Phase 2 MCP client** complete on Darwin (Phase 1 foundation retained).
+AetherForge MVP — **Phase 3 Agent Loop** complete on Darwin (Phases 1–2 retained).
 
 ## Harness score (Darwin, canonical)
 
 ```text
 cargo run -p golden-harness --bin golden-harness
-→ 10/10 harness (10 hard / 0 soft)
+→ 11/11 harness (11 hard / 0 soft)
 ```
 
-Tasks: FS-01, FS-02, GIT-01, CODE-01, MCP-01, MEM-01, SKILL-01, SAFE-01, ROUT-01, RES-01
+Tasks: FS-01, FS-02, GIT-01, CODE-01, MCP-01, MEM-01, SKILL-01, SAFE-01, ROUT-01, RES-01, **LOOP-01**
 
 Linux CI expects FS-02, MEM-01, and ROUT-01 to fail closed when `sandbox-exec` or Ollama are unavailable.
 
@@ -19,7 +19,7 @@ Linux CI expects FS-02, MEM-01, and ROUT-01 to fail closed when `sandbox-exec` o
 |-------|-------|--------|
 | **1 — Foundation** | Daemon, RES recovery, GIT grants, streaming ROUT | **Done** |
 | **2 — MCP** | stdio JSON-RPC client, grant-gated invoke, real filesystem MCP in harness | **Done** |
-| 3 — Loop | Real LoopEngine | Planned |
+| **3 — Loop** | ReAct LoopEngine, ToolRegistry, daemon loop streaming | **Done** |
 | 4 — SwiftUI | macOS app + TCP client | Planned |
 | 5 — Polish | DMG, notarization, CI matrix | Planned |
 
@@ -61,6 +61,39 @@ npm install -g @modelcontextprotocol/server-filesystem
 
 Optional env overrides: `AETHER_MCP_NODE`, `AETHER_MCP_FILESYSTEM_SCRIPT`.
 
+## Agent loop (Phase 3)
+
+`crates/aether-core/src/loop_engine.rs` implements a ReAct turn loop:
+
+- **Plan → tool → observe → verify** with `max_iterations` guard
+- **ToolRegistry:** `fs_write`, `fs_read`, `python_lint`, `git_init`, `mcp_call`, `skill_execute`, `verify_contains`
+- **Verifier:** CODE-01 style `PythonLintVerifier`
+- **StopHook:** `GoalStopHook` for goal substring match
+
+Daemon `run_task` accepts a JSON loop plan in `prompt`:
+
+```json
+{
+  "method": "run_task",
+  "params": {
+    "session_id": "loop-demo",
+    "workspace_path": "/tmp/aether-loop",
+    "max_iterations": 8,
+    "prompt": "{\"loop\":[{\"action\":\"fs_write\",\"path\":\"hello.txt\",\"content\":\"LOOP\"},{\"action\":\"verify_contains\",\"path\":\"hello.txt\",\"text\":\"LOOP\"},{\"action\":\"done\"}]}"
+  }
+}
+```
+
+Streamed events: `plan`, `tool`, `observe`, `verify`, `done`, `error`. Plain-text prompts still stream LLM tokens (backward compatible).
+
+```bash
+# Terminal 1
+cargo run -p aether-daemon
+
+# Terminal 2 — structured loop (requires workspace_path)
+printf '%s\n' '{"method":"run_task","params":{"session_id":"loop-demo","workspace_path":"/tmp/aether-loop","prompt":"{\"loop\":[{\"action\":\"fs_write\",\"path\":\"marker.txt\",\"content\":\"ok\"},{\"action\":\"done\"}]}"}}' | nc 127.0.0.1 7433
+```
+
 ## Daemon streaming (Phase 1)
 
 ```bash
@@ -79,4 +112,4 @@ Full protocol: [docs/DAEMON_IPC.md](docs/DAEMON_IPC.md)
 ## Architecture target vs product readiness
 
 - **Spec engineering target:** 8.5+ (see v1.2.3 / v1.2.4 docs)
-- **Shipped harness baseline:** 10/10 on Darwin (10 hard) — secure FS, sandbox, crash recovery (SIGTERM child), git grant enforcement, SSE streaming router, memory (sqlite-vec KNN), MCP allowlist, procedural skills, permissions, Python lint, daemon IPC
+- **Shipped harness baseline:** 11/11 on Darwin (11 hard) — secure FS, sandbox, crash recovery (SIGTERM child), git grant enforcement, SSE streaming router, memory (sqlite-vec KNN), MCP stdio JSON-RPC, procedural skills, permissions, Python lint, ReAct loop, daemon IPC

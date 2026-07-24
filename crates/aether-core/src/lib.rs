@@ -1,3 +1,10 @@
+mod loop_engine;
+
+pub use loop_engine::{
+    GoalStopHook, LoopConfig, LoopRunResult, LoopStreamEvent, PythonLintVerifier, ReActLoopEngine,
+    StopHook, ToolInvocation, ToolObservation, ToolRegistry, Verifier,
+};
+
 use aether_permissions::{PermissionDecision, PermissionManager};
 use async_stream::try_stream;
 use futures_util::{Stream, StreamExt};
@@ -367,6 +374,12 @@ pub enum LoopError {
     Turn(String),
 }
 
+impl From<String> for LoopError {
+    fn from(s: String) -> Self {
+        LoopError::Turn(s)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TurnResult {
     pub iteration: usize,
@@ -382,12 +395,14 @@ pub struct StubLoopEngine {
     actions: Vec<String>,
 }
 
+#[cfg(test)]
 impl StubLoopEngine {
     pub fn new(actions: Vec<String>) -> Self {
         Self { actions }
     }
 }
 
+#[cfg(test)]
 impl LoopEngine for StubLoopEngine {
     fn run_turn_loop(&self, max_iterations: usize) -> Result<Vec<TurnResult>, LoopError> {
         let mut results = Vec::new();

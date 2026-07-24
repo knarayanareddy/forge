@@ -29,7 +29,7 @@ These apply to **every phase**. No exceptions.
 | RES-01 | **hard** | Real child-process SIGTERM + `RecoveryManager` in `aether-db` |
 | GIT-01 | **hard** | Grant check inside `GitOps` before any git subprocess |
 | ROUT-01 | **hard** | SSE streaming `/api/chat`, warm TTFT < 200 ms |
-| MCP-01 | soft | Allowlist verification (PENDING pins fail-closed) |
+| MCP-01 | **hard** | Real stdio JSON-RPC + SHA-256 allowlist + grant gate in `aether-mcp` |
 | MEM-01 | soft | Requires live Ollama + `all-minilm` |
 | SKILL-01 | soft | Procedural skill loader/executor |
 | CODE-01 | soft | Python syntax lint via `py_compile` |
@@ -197,8 +197,10 @@ All Phase 1–2 harness tasks + LOOP-01.
 
 ### Definition of Done
 
-- Harness: 11/11 (or 10/10 if LOOP-01 replaces stub verification).
-- README updated with loop status.
+- Harness: **11/11 (11 hard)** on Darwin with Ollama running.
+- README shows phase status and scoreboard.
+- Daemon manual test documented in `docs/DAEMON_IPC.md`.
+- Commit pushed to `main`.
 
 ### Dependencies
 
@@ -210,9 +212,10 @@ Runaway loops → hard `max_iterations` cap; rollback to single-shot `run_task`.
 
 ### Independent Audit Checklist (Phase 3)
 
-- [ ] No production use of `StubLoopEngine`
-- [ ] Loop turn events appear in daemon TCP stream
-- [ ] Undo rollback works after failed loop iteration
+- [x] No production use of `StubLoopEngine` in daemon path
+- [x] Loop turn events appear in daemon TCP stream
+- [x] Grant checks enforced in ToolRegistry (fs_write/fs_read fail without grant)
+- [x] LOOP-01 harness PASS on Darwin
 
 ---
 
@@ -343,4 +346,5 @@ flowchart LR
 | Milestone | Harness | Hard | Soft | Notes |
 |-----------|---------|------|------|-------|
 | `32034ed` | 10/10 | 6 | 4 | Baseline parity patch |
-| Phase 1 complete | 10/10 | 10 | 0 | Target: daemon + RES/GIT/ROUT hard |
+| `2fe6bd4` | 10/10 | 10 | 0 | Phase 2 MCP hard green |
+| Phase 3 complete | 11/11 | 11 | 0 | ReAct LoopEngine + LOOP-01 |

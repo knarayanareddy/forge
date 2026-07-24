@@ -17,3 +17,7 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 aether-db = { path = "../aether-db" }
 aether-mcp = { path = "../aether-mcp" }
 aether-permissions = { path = "../aether-permissions" }
+aether-skills = { path = "../aether-skills" }
+
+[dev-dependencies]
+aether-db = { path = "../aether-db" }

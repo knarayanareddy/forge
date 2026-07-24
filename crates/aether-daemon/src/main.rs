@@ -1,7 +1,8 @@
 mod protocol;
 mod server;
+mod task_runner;
 
-use aether_core::{default_daemon_addr, ModelBackend, ModelRouter};
+use aether_core::{ModelBackend, ModelRouter};
 use aether_db::Database;
 use std::path::PathBuf;
 use std::sync::Arc;

@@ -22,4 +22,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 aether-core = { path = "../aether-core" }
 aether-db = { path = "../aether-db" }
+aether-mcp = { path = "../aether-mcp" }
 aether-permissions = { path = "../aether-permissions" }
+aether-skills = { path = "../aether-skills" }

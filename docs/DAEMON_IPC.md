@@ -30,14 +30,45 @@ One JSON object per line (JSON-lines). Client sends requests; server streams eve
 {"method":"run_task","params":{"prompt":"Say hello in one word","session_id":"demo-1"}}
 ```
 
+Optional params (Phase 3 loop):
+
+| Param | Default | Description |
+|-------|---------|-------------|
+| `workspace_path` | — | Required for JSON loop plans; workspace for tool execution |
+| `max_iterations` | `8` | Loop iteration cap |
+
 ### Response events (streamed)
 
 | `type` | Fields | Description |
 |--------|--------|-------------|
 | `token` | `text`, optional `ttft_ms` | Partial model output |
+| `plan` | `iteration`, `action` | Loop plan step (Phase 3) |
+| `tool` | `iteration`, `tool`, `output` | Tool execution result |
+| `observe` | `iteration`, `summary` | Observation after tool |
+| `verify` | `iteration`, `passed`, `detail` | Verifier result |
 | `done` | `content`, `ttft_ms`, `model` | Completion summary |
 | `error` | `message` | Failure |
 | `pong` | — | Reply to `ping` |
+
+### Loop plan in `prompt` (Phase 3)
+
+When `prompt` is JSON with a `loop` array, the daemon runs a structured ReAct loop instead of LLM streaming:
+
+```json
+{"loop":[
+  {"action":"fs_write","path":"hello.txt","content":"forge"},
+  {"action":"verify_contains","path":"hello.txt","text":"forge"},
+  {"action":"done"}
+]}
+```
+
+Requires `workspace_path` (or `AETHER_WORKSPACE` env). Grants are auto-inserted for the workspace write path.
+
+Example:
+
+```bash
+printf '%s\n' '{"method":"run_task","params":{"session_id":"demo","workspace_path":"/tmp/aether-loop","prompt":"{\"loop\":[{\"action\":\"fs_write\",\"path\":\"x.txt\",\"content\":\"ok\"},{\"action\":\"done\"}]}"}}' | nc 127.0.0.1 7433
+```
 
 Example stream:
 

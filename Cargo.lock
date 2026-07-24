@@ -9,6 +9,7 @@ dependencies = [
  "aether-db",
  "aether-mcp",
  "aether-permissions",
+ "aether-skills",
  "async-stream",
  "futures",
  "futures-util",
@@ -27,7 +28,9 @@ version = "0.1.0"
 dependencies = [
  "aether-core",
  "aether-db",
+ "aether-mcp",
  "aether-permissions",
+ "aether-skills",
  "futures",
  "rusqlite",
  "serde",
