@@ -33,8 +33,9 @@ const TASKS: [TaskSpec; 11] = [
     TaskSpec { name: "FS-02", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "GIT-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CODE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
-    TaskSpec { name: "MCP-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    // ROUT-01 before MCP-01/MEM-01: avoid embedder swap and MCP spawn load on warm TTFT.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
+    TaskSpec { name: "MCP-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "MEM-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "SKILL-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "SAFE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -53,6 +54,30 @@ async fn main() {
     println!("Platform: {} (Darwin canonical)\n", std::env::consts::OS);
 
     let db = Database::open_in_memory().expect("In-memory DB init failed");
+
+    if is_darwin() {
+        let endpoint = std::env::var("AETHER_OLLAMA_ENDPOINT")
+            .unwrap_or_else(|_| "http://localhost:11434".to_string());
+        let chat_model =
+            std::env::var("AETHER_CHAT_MODEL").unwrap_or_else(|_| "qwen2.5:3b".to_string());
+        match aether_core::OllamaProvider::health_check(&endpoint).await {
+            Ok(()) => match aether_core::OllamaProvider::preload_chat_model(&endpoint, &chat_model).await
+            {
+                Ok(()) => println!(
+                    "Ollama chat model pre-warmed for ROUT-01 ({} @ {})\n",
+                    chat_model, endpoint
+                ),
+                Err(e) => eprintln!(
+                    "Note: Ollama chat pre-warm failed (ROUT-01 may be cold): {}\n",
+                    e
+                ),
+            },
+            Err(e) => eprintln!(
+                "Note: Ollama unreachable for pre-warm (ROUT-01 may fail): {}\n",
+                e
+            ),
+        }
+    }
 
     let mut passed = 0u32;
     let mut hard_pass = 0u32;
@@ -381,6 +406,37 @@ async fn test_safe_01(db: &Database) -> Result<(), String> {
     Ok(())
 }
 
+async fn rout_01_measure_ttft(
+    router: &aether_core::ModelRouter,
+) -> Result<u128, String> {
+    let mut stream = Box::pin(
+        router
+            .complete_stream("forge", aether_core::PromptComplexity::Simple)
+            .await
+            .map_err(|e| format!("Timed stream failed: {}", e))?,
+    );
+
+    let mut ttft_ms = None;
+    let mut content = String::new();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Stream chunk error: {}", e))?;
+        if ttft_ms.is_none() {
+            ttft_ms = chunk.ttft_ms;
+        }
+        content.push_str(&chunk.text);
+        if chunk.done {
+            break;
+        }
+    }
+
+    if content.trim().is_empty() {
+        return Err("Streamed completion returned empty content".into());
+    }
+
+    ttft_ms.ok_or_else(|| "No TTFT recorded on first streamed token".into())
+}
+
 async fn test_rout_01() -> Result<(), String> {
     let endpoint = std::env::var("AETHER_OLLAMA_ENDPOINT").unwrap_or_else(|_| "http://localhost:11434".to_string());
     let fast_model = std::env::var("AETHER_CHAT_MODEL").unwrap_or_else(|_| "qwen2.5:3b".to_string());
@@ -390,73 +446,62 @@ async fn test_rout_01() -> Result<(), String> {
         format!("Ollama offline or unreachable: {}. (Rule: ROUT-01 must fail if Ollama is down)", e)
     })?;
 
+    aether_core::OllamaProvider::warm_chat_model(&endpoint, &fast_model, 5)
+        .await
+        .map_err(|e| format!("Chat model warmup failed: {}", e))?;
+
     let router = aether_core::ModelRouter::new(
         aether_core::ModelBackend::OllamaMlx {
             endpoint: endpoint.clone(),
             model: fast_model.clone(),
         },
         Some(aether_core::ModelBackend::OllamaMlx {
-            endpoint,
+            endpoint: endpoint.clone(),
             model: slow_model,
         }),
     );
 
-    for _ in 0..3 {
-        let mut warmup = Box::pin(
-            router
-                .complete_stream("ok", aether_core::PromptComplexity::Simple)
-                .await
-                .map_err(|e| format!("Warmup stream failed: {}", e))?,
-        );
-        while let Some(chunk) = warmup.next().await {
-            let _ = chunk.map_err(|e| format!("Warmup chunk error: {}", e))?;
-        }
-    }
-
     const TTFT_WARM_MS: u128 = 200;
-    let mut last_ttft = 0u128;
+    const TTFT_SAMPLES: usize = 3;
+    const MAX_ROUNDS: usize = 3;
 
-    for attempt in 0..3 {
-        let mut stream = Box::pin(
-            router
-                .complete_stream("forge", aether_core::PromptComplexity::Simple)
-                .await
-                .map_err(|e| format!("Timed stream failed: {}", e))?,
+    let mut last_samples = [0u128; TTFT_SAMPLES];
+    let mut last_median = 0u128;
+
+    for round in 0..MAX_ROUNDS {
+        let mut samples = [0u128; TTFT_SAMPLES];
+        for (i, sample) in samples.iter_mut().enumerate() {
+            *sample = rout_01_measure_ttft(&router).await?;
+            eprint!("timed run {}/{}={}ms ", i + 1, TTFT_SAMPLES, sample);
+        }
+
+        samples.sort_unstable();
+        let median = samples[TTFT_SAMPLES / 2];
+        last_samples = samples;
+        last_median = median;
+
+        eprintln!(
+            "round {} median warm TTFT {}ms (threshold {}ms, keep_alive 30m, samples {:?})",
+            round + 1,
+            median,
+            TTFT_WARM_MS,
+            samples
         );
 
-        let mut ttft_ms = None;
-        let mut content = String::new();
-
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|e| format!("Stream chunk error: {}", e))?;
-            if ttft_ms.is_none() {
-                ttft_ms = chunk.ttft_ms;
-            }
-            content.push_str(&chunk.text);
-            if chunk.done {
-                break;
-            }
-        }
-
-        if content.trim().is_empty() {
-            return Err("Streamed completion returned empty content".into());
-        }
-
-        let ttft = ttft_ms.ok_or("No TTFT recorded on first streamed token")?;
-        last_ttft = ttft;
-
-        if ttft <= TTFT_WARM_MS {
+        if median <= TTFT_WARM_MS {
             return Ok(());
         }
 
-        if attempt + 1 < 3 {
-            continue;
+        if round + 1 < MAX_ROUNDS {
+            aether_core::OllamaProvider::warm_chat_model(&endpoint, &fast_model, 1)
+                .await
+                .map_err(|e| format!("Inter-round warmup failed: {}", e))?;
         }
     }
 
     Err(format!(
-        "Warm TTFT {}ms exceeds threshold {}ms on first token after 3 attempts (model {})",
-        last_ttft, TTFT_WARM_MS, fast_model
+        "Median warm TTFT {}ms exceeds threshold {}ms after {} rounds (samples {:?}, model {})",
+        last_median, TTFT_WARM_MS, MAX_ROUNDS, last_samples, fast_model
     ))
 }
 

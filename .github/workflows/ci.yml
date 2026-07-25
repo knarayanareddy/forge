@@ -64,6 +64,12 @@ jobs:
           ollama pull all-minilm
           ollama pull qwen2.5:3b
 
+      - name: Warm Ollama chat model (ROUT-01)
+        run: |
+          curl -sf http://localhost:11434/api/chat \
+            -d '{"model":"qwen2.5:3b","messages":[{"role":"user","content":"ok"}],"stream":true,"keep_alive":"30m","options":{"num_predict":8,"temperature":0}}' \
+            --no-buffer -o /dev/null
+
       - name: Build workspace
         run: cargo build --workspace
 

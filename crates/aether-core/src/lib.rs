@@ -187,6 +187,25 @@ impl OllamaProvider {
         }
     }
 
+    /// Drain `rounds` streaming chat completions to load the model and keep it warm (`keep_alive: 30m`).
+    pub async fn warm_chat_model(endpoint: &str, model: &str, rounds: usize) -> Result<(), CompleteError> {
+        for _ in 0..rounds {
+            let mut stream = Box::pin(Self::complete_stream(endpoint, model, "ok").await?);
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk?;
+                if chunk.done {
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Load the chat model into Ollama memory (`keep_alive: 30m`) before TTFT-sensitive work.
+    pub async fn preload_chat_model(endpoint: &str, model: &str) -> Result<(), CompleteError> {
+        Self::warm_chat_model(endpoint, model, 1).await
+    }
+
     pub async fn complete(
         endpoint: &str,
         model: &str,

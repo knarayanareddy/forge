@@ -6,10 +6,12 @@ AetherForge MVP — **Phase 5 Polish** complete on Darwin (Phases 1–4 retained
 
 ```text
 cargo run -p golden-harness --bin golden-harness
-→ 11/11 harness (11 hard / 0 soft) when ROUT-01 warm TTFT < 200ms
+→ 11/11 harness (11 hard / 0 soft) when ROUT-01 median warm TTFT ≤ 200ms
 ```
 
-Tasks: FS-01, FS-02, GIT-01, CODE-01, MCP-01, ROUT-01, MEM-01, SKILL-01, SAFE-01, RES-01, LOOP-01
+Tasks: FS-01, FS-02, GIT-01, CODE-01, ROUT-01, MCP-01, MEM-01, SKILL-01, SAFE-01, RES-01, LOOP-01
+
+ROUT-01 runs before MCP-01/MEM-01, pre-warms the chat model at harness start, drains five warmup streams (`keep_alive: 30m`), then asserts the **median** of three timed warm TTFT samples is ≤ 200ms.
 
 Linux CI expects FS-02, MEM-01, and ROUT-01 to fail closed when `sandbox-exec` or Ollama are unavailable.
 
