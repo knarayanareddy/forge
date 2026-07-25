@@ -19,6 +19,9 @@ use auto01::test_auto01_impl;
 mod check01;
 use check01::test_check01_impl;
 
+mod gate01;
+use gate01::test_gate01_impl;
+
 mod recovery;
 use recovery::CrashRecoveryTest;
 
@@ -45,7 +48,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 17] = [
+const TASKS: [TaskSpec; 18] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -64,6 +67,7 @@ const TASKS: [TaskSpec; 17] = [
     TaskSpec { name: "LOOP-02", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "AUTO-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CHECK-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "GATE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
 ];
 
 fn is_darwin() -> bool {
@@ -94,6 +98,11 @@ async fn main() {
     match auto01::auto01_fixture_ready() {
         Ok(()) => println!("AUTO-01 fixtures: frozen cron trigger loaded"),
         Err(e) => eprintln!("Warning: AUTO-01 fixture check failed: {}", e),
+    }
+
+    match gate01::gate01_fixture_ready() {
+        Ok(()) => println!("GATE-01 fixtures: frozen Slack channel loaded"),
+        Err(e) => eprintln!("Warning: GATE-01 fixture check failed: {}", e),
     }
 
     match graph01::graph01_fixture_ready() {
@@ -191,6 +200,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "LOOP-02" => test_loop_02(db).await.map(|_| true),
         "AUTO-01" => test_auto01(db).await.map(|_| true),
         "CHECK-01" => test_check01(db).await.map(|_| true),
+        "GATE-01" => test_gate01(db).await.map(|_| true),
         other => Err(format!("Unknown task {}", other)),
     };
 
@@ -648,6 +658,11 @@ async fn test_loop_02(db: &Database) -> Result<(), String> {
 async fn test_check01(db: &Database) -> Result<(), String> {
     let conn = db.conn();
     test_check01_impl(&conn).await
+}
+
+async fn test_gate01(db: &Database) -> Result<(), String> {
+    let conn = db.conn();
+    test_gate01_impl(&conn).await
 }
 
 async fn test_auto01(db: &Database) -> Result<(), String> {

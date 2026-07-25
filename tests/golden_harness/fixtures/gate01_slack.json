@@ -1,0 +1,18 @@
+{
+  "channel_id": "gate01-slack-frozen",
+  "session_id": "sess-gate-01",
+  "channel_type": "slack",
+  "user_text": "run gate task",
+  "slack_payload": {
+    "event": {
+      "type": "message",
+      "text": "run gate task"
+    }
+  },
+  "loop_plan": [
+    { "action": "fs_write", "path": "gate_marker.txt", "content": "GATE-01-verified" },
+    { "action": "verify_contains", "path": "gate_marker.txt", "text": "GATE-01-verified" },
+    { "action": "python_lint", "source": "def ok():\n    return 1\n" },
+    { "action": "done" }
+  ]
+}

@@ -14,9 +14,9 @@ pub use graph_extract::{
 
 pub use keychain::{
     ensure_daemon_auth_token, load_byok_key, load_daemon_auth_token, load_daemon_auth_token_file,
-    require_byok_key_if_configured, store_byok_key, store_daemon_auth_token,
-    verify_daemon_auth_token, verify_daemon_auth_token_expected, KeychainError, BYOK_ACCOUNT,
-    BYOK_SERVICE, DAEMON_AUTH_ACCOUNT,
+    load_gateway_token, require_byok_key_if_configured, store_byok_key, store_daemon_auth_token,
+    store_gateway_token, verify_daemon_auth_token, verify_daemon_auth_token_expected,
+    KeychainError, BYOK_ACCOUNT, BYOK_SERVICE, DAEMON_AUTH_ACCOUNT,
 };
 
 pub use loop_engine::{

@@ -1,6 +1,7 @@
 use crate::ingest::{post_turn_graph_ingest, IngestConfig};
 use crate::protocol::EventLine;
 use crate::automation::AutomationTrigger;
+use crate::gateway::GatewayChannel;
 use crate::DaemonState;
 use aether_core::{
     LoopConfig, LoopStreamEvent, OrchestrationGraph, PromptComplexity, ReActLoopEngine,
@@ -278,6 +279,55 @@ pub fn run_automation_trigger(
     match result {
         Ok(run) if run.done => Ok(()),
         Ok(_) => Err("automation loop did not reach done".into()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Execute a granted gateway inbound via the same loop shell as `run_task` (GATE-01).
+pub fn run_gateway_inbound(
+    conn: &rusqlite::Connection,
+    channel: &GatewayChannel,
+    normalized_prompt: &str,
+) -> Result<(), String> {
+    let workspace = resolve_workspace(channel.workspace_path.as_deref())?;
+    ensure_session_and_grants(conn, &channel.session_id, &workspace)?;
+
+    let plan = if let Some(plan) = ReActLoopEngine::parse_plan_from_prompt(&channel.task_prompt) {
+        plan
+    } else {
+        return Err(format!(
+            "gateway channel {} requires structured plan: task_prompt",
+            channel.channel_id
+        ));
+    };
+
+    let allowlist = load_allowlist();
+    let skills = load_skills();
+    let mut config = LoopConfig {
+        max_iterations: 8,
+        max_tokens: DEFAULT_MAX_LOOP_TOKENS,
+        tokens_used: 0,
+        session_id: channel.session_id.clone(),
+        workspace: workspace.clone(),
+    };
+    let engine = ReActLoopEngine::new(config.max_iterations);
+
+    let result = engine.run_structured(
+        conn,
+        &mut config,
+        plan,
+        allowlist.as_ref(),
+        &skills,
+        |_| {},
+    );
+
+    match result {
+        Ok(run) if run.done => {
+            let response_path = workspace.join("gate_response.txt");
+            std::fs::write(&response_path, normalized_prompt).map_err(|e| e.to_string())?;
+            Ok(())
+        }
+        Ok(_) => Err("gateway loop did not reach done".into()),
         Err(e) => Err(e.to_string()),
     }
 }

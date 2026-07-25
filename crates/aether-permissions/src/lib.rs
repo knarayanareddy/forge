@@ -254,6 +254,82 @@ impl AutomationGrant {
     }
 }
 
+/// Phase 7 gateway grant — explicit inbound network grant per channel_id + session_id.
+pub struct GatewayGrant;
+
+impl GatewayGrant {
+    pub fn check(
+        conn: &Connection,
+        channel_id: &str,
+        session_id: &str,
+    ) -> Result<PermissionDecision> {
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM gateway_grants
+             WHERE channel_id = ?1 AND session_id = ?2 AND is_stale = 0",
+            params![channel_id, session_id],
+            |row| row.get(0),
+        )?;
+        if count > 0 {
+            Ok(PermissionDecision::Approved)
+        } else {
+            Ok(PermissionDecision::Denied)
+        }
+    }
+
+    pub fn grant(
+        conn: &Connection,
+        channel_id: &str,
+        session_id: &str,
+        channel_type: &str,
+    ) -> Result<()> {
+        conn.execute(
+            "INSERT OR REPLACE INTO gateway_grants (channel_id, session_id, channel_type, is_stale)
+             VALUES (?1, ?2, ?3, 0)",
+            params![channel_id, session_id, channel_type],
+        )?;
+        Ok(())
+    }
+
+    pub fn revoke(conn: &Connection, channel_id: &str, session_id: &str) -> Result<()> {
+        conn.execute(
+            "UPDATE gateway_grants SET is_stale = 1
+             WHERE channel_id = ?1 AND session_id = ?2",
+            params![channel_id, session_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn audit_event(
+        conn: &Connection,
+        session_id: &str,
+        channel_id: &str,
+        event: &str,
+        decision: &PermissionDecision,
+        detail: &serde_json::Value,
+    ) -> Result<()> {
+        let mut args = serde_json::json!({
+            "channel_id": channel_id,
+            "event": event,
+        });
+        if let Some(obj) = args.as_object_mut() {
+            if let Some(extra) = detail.as_object() {
+                for (k, v) in extra {
+                    obj.insert(k.clone(), v.clone());
+                }
+            }
+        }
+        PermissionManager::audit_decision(
+            conn,
+            session_id,
+            "gateway_inbound",
+            &args.to_string(),
+            decision,
+            None,
+            None,
+        )
+    }
+}
+
 pub struct FileMutator;
 
 impl FileMutator {
@@ -438,6 +514,58 @@ mod tests {
             )
             .unwrap();
         assert!(args.contains("trg-cron-01"));
+    }
+
+    #[test]
+    fn test_gateway_grant_check() {
+        let db = aether_db::Database::open_in_memory().unwrap();
+        let conn = db.conn();
+        conn.execute(
+            "INSERT INTO sessions (id, title, status) VALUES ('sess-gate', 'Gate', 'active')",
+            [],
+        )
+        .unwrap();
+
+        let denied = GatewayGrant::check(&conn, "slack-gate-01", "sess-gate").unwrap();
+        assert_eq!(denied, PermissionDecision::Denied);
+
+        GatewayGrant::grant(&conn, "slack-gate-01", "sess-gate", "slack").unwrap();
+        let approved = GatewayGrant::check(&conn, "slack-gate-01", "sess-gate").unwrap();
+        assert_eq!(approved, PermissionDecision::Approved);
+
+        GatewayGrant::revoke(&conn, "slack-gate-01", "sess-gate").unwrap();
+        let revoked = GatewayGrant::check(&conn, "slack-gate-01", "sess-gate").unwrap();
+        assert_eq!(revoked, PermissionDecision::Denied);
+    }
+
+    #[test]
+    fn test_gateway_audit_event() {
+        let db = aether_db::Database::open_in_memory().unwrap();
+        let conn = db.conn();
+        conn.execute(
+            "INSERT INTO sessions (id, title, status) VALUES ('sess-gate', 'Gate', 'active')",
+            [],
+        )
+        .unwrap();
+
+        GatewayGrant::audit_event(
+            &conn,
+            "sess-gate",
+            "slack-gate-01",
+            "inbound",
+            &PermissionDecision::Denied,
+            &serde_json::json!({"reason": "missing GatewayGrant"}),
+        )
+        .unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM audit_log WHERE tool_name = 'gateway_inbound'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
     }
 
     #[test]

@@ -290,6 +290,34 @@ impl Database {
 
             CREATE INDEX IF NOT EXISTS idx_automation_queue_status
                 ON automation_queue(status);
+
+            CREATE TABLE IF NOT EXISTS gateway_grants (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                channel_type TEXT NOT NULL CHECK(channel_type IN ('slack', 'telegram', 'discord')),
+                is_stale BOOLEAN DEFAULT 0,
+                granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                UNIQUE(channel_id, session_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_gateway_grants_channel
+                ON gateway_grants(channel_id);
+
+            CREATE TABLE IF NOT EXISTS gateway_channels (
+                channel_id TEXT PRIMARY KEY,
+                channel_type TEXT NOT NULL CHECK(channel_type IN ('slack', 'telegram', 'discord')),
+                session_id TEXT NOT NULL,
+                task_prompt TEXT NOT NULL,
+                workspace_path TEXT,
+                enabled BOOLEAN DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_gateway_channels_session
+                ON gateway_channels(session_id);
         ")
     }
 
@@ -686,6 +714,32 @@ mod tests {
             )
             .unwrap();
         assert_eq!(automation_tables, 3);
+
+        let gateway_tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type='table' AND name IN ('gateway_grants', 'gateway_channels')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(gateway_tables, 2);
+    }
+
+    #[test]
+    fn test_gateway_schema_tables_exist() {
+        let db = Database::open_in_memory().unwrap();
+        let conn = db.conn();
+        for table in ["gateway_channels", "gateway_grants"] {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name = ?1",
+                    rusqlite::params![table],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 1, "missing table {}", table);
+        }
     }
 
     #[test]

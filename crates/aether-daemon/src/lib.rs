@@ -1,5 +1,6 @@
 pub mod automation;
 pub mod automation_webhook;
+pub mod gateway;
 pub mod ingest;
 pub mod protocol;
 pub mod server;

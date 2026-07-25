@@ -6,21 +6,22 @@ AetherForge MVP — **Phase 7 in progress** on Darwin (Phases 1–6 retained).
 
 ```text
 cargo run -p golden-harness --bin golden-harness
-→ 17/17 harness (17 hard / 0 soft) when ROUT-01 median warm TTFT ≤ 200ms,
+→ 18/18 harness (18 hard / 0 soft) when ROUT-01 median warm TTFT ≤ 200ms,
   GRAPH-01 recall@3 ≥ 1.0, LOOP-02 NL plan trajectory matches gold,
   RED-01 blocks all frozen adversarial cases (≥12, currently 14),
   SKILL-02 routes 3/3 book_skill questions with citation fidelity ≥ 0.9,
   AUTO-01 fires a granted automation trigger → run_task → audit_log,
-  and CHECK-01 rejects ≥8 frozen bad plans with 0 unverified writes
+  CHECK-01 rejects ≥8 frozen bad plans with 0 unverified writes,
+  and GATE-01 denies inbound without GatewayGrant then round-trips with grant
 ```
 
 | Platform | Expected score | Hard / soft |
 |----------|----------------|-------------|
-| **Darwin** (Ollama + `sandbox-exec`) | **17/17** | 17 hard / 0 soft |
-| **Linux CI** (full matrix) | **12/17** | 12 hard · FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02 **FAIL-CLOSED** |
-| **Linux PR fast path** | **11/12 subset** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, SKILL-01, RED-01, AUTO-01, CHECK-01 |
+| **Darwin** (Ollama + `sandbox-exec`) | **18/18** | 18 hard / 0 soft |
+| **Linux CI** (full matrix) | **13/18** | 13 hard · FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02 **FAIL-CLOSED** |
+| **Linux PR fast path** | **12/13 subset** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, SKILL-01, RED-01, AUTO-01, CHECK-01, GATE-01 |
 
-Tasks (17): ROUT-01, FS-01, FS-02, GIT-01, CODE-01, MCP-01, MEM-01, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **AUTO-01**, **CHECK-01**
+Tasks (18): ROUT-01, FS-01, FS-02, GIT-01, CODE-01, MCP-01, MEM-01, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **AUTO-01**, **CHECK-01**, **GATE-01**
 
 ROUT-01 runs first (before FS-02 sandbox load and MCP/MEM embedder swap), pre-warms the chat model at harness start, drains five warmup streams (`keep_alive: 30m`, `num_ctx: 512`), then asserts the **median** of three Ollama server-side warm TTFT samples (`load_duration + prompt_eval_duration`) is ≤ 200ms.
 
@@ -36,7 +37,7 @@ ROUT-01 runs first (before FS-02 sandbox load and MCP/MEM embedder swap), pre-wa
 | **4 — SwiftUI** | macOS app, TCP daemon client, workspace bookmarks | **Done** |
 | **5 — Polish** | Keychain BYOK, hybrid memory RRF, DMG/notarize scripts, Linux CI | **Done** |
 | **6 — Graph v1 + eval** | Bi-temporal graph, ingest extract, GRAPH-01/LOOP-02/RED-01/SKILL-02, consolidate offline | **Done** |
-| **7 — Orchestration** | Automation scheduler (AUTO-01), maker-checker (CHECK-01), gateway (GATE-01 planned) | **In progress — 17/17 harness** |
+| **7 — Orchestration** | Automation scheduler (AUTO-01), maker-checker (CHECK-01), gateway (GATE-01) | **In progress — 18/18 harness** |
 
 See [docs/ROADMAP_PHASES_1-5.md](docs/ROADMAP_PHASES_1-5.md) for Phases 1–5 acceptance criteria.  
 See [docs/ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md) for Phase 6 binding spec.  
@@ -49,7 +50,7 @@ See [docs/ROADMAP_PHASE_7.md](docs/ROADMAP_PHASE_7.md) for Phase 7 orchestration
 - **AUTO-01:** frozen cron fixture → enqueue → `run_task` LOOP-01 mini-plan → `audit_log` with `trigger_id`
 - Optional Darwin hooks: `scripts/install-automation-hooks.sh` (launchd/cron stub)
 
-Maker-checker orchestration (CHECK-01) ships in `OrchestrationGraph` + read-only `VerifierNode`; gateway (GATE-01) is next in [docs/ROADMAP_PHASE_7.md](docs/ROADMAP_PHASE_7.md).
+Maker-checker orchestration (CHECK-01) ships in `OrchestrationGraph` + read-only `VerifierNode`. Gateway (GATE-01) ships `GatewayGrant` + `GatewayRouter` with Slack-first adapter and localhost mock — see [docs/GATEWAY.md](docs/GATEWAY.md).
 
 ## Layout
 
