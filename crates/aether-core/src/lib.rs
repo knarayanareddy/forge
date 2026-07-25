@@ -25,8 +25,9 @@ pub use loop_engine::{
 };
 
 pub use nl_planner::{
-    build_nl_plan_prompt, run_nl_planner, validate_nl_plan, validate_nl_plan_gold_trajectory,
-    NlPlanError, LOOP02_EVAL_PROMPT, LOOP02_GOLD_TOOL_ORDER,
+    build_nl_plan_prompt, build_nl_repair_prompt, nl_plan_schema, normalize_nl_plan_json,
+    plan_tool_name, run_nl_planner, validate_nl_plan, validate_nl_plan_gold_trajectory,
+    NlPlanError, LOOP02_EVAL_PROMPT, LOOP02_GOLD_TOOL_ORDER, NL_PLAN_SCHEMA,
 };
 
 pub use orchestration_graph::OrchestrationGraph;
@@ -163,7 +164,20 @@ impl ModelRouter {
         prompt: &str,
         num_predict: u32,
     ) -> Result<CompletionResult, CompleteError> {
-        OllamaProvider::complete_json_backend(self.primary(), prompt, num_predict).await
+        OllamaProvider::complete_json_backend(self.primary(), prompt, num_predict, None).await
+    }
+
+    /// Schema-constrained JSON completion.
+    ///
+    /// Ollama compiles the schema to a decoding grammar; BYOK uses OpenAI structured outputs.
+    pub async fn complete_json_schema(
+        &self,
+        prompt: &str,
+        num_predict: u32,
+        schema: &serde_json::Value,
+    ) -> Result<CompletionResult, CompleteError> {
+        OllamaProvider::complete_json_backend(self.primary(), prompt, num_predict, Some(schema))
+            .await
     }
 }
 
@@ -324,16 +338,17 @@ impl OllamaProvider {
         backend: &ModelBackend,
         prompt: &str,
         num_predict: u32,
+        schema: Option<&serde_json::Value>,
     ) -> Result<CompletionResult, CompleteError> {
         match backend {
             ModelBackend::OllamaMlx { endpoint, model } => {
-                Self::complete_json_ollama(endpoint, model, prompt, num_predict).await
+                Self::complete_json_ollama(endpoint, model, prompt, num_predict, schema).await
             }
             ModelBackend::ByokCloud {
                 provider,
                 api_key,
                 model,
-            } => Self::complete_json_byok(provider, api_key, model, prompt, num_predict).await,
+            } => Self::complete_json_byok(provider, api_key, model, prompt, num_predict, schema).await,
             ModelBackend::LlamaCpp { .. } => Err(CompleteError::Api(
                 "LlamaCpp backend not implemented in MVP router".into(),
             )),
@@ -345,6 +360,7 @@ impl OllamaProvider {
         model: &str,
         prompt: &str,
         num_predict: u32,
+        schema: Option<&serde_json::Value>,
     ) -> Result<CompletionResult, CompleteError> {
         let client = ollama_client();
         let url = format!("{}/api/chat", endpoint.trim_end_matches('/'));
@@ -356,7 +372,10 @@ impl OllamaProvider {
             }],
             stream: false,
             keep_alive: Some("30m".to_string()),
-            format: Some("json".to_string()),
+            format: Some(match schema {
+                Some(schema) => schema.clone(),
+                None => serde_json::Value::String("json".into()),
+            }),
             options: Some(ChatOptions {
                 num_predict,
                 temperature: 0.0,
@@ -390,6 +409,7 @@ impl OllamaProvider {
         model: &str,
         prompt: &str,
         num_predict: u32,
+        schema: Option<&serde_json::Value>,
     ) -> Result<CompletionResult, CompleteError> {
         let base = std::env::var("AETHER_BYOK_ENDPOINT").unwrap_or_else(|_| {
             match provider {
@@ -407,8 +427,19 @@ impl OllamaProvider {
             }],
             stream: false,
             max_tokens: Some(num_predict),
-            response_format: Some(OpenAiResponseFormat {
-                format_type: "json_object".to_string(),
+            response_format: Some(match schema {
+                Some(schema) => OpenAiResponseFormat {
+                    format_type: "json_schema".to_string(),
+                    json_schema: Some(OpenAiJsonSchema {
+                        name: "aether_plan".to_string(),
+                        schema: schema.clone(),
+                        strict: false,
+                    }),
+                },
+                None => OpenAiResponseFormat {
+                    format_type: "json_object".to_string(),
+                    json_schema: None,
+                },
             }),
         };
 
@@ -723,8 +754,9 @@ struct ChatRequest {
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     keep_alive: Option<String>,
+    /// `"json"` for free-form JSON mode, or a JSON Schema object for constrained decoding.
     #[serde(skip_serializing_if = "Option::is_none")]
-    format: Option<String>,
+    format: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     options: Option<ChatOptions>,
 }
@@ -738,6 +770,15 @@ struct ChatResponse {
 struct OpenAiResponseFormat {
     #[serde(rename = "type")]
     format_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    json_schema: Option<OpenAiJsonSchema>,
+}
+
+#[derive(Serialize)]
+struct OpenAiJsonSchema {
+    name: String,
+    schema: serde_json::Value,
+    strict: bool,
 }
 
 #[derive(Serialize)]

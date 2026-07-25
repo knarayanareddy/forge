@@ -15,8 +15,7 @@ Verify loop02_marker.txt contains LOOP-02-verified. Lint this Python source: def
 Then finish the plan.";
 
 /// Gold tool trajectory for LOOP-02 harness asserts only — not enforced in production validation.
-pub const LOOP02_GOLD_TOOL_ORDER: &[&str] =
-    &["fs_write", "verify_contains", "python_lint", "done"];
+pub const LOOP02_GOLD_TOOL_ORDER: &[&str] = &["fs_write", "verify_contains", "python_lint", "done"];
 
 const NL_PLAN_NUM_PREDICT: u32 = 1024;
 
@@ -59,30 +58,93 @@ pub enum NlPlanError {
     Ollama(String),
 }
 
-/// Build the bounded Ollama prompt for NL plan generation.
+/// JSON Schema constraining planner output at decode time (Slice 9.2).
+pub const NL_PLAN_SCHEMA: &str = include_str!("../schemas/nl_plan.schema.json");
+
+/// Parsed planner schema for `complete_json_schema`.
+pub fn nl_plan_schema() -> Value {
+    serde_json::from_str(NL_PLAN_SCHEMA).expect("nl_plan.schema.json is valid JSON")
+}
+
+/// Build the bounded planner prompt (Slice 9.1).
+///
+/// Deliberately neutral: it documents every action's required fields instead of showing one
+/// worked example, because a single example teaches small models to reproduce that shape
+/// regardless of the goal. Verification is described as conditional on writing, not mandatory.
 pub fn build_nl_plan_prompt(nl_goal: &str) -> String {
     format!(
-        r#"Convert the user goal below into a JSON tool plan for AetherForge ReAct loop execution.
-Return ONLY valid JSON (no markdown fences) with this shape:
-{{"loop":[{{"action":"fs_write","path":"...","content":"..."}},{{"action":"verify_contains","path":"...","text":"..."}},{{"action":"python_lint","source":"..."}},{{"action":"done"}}]}}
+        r#"You convert a user goal into a JSON tool plan for AetherForge to execute.
+Return ONLY valid JSON, no prose and no markdown fences, shaped as {{"loop":[ ...steps... ]}}.
 
-Allowed actions only: fs_write, fs_read, verify_contains, python_lint, git_init, mcp_call, skill_execute, done.
+Each step is an object with an "action" field. Use only these actions, with exactly these fields:
+
+- {{"action":"fs_read","path":"<relative path>"}}
+    Read a file. Use this for goals that only inspect or summarise existing files.
+- {{"action":"fs_write","path":"<relative path>","content":"<full file contents>"}}
+    Create or overwrite a file. "content" must be the complete text and must not be empty.
+- {{"action":"verify_contains","path":"<relative path>","text":"<exact substring>"}}
+    Confirm a file contains a substring. "text" must be a non-empty string you expect to find.
+- {{"action":"python_lint","source":"<python source code>"}}
+    Syntax-check Python source given in the goal. Copy the source verbatim.
+- {{"action":"git_init","branch":"<branch name>"}}
+    Initialise a git repository. Use "main" when the goal does not name a branch.
+- {{"action":"mcp_call","server":"<server name>","tool":"<tool name>","args":{{}}}}
+    Call a tool on a connected MCP server.
+- {{"action":"skill_execute","skill_id":"<skill id>","variables":{{}}}}
+    Run a named procedural skill.
+- {{"action":"done"}}
+    Finish. Always the final step.
+
 Rules:
-- Emit exactly one verify_contains after each fs_write target.
-- python_lint must run on the provided Python source verbatim.
-- End with {{"action":"done"}}.
-- Do not repeat the same tool on the same target twice in a row.
-- Keep paths relative to the workspace.
+- Include only the steps the goal actually requires. Do not add steps the goal did not ask for.
+- If the goal only reads, opens, inspects, or summarises an existing file, use fs_read then done.
+- If the goal initialises version control, use git_init then done.
+- If the goal only asks to lint Python, use python_lint then done.
+- If the goal explicitly names a skill, use skill_execute with that skill id then done.
+- If the goal explicitly asks for an MCP server/tool, use mcp_call then done. Do not add fs_read
+  merely because the MCP tool may inspect files.
+- If the goal writes a file, use fs_write, optionally verify_contains, then done.
+- Add verify_contains ONLY after an fs_write whose content you can confirm, and only with a
+  non-empty "text" you just wrote. Never emit verify_contains after fs_read.
+- Every field listed for an action is required. Never emit an empty string for a required field.
+- Do not repeat the same action on the same target twice in a row.
+- Keep every path relative to the workspace. Never use absolute paths or "..".
+- The last step is always {{"action":"done"}}.
 
 User goal:
 {nl_goal}"#
     )
 }
 
+/// Build the repair prompt after a rejected plan (Slice 9.3).
+///
+/// The validation error is fed back as structured feedback so the model can correct the specific
+/// defect, rather than resampling blind.
+pub fn build_nl_repair_prompt(nl_goal: &str, previous: &str, error: &NlPlanError) -> String {
+    format!(
+        r#"{base}
+
+Your previous answer was rejected.
+
+Previous answer:
+{previous}
+
+Rejection reason:
+{error}
+
+Emit a corrected plan that fixes exactly this problem. Return ONLY the JSON object."#,
+        base = build_nl_plan_prompt(nl_goal),
+        previous = previous.trim(),
+        error = error,
+    )
+}
+
 /// Parse and validate planner JSON into tool invocations (production path).
-pub fn validate_nl_plan(json: &str, max_iterations: usize) -> Result<Vec<ToolInvocation>, NlPlanError> {
-    let value: Value =
-        serde_json::from_str(json).map_err(|e| NlPlanError::Json(e.to_string()))?;
+pub fn validate_nl_plan(
+    json: &str,
+    max_iterations: usize,
+) -> Result<Vec<ToolInvocation>, NlPlanError> {
+    let value: Value = serde_json::from_str(json).map_err(|e| NlPlanError::Json(e.to_string()))?;
 
     let steps = value
         .get("loop")
@@ -104,12 +166,11 @@ pub fn validate_nl_plan(json: &str, max_iterations: usize) -> Result<Vec<ToolInv
     let mut seen_targets: Vec<(String, String)> = Vec::new();
 
     for (index, step) in steps.iter().enumerate() {
-        let invocation: ToolInvocation = serde_json::from_value(step.clone()).map_err(|e| {
-            NlPlanError::InvalidStep {
+        let invocation: ToolInvocation =
+            serde_json::from_value(step.clone()).map_err(|e| NlPlanError::InvalidStep {
                 index,
                 detail: e.to_string(),
-            }
-        })?;
+            })?;
         let tool = tool_name(&invocation).to_string();
 
         if !ALLOWED_NL_TOOLS.contains(&tool.as_str()) {
@@ -147,17 +208,44 @@ pub fn validate_nl_plan(json: &str, max_iterations: usize) -> Result<Vec<ToolInv
     Ok(plan)
 }
 
+/// Normalize only mechanically safe planner defects before semantic validation.
+///
+/// Small local models occasionally omit the terminal `done` step or repeat an identical JSON
+/// step. Neither defect requires model judgment to repair. All other changes—including filling
+/// tool arguments or changing action order—remain the bounded LLM repair loop's responsibility.
+pub fn normalize_nl_plan_json(json: &str) -> Result<String, NlPlanError> {
+    let mut value: Value =
+        serde_json::from_str(json).map_err(|e| NlPlanError::Json(e.to_string()))?;
+    let steps = value
+        .get_mut("loop")
+        .and_then(Value::as_array_mut)
+        .ok_or(NlPlanError::MissingLoopArray)?;
+
+    steps.dedup();
+
+    let ends_with_done = steps
+        .last()
+        .and_then(|step| step.get("action"))
+        .and_then(Value::as_str)
+        == Some("done");
+    if !ends_with_done {
+        steps.push(serde_json::json!({"action": "done"}));
+    }
+
+    serde_json::to_string(&value).map_err(|e| NlPlanError::Json(e.to_string()))
+}
+
 /// Harness-only: assert tool order matches LOOP-02 gold trajectory.
 pub fn validate_nl_plan_gold_trajectory(plan: &[ToolInvocation]) -> Result<(), NlPlanError> {
     for (index, expected) in LOOP02_GOLD_TOOL_ORDER.iter().enumerate() {
-        let actual = plan
-            .get(index)
-            .map(tool_name)
-            .ok_or_else(|| NlPlanError::TrajectoryMismatch {
-                index,
-                expected: (*expected).into(),
-                actual: "<missing>".into(),
-            })?;
+        let actual =
+            plan.get(index)
+                .map(tool_name)
+                .ok_or_else(|| NlPlanError::TrajectoryMismatch {
+                    index,
+                    expected: (*expected).into(),
+                    actual: "<missing>".into(),
+                })?;
         if actual != *expected {
             return Err(NlPlanError::TrajectoryMismatch {
                 index,
@@ -178,20 +266,53 @@ pub fn validate_nl_plan_gold_trajectory(plan: &[ToolInvocation]) -> Result<(), N
     Ok(())
 }
 
-/// Call Ollama via `ModelRouter`, validate JSON, enforce step cap + production rules.
+/// Total planner attempts: one initial generation plus `MAX_PLAN_REPAIRS` repairs (Slice 9.3).
+const MAX_PLAN_REPAIRS: usize = 2;
+
+/// Call the router with a schema-constrained request, validate, and repair on rejection.
+///
+/// Slice 9.1–9.3: neutral prompt, decode-time schema constraint, and a bounded repair loop that
+/// feeds the validation error back to the model. A validation error is a signal to act on, not a
+/// terminal condition.
 pub async fn run_nl_planner(
     router: &ModelRouter,
     nl_goal: &str,
     max_iterations: usize,
 ) -> Result<Vec<ToolInvocation>, NlPlanError> {
-    let prompt = build_nl_plan_prompt(nl_goal);
-    let raw = router
-        .complete_json(&prompt, NL_PLAN_NUM_PREDICT)
-        .await
-        .map_err(|e| NlPlanError::Ollama(e.to_string()))?
-        .content;
-    let json = strip_json_fence(&raw);
-    validate_nl_plan(&json, max_iterations)
+    let schema = nl_plan_schema();
+    let mut prompt = build_nl_plan_prompt(nl_goal);
+    let mut last_error: Option<NlPlanError> = None;
+
+    for attempt in 0..=MAX_PLAN_REPAIRS {
+        let raw = router
+            .complete_json_schema(&prompt, NL_PLAN_NUM_PREDICT, &schema)
+            .await
+            .map_err(|e| NlPlanError::Ollama(e.to_string()))?
+            .content;
+        let json = strip_json_fence(&raw);
+        let normalized = match normalize_nl_plan_json(&json) {
+            Ok(value) => value,
+            Err(e) => {
+                if attempt < MAX_PLAN_REPAIRS {
+                    prompt = build_nl_repair_prompt(nl_goal, &json, &e);
+                }
+                last_error = Some(e);
+                continue;
+            }
+        };
+
+        match validate_nl_plan(&normalized, max_iterations) {
+            Ok(plan) => return Ok(plan),
+            Err(e) => {
+                if attempt < MAX_PLAN_REPAIRS {
+                    prompt = build_nl_repair_prompt(nl_goal, &normalized, &e);
+                }
+                last_error = Some(e);
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or(NlPlanError::EmptyPlan))
 }
 
 fn forbidden_pattern_detail(step: &ToolInvocation) -> Option<String> {
@@ -236,7 +357,12 @@ fn forbidden_pattern_detail(step: &ToolInvocation) -> Option<String> {
     None
 }
 
-fn tool_name(step: &ToolInvocation) -> &str {
+/// Action name for a plan step — shared by validation, harness asserts, and telemetry.
+pub fn plan_tool_name(step: &ToolInvocation) -> &'static str {
+    tool_name(step)
+}
+
+fn tool_name(step: &ToolInvocation) -> &'static str {
     match step {
         ToolInvocation::FsWrite { .. } => "fs_write",
         ToolInvocation::FsRead { .. } => "fs_read",
@@ -327,5 +453,59 @@ mod tests {
         ]}"#;
         let err = validate_nl_plan(json, 6).unwrap_err();
         assert!(matches!(err, NlPlanError::ForbiddenPattern { .. }));
+    }
+
+    #[test]
+    fn normalize_adds_terminal_done_without_changing_actions() {
+        let json = r#"{"loop":[{"action":"fs_read","path":"notes.txt"}]}"#;
+        let normalized = normalize_nl_plan_json(json).unwrap();
+        let plan = validate_nl_plan(&normalized, 6).unwrap();
+        assert_eq!(plan.len(), 2);
+        assert!(matches!(plan[0], ToolInvocation::FsRead { .. }));
+        assert!(matches!(plan[1], ToolInvocation::Done));
+    }
+
+    #[test]
+    fn normalize_removes_only_adjacent_identical_steps() {
+        let json = r#"{"loop":[
+            {"action":"verify_contains","path":"a.txt","text":"x"},
+            {"action":"verify_contains","path":"a.txt","text":"x"},
+            {"action":"done"}
+        ]}"#;
+        let normalized = normalize_nl_plan_json(json).unwrap();
+        let plan = validate_nl_plan(&normalized, 6).unwrap();
+        assert_eq!(plan.len(), 2);
+        assert!(matches!(plan[0], ToolInvocation::VerifyContains { .. }));
+    }
+
+    #[test]
+    fn planner_schema_requires_action_specific_fields() {
+        let schema = nl_plan_schema();
+        let variants = schema
+            .pointer("/properties/loop/items/anyOf")
+            .and_then(Value::as_array)
+            .unwrap();
+        assert_eq!(variants.len(), ALLOWED_NL_TOOLS.len());
+        let fs_write_required = variants[0]
+            .get("required")
+            .and_then(Value::as_array)
+            .unwrap();
+        assert!(fs_write_required.iter().any(|value| value == "content"));
+    }
+
+    #[test]
+    fn repair_prompt_contains_rejection_and_previous_answer() {
+        let error = NlPlanError::ForbiddenPattern {
+            index: 0,
+            detail: "missing done".into(),
+        };
+        let prompt = build_nl_repair_prompt(
+            "Read notes.txt",
+            r#"{"loop":[{"action":"fs_read","path":"notes.txt"}]}"#,
+            &error,
+        );
+        assert!(prompt.contains("Previous answer:"));
+        assert!(prompt.contains("missing done"));
+        assert!(prompt.contains("Read notes.txt"));
     }
 }

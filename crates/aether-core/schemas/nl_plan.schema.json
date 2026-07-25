@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AetherForge NL tool plan",
+  "description": "Structured tool plan emitted by the NL planner and executed by ReActLoopEngine. Each branch pins the fields that action requires, so a step cannot be decoded without them.",
+  "type": "object",
+  "properties": {
+    "loop": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "action": { "const": "fs_write" },
+              "path": { "type": "string", "minLength": 1 },
+              "content": { "type": "string", "minLength": 1 }
+            },
+            "required": ["action", "path", "content"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": { "const": "fs_read" },
+              "path": { "type": "string", "minLength": 1 }
+            },
+            "required": ["action", "path"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": { "const": "verify_contains" },
+              "path": { "type": "string", "minLength": 1 },
+              "text": { "type": "string", "minLength": 1 }
+            },
+            "required": ["action", "path", "text"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": { "const": "python_lint" },
+              "source": { "type": "string", "minLength": 1 }
+            },
+            "required": ["action", "source"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": { "const": "git_init" },
+              "branch": { "type": "string", "minLength": 1 }
+            },
+            "required": ["action", "branch"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": { "const": "mcp_call" },
+              "server": { "type": "string", "minLength": 1 },
+              "tool": { "type": "string", "minLength": 1 },
+              "args": { "type": "object" }
+            },
+            "required": ["action", "server", "tool"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": { "const": "skill_execute" },
+              "skill_id": { "type": "string", "minLength": 1 },
+              "variables": { "type": "object" }
+            },
+            "required": ["action", "skill_id"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": { "const": "done" }
+            },
+            "required": ["action"],
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  },
+  "required": ["loop"],
+  "additionalProperties": false
+}
