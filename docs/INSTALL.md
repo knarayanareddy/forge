@@ -1,4 +1,4 @@
-# AetherForge Install Guide (Phase 7 partial)
+# AetherForge Install Guide (Phase 7 complete)
 
 ## macOS (canonical)
 
@@ -99,11 +99,11 @@ Darwin is canonical. On Linux, the golden harness **fail-closes** tasks that req
 
 | Task | Linux expectation |
 |------|-------------------|
-| FS-01, GIT-01, CODE-01, MCP-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, AUTO-01, CHECK-01 | PASS |
+| FS-01, GIT-01, CODE-01, MCP-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, AUTO-01, CHECK-01, GATE-01 | PASS |
 | FS-02 | FAIL-CLOSED (no `sandbox-exec`) |
 | MEM-01, ROUT-01, GRAPH-01, LOOP-02 | FAIL-CLOSED (Ollama absent in CI) |
 
-Expected score: **12/17 PASS**, 5 explicit fail-closed.
+Expected score: **13/18 PASS**, 5 explicit fail-closed.
 
 See [LINUX_CI.md](LINUX_CI.md) for CI matrix details and PR fast-path vs nightly Darwin gate.
 
@@ -111,11 +111,11 @@ See [LINUX_CI.md](LINUX_CI.md) for CI matrix details and PR fast-path vs nightly
 
 ```bash
 cargo run -p golden-harness
-# Darwin with Ollama warm: 17/17 harness (17 hard / 0 soft)
+# Darwin with Ollama warm: 18/18 harness (18 hard / 0 soft)
 swift build
 ./scripts/build-ffi.sh
 ```
 
 **Ollama flake:** If ROUT-01 passes but GRAPH-01 or LOOP-02 fail, re-run after the harness pre-warm lines complete, or pull models manually (`ollama pull all-minilm qwen2.5:3b`).
 
-Related docs: [ROADMAP_PHASE_6.md](ROADMAP_PHASE_6.md) · [RATEL_TOOL_INDEX.md](RATEL_TOOL_INDEX.md)
+Related docs: [ROADMAP_PHASE_6.md](ROADMAP_PHASE_6.md) · [ROADMAP_PHASE_7.md](ROADMAP_PHASE_7.md) · [GATEWAY.md](GATEWAY.md) · [RATEL_TOOL_INDEX.md](RATEL_TOOL_INDEX.md)

@@ -51,6 +51,18 @@ aether_core::store_gateway_token(channel_id, token)?;
 
 No outbound HTTPS in harness; optional `profiles/sandbox_gateway.sb` deferred for production Slack egress.
 
+## Telegram / Discord stubs (slice 7.10)
+
+Slack is production-first for GATE-01. **Telegram** and **Discord** adapters are stubbed for payload parsing and message normalization — same grant gate as Slack, no harness task yet (optional GATE-02).
+
+| Channel | Module | Payload field |
+|---------|--------|---------------|
+| Slack | `gateway/slack.rs` | `event.text` (Events API) |
+| Telegram | `gateway/telegram.rs` | `message.text` (Bot API webhook JSON) |
+| Discord | `gateway/discord.rs` | `content` (interaction/webhook JSON) |
+
+All channels route through `GatewayRouter::handle_inbound` after `GatewayGrant::check`. Tokens use `store_gateway_token` / `load_gateway_token` (Keychain on Darwin).
+
 ## RED-01 extension
 
 Gateway deny path is fail-closed: missing grant, disabled channel, or unknown `channel_id` never enqueues a loop run.

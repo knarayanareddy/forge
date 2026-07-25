@@ -1,6 +1,6 @@
 # AetherForge Roadmap — Phase 7
 
-**Baseline:** Phase 6 complete — Darwin **15/15 harness (15 hard / 0 soft)** · Phase 7 slice 7.3 — **16/16 (+AUTO-01)**  
+**Baseline:** Phase 6 complete — Darwin **15/15 harness (15 hard / 0 soft)** · **Phase 7 complete — 18/18 (18 hard / 0 soft)** · slice 7.10 docs/CI closure  
 **Canonical platform:** Darwin (macOS 15+ Apple Silicon)  
 **Linux CI:** fail-closed for FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02 when `sandbox-exec` or Ollama absent  
 **Binding spec:** This document is the Phase 7 contract. Every shipped claim maps to a harness task or an explicit deferral below.
@@ -155,7 +155,7 @@ Each slice is independently shippable and must not break the 15-task regression 
 | **7.7** | `GatewayGrant` + inbound message router | Grant gate before loop | None |
 | **7.8** | Slack adapter (mock-first) + token Keychain | Channel config docs | None |
 | **7.9** | **GATE-01** harness + mock Slack server | Grant deny/pass | **+1 → 18/18** |
-| **7.10** | Docs + Linux CI + README scoreboard + Telegram stub | Phase 7 complete checklist | Final audit |
+| **7.10** | Docs + Linux CI + README scoreboard + Telegram stub | Phase 7 complete checklist | Final audit — **shipped** |
 
 **Optional slice 7.11:** Telegram/Discord adapter parity (GATE-02) — defer if Slack path sufficient for MVP.
 
@@ -297,15 +297,17 @@ v1.2.5 canonical spec patch should incorporate Phase 6 memory architecture ([GRA
 
 ### Independent Audit Checklist (Phase 7 — pre-ship)
 
-- [ ] `OrchestrationGraph` in production crate, not harness-only
-- [ ] `VerifierNode` has no write grants in PermissionManager tests
-- [ ] AUTO-01 uses production automation enqueue path
-- [ ] CHECK-01 blocks ≥1 frozen bad plan via verifier deny
-- [ ] GATE-01 denies inbound without GatewayGrant
-- [ ] README scoreboard matches `cargo run -p golden-harness` on Darwin
-- [ ] Linux CI docs list CHECK-01 fail-closed when applicable
-- [ ] Phase 1–6 tasks still PASS (regression lock)
-- [ ] No real Slack/Telegram secrets in repo or harness
+- [x] `OrchestrationGraph` in production crate, not harness-only
+- [x] `VerifierNode` has no write grants in PermissionManager tests
+- [x] AUTO-01 uses production automation enqueue path
+- [x] CHECK-01 blocks ≥1 frozen bad plan via verifier deny
+- [x] GATE-01 denies inbound without GatewayGrant
+- [x] README scoreboard matches `cargo run -p golden-harness` on Darwin
+- [x] Linux CI docs list CHECK-01 fail-closed when applicable (rule-based verifier → PASS on Linux; documented in [LINUX_CI.md](./LINUX_CI.md))
+- [x] Phase 1–6 tasks still PASS (regression lock)
+- [x] No real Slack/Telegram secrets in repo or harness
+
+**Phase 7 closure (slice 7.10):** All checklist items verified; Darwin **18/18 (18 hard / 0 soft)**; commits on `main`.
 
 ---
 
