@@ -1,0 +1,3 @@
+# Generated media and intermediates. Prompts and metadata are the reproducible
+# part and are small, but they are regenerated on every run so they stay out too.
+out/
