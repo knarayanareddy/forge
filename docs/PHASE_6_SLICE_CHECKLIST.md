@@ -121,8 +121,24 @@ Per-slice PR requirements derived from `docs/ROADMAP_PHASE_6.md` and Spec Kit co
 | Roadmap ref | ROADMAP_PHASE_6 § Definition of Done |
 | Regression harness | 15/15 Darwin · Linux matrix 10/15 fail-closed |
 | Anti-theater row | README matches `cargo run -p golden-harness` output exactly |
-| Files touched | `README.md`, `docs/LINUX_CI.md`, `docs/GRAPH_V1.md`, CI matrix |
+| Files touched | `README.md`, `docs/LINUX_CI.md`, `docs/INSTALL.md`, `docs/GRAPH_V1.md`, `.github/workflows/ci.yml` |
 | PR body | Independent audit checklist ticked |
+| **Status** | **Complete** — Phase 6 scoreboard, CI tiers (PR 8-task fast path · push/nightly 15/15), cross-links |
+
+### Independent audit (Phase 6 complete)
+
+- [x] `grep -r "graph_nodes" crates/aether-db` — graph DDL in production crate
+- [x] `search_hybrid_with_graph` exists; hop=0 parity with Phase 5 hybrid
+- [x] `graph_extract` called from daemon ingest path
+- [x] `LoopConfig` has `max_tokens` / `tokens_used`; budget exceed stops production loop
+- [x] GRAPH-01 uses production insert/query APIs with `fixtures/graph_seed.json`
+- [x] LOOP-02 uses `NlPlanner` → `ReActLoopEngine`, not JSON inject
+- [x] RED-01 runs ≥12 frozen cases; 0% forbidden success
+- [x] SKILL-02 verifies citation span from book-to-skill output
+- [x] Consolidation writes `review_pending`; no auto-apply in code path
+- [x] README scoreboard matches `cargo run -p golden-harness` on Darwin
+- [x] Linux CI docs list GRAPH-01 + LOOP-02 as FAIL-CLOSED
+- [x] Phase 1–5 tasks still PASS (regression lock)
 
 ---
 

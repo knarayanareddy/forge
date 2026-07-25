@@ -1,7 +1,7 @@
 # Ratel-Style Progressive Tool & Skill Disclosure
 
-**Phase 6 pre-6.5 borrow** · Pattern only — no `ratel-mcp` runtime  
-**Binding spec:** [ROADMAP_PHASE_6.md](./ROADMAP_PHASE_6.md) · Ecosystem v3 research canvas
+**Phase 6 complete (SKILL-02 green)** · Pattern only — no `ratel-mcp` runtime  
+**Binding spec:** [ROADMAP_PHASE_6.md](./ROADMAP_PHASE_6.md) · Graph memory: [GRAPH_V1.md](./GRAPH_V1.md) · CI: [LINUX_CI.md](./LINUX_CI.md)
 
 ---
 
@@ -80,7 +80,9 @@ source_doc: fixtures/book_skill/
 ---
 ```
 
-Slice 6.8 **SKILL-02** harness will assert: given a frozen question, top-1 chapter match + citation span ≥ 0.9 fidelity against `references/source.md`.
+Slice 6.8 **SKILL-02** harness asserts: given a frozen question, top-1 chapter match + citation span ≥ 0.9 fidelity against `references/source.md`. **Shipped green on Darwin (15/15 gate).**
+
+See [GRAPH_V1.md](./GRAPH_V1.md) (schema zone) · [ROADMAP_PHASE_6.md](./ROADMAP_PHASE_6.md) · [LINUX_CI.md](./LINUX_CI.md).
 
 ---
 
@@ -91,7 +93,7 @@ Slice 6.8 **SKILL-02** harness will assert: given a frozen question, top-1 chapt
 | **ratel-mcp server** | LOOP-02 green (Slice 6.6+) | Adds MCP indirection to closed ReAct surface |
 | **ratel-ai-core crate** | Tool count > 20 + measured overload | In-process lite BM25 sufficient for Phase 6 |
 | **Semantic hybrid in index** | Phase 7+ | FTS5-first hybrid RRF already authoritative |
-| **Per-turn auto-inject into prompt** | SKILL-02 hard green | Index + fixtures pinned now; daemon wiring later |
+| **Per-turn auto-inject into prompt** | Phase 7+ | Index + SKILL-02 harness green; daemon wiring deferred |
 
 ---
 
@@ -101,10 +103,11 @@ Slice 6.8 **SKILL-02** harness will assert: given a frozen question, top-1 chapt
 |--------------|----------------|
 | "Ratel integrated" | No ratel-mcp in allowlist or ReAct loop |
 | "80% token savings" | No production prompt diff measured pre-6.8 |
-| "Skill routing shipped" | SKILL-02 harness recall + citation fidelity (Slice 6.8) |
+| "Skill routing shipped" | SKILL-02 harness recall + citation fidelity (Slice 6.8) — **15/15 Darwin** |
+| **"Phase 6 complete"** | README scoreboard **15/15 (15 hard)** matches harness; no ratel-mcp in loop |
 
 Unit tests in `aether-skills` and `aether-mcp` prove: given N indexed items, query returns expected top-k ordering on frozen keyword overlap.
 
 ---
 
-*Ratel borrow · docs + lite BM25 stubs · 2026-07-25*
+*Ratel borrow · SKILL-02 shipped · Phase 6 complete · 2026-07-25*

@@ -476,22 +476,24 @@ FS-01, FS-02, GIT-01, CODE-01, ROUT-01, MCP-01, MEM-01, SKILL-01, SAFE-01, RES-0
 
 v1.2.3 remains authoritative for embeddings (384-dim), bookmarks, undo journal. Phase 6 patches memory architecture via this roadmap — not via a v1.2.5 spec until Phase 6 audit passes.
 
+**Phase 6 audit passed (Slice 6.10, 2026-07-25):** Darwin **15/15 (15 hard / 0 soft)** · Linux **10/15 fail-closed** · README scoreboard aligned · CI PR fast path (8 tasks) + push/nightly full gate · see [PHASE_6_SLICE_CHECKLIST.md](./PHASE_6_SLICE_CHECKLIST.md) independent audit ticks. v1.2.5 canonical spec patch deferred to Phase 7 planning — memory architecture deltas remain authoritative in this roadmap and [GRAPH_V1.md](./GRAPH_V1.md).
+
 ---
 
 ### Independent Audit Checklist (Phase 6)
 
-- [ ] `grep -r "graph_nodes" crates/aether-db` — graph DDL in production crate, not harness-only
-- [ ] `search_hybrid_with_graph` exists; unit test proves hop=0 parity with Phase 5 hybrid
-- [ ] `graph_extract` called from daemon ingest path, not harness-only
-- [ ] `LoopConfig` has `max_tokens` / `tokens_used`; budget exceed stops production loop
-- [ ] GRAPH-01 uses production insert/query APIs with `fixtures/graph_seed.json`
-- [ ] LOOP-02 uses `NlPlanner` → `ReActLoopEngine`, not JSON inject
-- [ ] RED-01 runs ≥12 frozen cases; 0% forbidden success
-- [ ] SKILL-02 verifies citation span from book-to-skill output
-- [ ] Consolidation writes `review_pending`; no auto-apply in code path
-- [ ] README scoreboard matches `cargo run -p golden-harness` on Darwin
-- [ ] Linux CI docs list GRAPH-01 + LOOP-02 as FAIL-CLOSED
-- [ ] Phase 1–5 tasks still PASS (regression lock)
+- [x] `grep -r "graph_nodes" crates/aether-db` — graph DDL in production crate, not harness-only
+- [x] `search_hybrid_with_graph` exists; unit test proves hop=0 parity with Phase 5 hybrid
+- [x] `graph_extract` called from daemon ingest path, not harness-only
+- [x] `LoopConfig` has `max_tokens` / `tokens_used`; budget exceed stops production loop
+- [x] GRAPH-01 uses production insert/query APIs with `fixtures/graph_seed.json`
+- [x] LOOP-02 uses `NlPlanner` → `ReActLoopEngine`, not JSON inject
+- [x] RED-01 runs ≥12 frozen cases; 0% forbidden success
+- [x] SKILL-02 verifies citation span from book-to-skill output
+- [x] Consolidation writes `review_pending`; no auto-apply in code path
+- [x] README scoreboard matches `cargo run -p golden-harness` on Darwin
+- [x] Linux CI docs list GRAPH-01 + LOOP-02 as FAIL-CLOSED
+- [x] Phase 1–5 tasks still PASS (regression lock)
 
 ---
 

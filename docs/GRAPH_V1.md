@@ -88,9 +88,9 @@ WHERE session_id = ?1
 
 ---
 
-## Consolidation Review Workflow (Slice 6.9 — deferred)
+## Consolidation Review Workflow (Slice 6.9 — shipped)
 
-Offline `consolidate_memory.sh` will:
+Offline `./scripts/consolidate_memory.sh`:
 
 1. Dedupe and resolve contradictions across wiki-zone nodes
 2. Write a human-reviewable diff artifact (JSON on disk + markdown preview)
@@ -135,6 +135,7 @@ let markdown = format_consolidate_review(&preview);
 | "Graph memory shipped" | GRAPH-01 recall@k on frozen queries (Slice 6.5) |
 | "Extraction live" | Daemon ingest path calls `run_graph_extract`, not harness-only |
 | "Consolidation live" | `consolidation_runs.status=review_pending` until explicit apply |
+| **"Phase 6 complete"** | Darwin **15/15 (15 hard)** · Linux **10/15 fail-closed** · README matches harness |
 
 ---
 
@@ -148,8 +149,11 @@ let markdown = format_consolidate_review(&preview);
 | `crates/aether-daemon/src/task_runner.rs` | Wires ingest after stream/loop `done` |
 | `crates/aether-db/src/graph.rs` | CRUD, 1-hop traversal, bi-temporal filters |
 | `crates/aether-db/src/consolidate_review.rs` | Consolidate preview diff + markdown review artifact |
-| `docs/RATEL_TOOL_INDEX.md` | Ratel BM25 progressive disclosure pattern (pre-6.5) |
+| `scripts/consolidate_memory.sh` | Offline consolidate CLI (Slice 6.9) |
+| `docs/RATEL_TOOL_INDEX.md` | Ratel BM25 progressive disclosure pattern (SKILL-02) |
+| `docs/LINUX_CI.md` | Linux 10/15 fail-closed matrix; Darwin 15/15 gate |
+| `docs/ROADMAP_PHASE_6.md` | Phase 6 binding spec · independent audit checklist |
 
 ---
 
-*Graph v1 · Phase 6 · 2026-07-25*
+*Graph v1 · Phase 6 complete · 2026-07-25*
