@@ -44,6 +44,8 @@ pub enum NlPlanError {
     DisallowedTool { index: usize, tool: String },
     #[error("Forbidden plan pattern at step {index}: {detail}")]
     ForbiddenPattern { index: usize, detail: String },
+    #[error("Plan omits tool `{tool}` explicitly requested by the user goal")]
+    MissingRequestedTool { tool: String },
     #[error("Trajectory mismatch at step {index}: expected {expected}, got {actual}")]
     TrajectoryMismatch {
         index: usize,
@@ -235,6 +237,47 @@ pub fn normalize_nl_plan_json(json: &str) -> Result<String, NlPlanError> {
     serde_json::to_string(&value).map_err(|e| NlPlanError::Json(e.to_string()))
 }
 
+/// Ensure a plan covers tool intent stated explicitly in the goal.
+///
+/// This is deliberately not a gold trajectory: it neither imposes order nor invents tools. It
+/// catches only direct user language ("lint", "MCP", "skill", "version control", etc.) so an
+/// otherwise valid JSON plan cannot silently drop a requested operation.
+pub fn validate_goal_coverage(
+    nl_goal: &str,
+    plan: &[ToolInvocation],
+) -> Result<(), NlPlanError> {
+    let goal = nl_goal.to_ascii_lowercase();
+    let mut required = Vec::new();
+    if goal.contains("write ") || goal.contains("create ") {
+        required.push("fs_write");
+    }
+    if goal.contains("read ") || goal.contains("open ") {
+        required.push("fs_read");
+    }
+    if goal.contains("verify ") || goal.contains("confirm ") {
+        required.push("verify_contains");
+    }
+    if goal.contains("lint ") || goal.contains("python source") {
+        required.push("python_lint");
+    }
+    if goal.contains("git ") || goal.contains("repository") || goal.contains("version control") {
+        required.push("git_init");
+    }
+    if goal.contains("mcp ") || goal.contains("mcp server") {
+        required.push("mcp_call");
+    }
+    if goal.contains(" skill") || goal.starts_with("skill ") {
+        required.push("skill_execute");
+    }
+
+    for tool in required {
+        if !plan.iter().any(|step| tool_name(step) == tool) {
+            return Err(NlPlanError::MissingRequestedTool { tool: tool.into() });
+        }
+    }
+    Ok(())
+}
+
 /// Harness-only: assert tool order matches LOOP-02 gold trajectory.
 pub fn validate_nl_plan_gold_trajectory(plan: &[ToolInvocation]) -> Result<(), NlPlanError> {
     for (index, expected) in LOOP02_GOLD_TOOL_ORDER.iter().enumerate() {
@@ -301,7 +344,12 @@ pub async fn run_nl_planner(
             }
         };
 
-        match validate_nl_plan(&normalized, max_iterations) {
+        match validate_nl_plan(&normalized, max_iterations)
+            .and_then(|plan| {
+                validate_goal_coverage(nl_goal, &plan)?;
+                Ok(plan)
+            })
+        {
             Ok(plan) => return Ok(plan),
             Err(e) => {
                 if attempt < MAX_PLAN_REPAIRS {
@@ -507,5 +555,42 @@ mod tests {
         assert!(prompt.contains("Previous answer:"));
         assert!(prompt.contains("missing done"));
         assert!(prompt.contains("Read notes.txt"));
+    }
+
+    #[test]
+    fn goal_coverage_requires_explicitly_requested_tools_without_ordering() {
+        let plan = validate_nl_plan(
+            r#"{"loop":[
+                {"action":"fs_write","path":"a.py","content":"def ok():\n    return 1\n"},
+                {"action":"done"}
+            ]}"#,
+            6,
+        )
+        .unwrap();
+        let err = validate_goal_coverage(
+            "Write a.py, then lint this Python source: def ok(): return 1",
+            &plan,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err,
+            NlPlanError::MissingRequestedTool {
+                tool: "python_lint".into()
+            }
+        );
+    }
+
+    #[test]
+    fn goal_coverage_accepts_requested_tools_in_any_order() {
+        let plan = validate_nl_plan(
+            r#"{"loop":[
+                {"action":"python_lint","source":"def ok():\n    return 1\n"},
+                {"action":"fs_write","path":"a.py","content":"def ok():\n    return 1\n"},
+                {"action":"done"}
+            ]}"#,
+            6,
+        )
+        .unwrap();
+        validate_goal_coverage("Write a.py and lint this Python source", &plan).unwrap();
     }
 }
