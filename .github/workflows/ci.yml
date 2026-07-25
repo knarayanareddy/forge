@@ -37,9 +37,9 @@ jobs:
           set +e
           cargo run -p golden-harness 2>&1 | tee harness.log
           PASS=$(grep -oP 'Passed: \K[0-9]+' harness.log | tail -1)
-          echo "Harness passed: ${PASS:-0}/14"
-          if [[ "${PASS:-0}" -lt 9 ]]; then
-            echo "Expected at least 9/14 on Linux (FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02 fail-closed)"
+          echo "Harness passed: ${PASS:-0}/15"
+          if [[ "${PASS:-0}" -lt 10 ]]; then
+            echo "Expected at least 10/15 on Linux (FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02 fail-closed)"
             exit 1
           fi
 

@@ -1,6 +1,9 @@
 mod disclosure;
 
-pub use disclosure::{DisclosureEntry, DisclosureIndex, DisclosureKind};
+pub use disclosure::{
+    citation_fidelity, compose_citation_answer, route_chapter_for_query, DisclosureEntry,
+    DisclosureIndex, DisclosureKind, RoutedChapter,
+};
 
 use aether_permissions::{PermissionDecision, PermissionManager};
 use rusqlite::Connection;

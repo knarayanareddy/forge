@@ -31,6 +31,7 @@ use audit_chain::verify_audit_hash_chain;
 mod red01;
 use red01::test_red01_impl;
 mod skill02;
+use skill02::test_skill02_impl;
 
 struct TaskSpec {
     name: &'static str,
@@ -38,7 +39,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 14] = [
+const TASKS: [TaskSpec; 15] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -49,6 +50,7 @@ const TASKS: [TaskSpec; 14] = [
     TaskSpec { name: "MEM-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "GRAPH-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "SKILL-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "SKILL-02", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "SAFE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "RED-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "RES-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -72,7 +74,7 @@ async fn main() {
     }
 
     match skill02::skill02_fixture_ready() {
-        Ok(n) => println!("SKILL-02 fixtures: {} questions (stub OK)\n", n),
+        Ok(n) => println!("SKILL-02 fixtures: {} frozen eval questions loaded\n", n),
         Err(e) => eprintln!("Warning: SKILL-02 fixture check failed: {}\n", e),
     }
 
@@ -143,7 +145,7 @@ async fn main() {
         total
     );
     if is_darwin() {
-        println!("Darwin scoreboard: {}/14 harness ({} hard / {} soft)", passed, hard_pass, soft_pass);
+        println!("Darwin scoreboard: {}/15 harness ({} hard / {} soft)", passed, hard_pass, soft_pass);
     } else {
         println!(
             "Non-Darwin note: FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02 expected fail-closed when sandbox-exec/Ollama absent"
@@ -162,6 +164,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "MEM-01" => test_mem_01(db).await.map(|_| true),
         "GRAPH-01" => test_graph_01(db).await.map(|_| true),
         "SKILL-01" => test_skill_01().await.map(|_| true),
+        "SKILL-02" => test_skill_02().await.map(|_| true),
         "SAFE-01" => test_safe_01(db).await.map(|_| true),
         "RED-01" => test_red_01(db).await.map(|_| true),
         "ROUT-01" => test_rout_01().await.map(|_| true),
@@ -520,6 +523,10 @@ async fn rout_01_discard_warmup(endpoint: &str, model: &str, rounds: usize) -> R
 async fn test_red_01(db: &Database) -> Result<(), String> {
     let conn = db.conn();
     test_red01_impl(&conn)
+}
+
+async fn test_skill_02() -> Result<(), String> {
+    test_skill02_impl()
 }
 
 async fn test_rout_01() -> Result<(), String> {

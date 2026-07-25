@@ -124,6 +124,10 @@ impl DisclosureIndex {
         self.entries.get(index)
     }
 
+    pub fn entry_by_id(&self, id: &str) -> Option<&DisclosureEntry> {
+        self.entries.iter().find(|e| e.id == id)
+    }
+
     /// Return top-k `(entry_id, bm25_score)` for `query`, highest score first.
     pub fn search(&self, query: &str, k: usize) -> Vec<(String, f64)> {
         if self.entries.is_empty() || k == 0 {
@@ -204,6 +208,123 @@ fn parse_frontmatter_for_disclosure(
     Ok(map)
 }
 
+/// BM25 routing result for a progressive-disclosure chapter.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RoutedChapter {
+    pub chapter_path: String,
+    pub score: f64,
+    pub entry_id: String,
+}
+
+/// Route a natural-language query to the best matching chapter under `skill_dir`.
+pub fn route_chapter_for_query(skill_dir: &Path, query: &str) -> Result<RoutedChapter, SkillError> {
+    let index = DisclosureIndex::from_skill_dir(skill_dir)?;
+    let hits = index.search(query, 5);
+
+    for (entry_id, score) in hits {
+        let Some(entry) = index.entry_by_id(&entry_id) else {
+            continue;
+        };
+        if entry.kind != DisclosureKind::SkillChapter {
+            continue;
+        }
+        let chapter_stem = entry_id
+            .rsplit('/')
+            .next()
+            .ok_or_else(|| SkillError::Parse(format!("Invalid chapter entry id: {entry_id}")))?;
+        return Ok(RoutedChapter {
+            chapter_path: format!("chapters/{chapter_stem}.md"),
+            score,
+            entry_id,
+        });
+    }
+
+    Err(SkillError::Parse(format!(
+        "No chapter match for query in {}",
+        skill_dir.display()
+    )))
+}
+
+/// Normalize whitespace for citation comparison.
+fn normalize_citation_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Fuzzy citation fidelity in `[0.0, 1.0]` — exact substring match yields 1.0.
+pub fn citation_fidelity(citation: &str, answer: &str) -> f64 {
+    let citation = normalize_citation_text(citation);
+    let answer = normalize_citation_text(answer);
+
+    if citation.is_empty() {
+        return 0.0;
+    }
+    if answer.contains(&citation) {
+        return 1.0;
+    }
+
+    let c_chars: Vec<char> = citation.chars().collect();
+    let a_chars: Vec<char> = answer.chars().collect();
+    let mut best = char_similarity(&citation, &answer);
+
+    if a_chars.len() >= c_chars.len() {
+        for window in a_chars.windows(c_chars.len()) {
+            let window_str: String = window.iter().collect();
+            best = best.max(char_similarity(&citation, &window_str));
+        }
+    }
+
+    best
+}
+
+/// Build a citation-bearing answer line from chapter text (production path for SKILL-02).
+pub fn compose_citation_answer(chapter_text: &str, citation_span: &str) -> Result<String, SkillError> {
+    if !chapter_text.contains(citation_span) {
+        return Err(SkillError::Parse(format!(
+            "citation_span '{citation_span}' not found in chapter"
+        )));
+    }
+
+    for line in chapter_text.lines() {
+        if line.contains(citation_span) {
+            return Ok(line.trim().to_string());
+        }
+    }
+
+    Ok(citation_span.to_string())
+}
+
+fn char_similarity(a: &str, b: &str) -> f64 {
+    let dist = levenshtein_chars(a, b);
+    let max_len = a.chars().count().max(b.chars().count()).max(1);
+    1.0 - (dist as f64 / max_len as f64)
+}
+
+fn levenshtein_chars(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (m, n) = (a.len(), b.len());
+    if m == 0 {
+        return n;
+    }
+    if n == 0 {
+        return m;
+    }
+
+    let mut prev: Vec<usize> = (0..=n).collect();
+    let mut curr = vec![0; n + 1];
+
+    for i in 1..=m {
+        curr[0] = i;
+        for j in 1..=n {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+
+    prev[n]
+}
+
 fn tokenize(text: &str) -> Vec<String> {
     text.to_lowercase()
         .split(|c: char| !c.is_alphanumeric())
@@ -246,6 +367,39 @@ mod tests {
                 .any(|(id, _)| id.contains("01-error-handling")),
             "expected error-handling chapter in top-2, got {:?}",
             hits
+        );
+    }
+
+    #[test]
+    fn book_skill_routes_daemon_bind_question() {
+        let index = DisclosureIndex::from_skill_dir(&fixture_dir("book_skill")).unwrap();
+        let hits = index.search(
+            "What is the default TCP listen address for aether-daemon?",
+            3,
+        );
+        assert!(!hits.is_empty());
+        assert!(
+            hits[0].0.contains("01-daemon-lifecycle"),
+            "expected daemon chapter top-1, got {:?}",
+            hits
+        );
+    }
+
+    #[test]
+    fn book_skill_routes_ingest_audit_question() {
+        let routed = route_chapter_for_query(
+            &fixture_dir("book_skill"),
+            "What audit tool name is recorded when graph ingest fails?",
+        )
+        .unwrap();
+        assert_eq!(routed.chapter_path, "chapters/02-graph-ingest.md");
+    }
+
+    #[test]
+    fn citation_fidelity_exact_substring_is_one() {
+        assert_eq!(
+            citation_fidelity("127.0.0.1:7878", "binds to 127.0.0.1:7878 by default"),
+            1.0
         );
     }
 

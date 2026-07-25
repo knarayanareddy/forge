@@ -1,14 +1,8 @@
 #!/usr/bin/env bash
-# book_to_skill.sh — offline distillation stub (Slice 6.8 / SKILL-02 prep)
+# book_to_skill.sh — offline distillation: source doc tree → progressive-disclosure skill
 #
-# Expected flow (not implemented — documents contract only):
-#   1. Input: directory or PDF export tree under fixtures/book_skill/
-#   2. Split into skills/<name>/chapters/*.md with progressive-disclosure frontmatter
-#   3. Emit routing_keywords + chapters_dir in SKILL.md (see fixtures/skills/rust-cookbook/)
-#   4. Validate chapter files exist before registering in procedural_skills
-#
-# Usage (stub):
-#   ./scripts/book_to_skill.sh --name rust-cookbook --source fixtures/book_skill/ --out skills/
+# Copies a validated skill-creator layout (SKILL.md + chapters/ + references/) into skills/.
+# Full PDF pipeline deferred; harness fixtures use pre-built trees under fixtures/skills/.
 
 set -euo pipefail
 
@@ -18,14 +12,13 @@ OUT="skills"
 
 usage() {
   cat <<'EOF'
-book_to_skill.sh — offline book-to-skill distillation (stub)
+book_to_skill.sh — offline book-to-skill distillation
 
-  --name NAME       Skill directory name (e.g. rust-cookbook)
-  --source PATH     Source doc tree (fixtures/book_skill/ in harness)
+  --name NAME       Skill directory name (e.g. book_skill)
+  --source PATH     Source doc tree (e.g. tests/golden_harness/fixtures/skills/book_skill/)
   --out PATH        Output skills root (default: skills/)
 
-Full PDF pipeline deferred to Slice 6.8. See tests/golden_harness/fixtures/skills/
-for the expected chapter layout borrowed from awesome-claude-skills patterns.
+Requires SKILL.md, chapters/*.md, and references/source.md in --source.
 EOF
 }
 
@@ -45,6 +38,28 @@ if [[ -z "$NAME" || -z "$SOURCE" ]]; then
   exit 1
 fi
 
-echo "book_to_skill stub: would distill '$SOURCE' -> '$OUT/$NAME/'"
-echo "Reference fixture: tests/golden_harness/fixtures/skills/rust-cookbook/"
-exit 0
+if [[ ! -f "$SOURCE/SKILL.md" ]]; then
+  echo "error: missing SKILL.md in $SOURCE" >&2
+  exit 1
+fi
+
+if [[ ! -d "$SOURCE/chapters" ]]; then
+  echo "error: missing chapters/ in $SOURCE" >&2
+  exit 1
+fi
+
+DEST="$OUT/$NAME"
+mkdir -p "$DEST/chapters" "$DEST/references"
+
+cp "$SOURCE/SKILL.md" "$DEST/SKILL.md"
+cp "$SOURCE"/chapters/*.md "$DEST/chapters/"
+if [[ -d "$SOURCE/references" ]]; then
+  cp -R "$SOURCE/references/." "$DEST/references/"
+fi
+
+if [[ -f "$SOURCE/skill_eval_rubric.json" ]]; then
+  cp "$SOURCE/skill_eval_rubric.json" "$DEST/skill_eval_rubric.json"
+fi
+
+echo "book_to_skill: distilled '$SOURCE' -> '$DEST/'"
+echo "  chapters: $(find "$DEST/chapters" -name '*.md' | wc -l | tr -d ' ') files"

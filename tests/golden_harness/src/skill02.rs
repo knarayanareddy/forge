@@ -1,6 +1,6 @@
-//! SKILL-02 book-to-skill eval rubric loader (Phase 6 slice 6.8).
-//! Harness execution is stubbed until slice 6.8; this module validates frozen rubric now.
+//! SKILL-02 book-to-skill routing + citation fidelity harness (Phase 6 slice 6.8).
 
+use aether_skills::{citation_fidelity, compose_citation_answer, route_chapter_for_query};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
@@ -136,7 +136,69 @@ fn validate_rubric(rubric: &SkillEvalRubric, fixture_dir: &Path) -> Result<(), S
     Ok(())
 }
 
-/// Stub entry for slice 6.8 harness task — validates rubric + fixtures only today.
+fn expected_chapter_stem(expected_chapter: &str) -> Result<String, String> {
+    Path::new(expected_chapter)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(String::from)
+        .ok_or_else(|| format!("invalid expected_chapter path: {expected_chapter}"))
+}
+
+/// Full SKILL-02 harness: progressive disclosure routing + citation fidelity on frozen rubric.
+pub fn test_skill02_impl() -> Result<(), String> {
+    let fixture_dir = resolve_fixture_dir()?;
+    let rubric = load_skill_eval_rubric()?;
+
+    for question in &rubric.questions {
+        let routed = route_chapter_for_query(&fixture_dir, &question.query)
+            .map_err(|e| format!("question {} routing failed: {e}", question.id))?;
+
+        let expected_stem = expected_chapter_stem(&question.expected_chapter)?;
+        if routed.chapter_path != question.expected_chapter
+            && !routed.chapter_path.contains(&expected_stem)
+        {
+            return Err(format!(
+                "question {} routed to {} but expected {}",
+                question.id, routed.chapter_path, question.expected_chapter
+            ));
+        }
+
+        let chapter_path = fixture_dir.join(&routed.chapter_path);
+        let chapter_text = std::fs::read_to_string(&chapter_path)
+            .map_err(|e| format!("read chapter {}: {e}", chapter_path.display()))?;
+
+        let answer = compose_citation_answer(&chapter_text, &question.citation_span)
+            .map_err(|e| format!("question {} compose answer: {e}", question.id))?;
+
+        if answer.is_empty() {
+            return Err(format!(
+                "question {} produced empty cited answer from {}",
+                question.id, routed.chapter_path
+            ));
+        }
+
+        let fidelity = citation_fidelity(&question.citation_span, &answer);
+        if fidelity < rubric.citation_fidelity_threshold {
+            return Err(format!(
+                "question {} citation fidelity {:.3} below threshold {:.3}; answer={answer:?}",
+                question.id, fidelity, rubric.citation_fidelity_threshold
+            ));
+        }
+
+        for forbidden in &question.forbidden_hallucinations {
+            if answer.contains(forbidden) {
+                return Err(format!(
+                    "question {} answer contains forbidden hallucination: {forbidden}",
+                    question.id
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Fixture readiness check for harness startup banner.
 pub fn skill02_fixture_ready() -> Result<usize, String> {
     let rubric = load_skill_eval_rubric()?;
     Ok(rubric.questions.len())
@@ -155,9 +217,8 @@ mod tests {
     }
 
     #[test]
-    fn skill02_stub_loader_reports_question_count() {
-        let count = skill02_fixture_ready().expect("stub loader");
-        assert!(count >= SKILL02_MIN_QUESTIONS);
+    fn skill02_full_harness_passes_on_frozen_rubric() {
+        test_skill02_impl().expect("SKILL-02 full harness");
     }
 
     #[test]
