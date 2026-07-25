@@ -1,6 +1,6 @@
 # AetherForge Roadmap — Phase 7
 
-**Baseline:** Phase 6 complete — Darwin **15/15 harness (15 hard / 0 soft)**  
+**Baseline:** Phase 6 complete — Darwin **15/15 harness (15 hard / 0 soft)** · Phase 7 slice 7.3 — **16/16 (+AUTO-01)**  
 **Canonical platform:** Darwin (macOS 15+ Apple Silicon)  
 **Linux CI:** fail-closed for FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02 when `sandbox-exec` or Ollama absent  
 **Binding spec:** This document is the Phase 7 contract. Every shipped claim maps to a harness task or an explicit deferral below.

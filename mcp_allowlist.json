@@ -7,8 +7,9 @@
       "args": [
         "/opt/homebrew/lib/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js"
       ],
-      "sha256_pin": "REPLACE_WITH_NODE_SHA256",
-      "entry_sha256_pin": "REPLACE_WITH_SCRIPT_SHA256",
+      "sha256_pin": "5d9d3872911e2340a43b707962e68143de8a4e8d54628845c0c4f2de1fb7cd5c",
+      "entry_sha256_pin": "ac12c0307497ebd1c8e0b0fe4b057165cded007cd7c7afc9aeaa68fefe68eb15",
+      "tools_hash_pin": "7fde47655fc0358facef0ec6f5bc5354b29fa15d9462cfecab1ca0b962b1f6e4",
       "default_policy": "prompt_always"
     }
   ]

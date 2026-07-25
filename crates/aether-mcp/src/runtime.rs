@@ -258,7 +258,10 @@ pub fn invoke_with_grant(
 
     let config = allowlist.verify_and_get(server_name)?;
     if let Some(pin) = &config.tools_hash_pin {
-        if pin.starts_with("PENDING") || pin.is_empty() {
+        if pin.starts_with("PENDING")
+            || pin.starts_with("REPLACE_WITH_")
+            || pin.is_empty()
+        {
             return Err(McpError::SecurityViolation(format!(
                 "MCP Server '{}' tools_hash pin is pending",
                 server_name

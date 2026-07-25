@@ -1,24 +1,25 @@
 # forge
 
-AetherForge MVP — **Phase 6 complete** on Darwin (Phases 1–5 retained).
+AetherForge MVP — **Phase 7 in progress** on Darwin (Phases 1–6 retained).
 
 ## Harness score (Darwin, canonical)
 
 ```text
 cargo run -p golden-harness --bin golden-harness
-→ 15/15 harness (15 hard / 0 soft) when ROUT-01 median warm TTFT ≤ 200ms,
+→ 16/16 harness (16 hard / 0 soft) when ROUT-01 median warm TTFT ≤ 200ms,
   GRAPH-01 recall@3 ≥ 1.0, LOOP-02 NL plan trajectory matches gold,
   RED-01 blocks all frozen adversarial cases (≥12, currently 14),
-  and SKILL-02 routes 3/3 book_skill questions with citation fidelity ≥ 0.9
+  SKILL-02 routes 3/3 book_skill questions with citation fidelity ≥ 0.9,
+  and AUTO-01 fires a granted automation trigger → run_task → audit_log
 ```
 
 | Platform | Expected score | Hard / soft |
 |----------|----------------|-------------|
-| **Darwin** (Ollama + `sandbox-exec`) | **15/15** | 15 hard / 0 soft |
-| **Linux CI** (full matrix) | **10/15** | 10 hard · FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02 **FAIL-CLOSED** |
-| **Linux PR fast path** | **8/8 subset** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, SKILL-01, RED-01 |
+| **Darwin** (Ollama + `sandbox-exec`) | **16/16** | 16 hard / 0 soft |
+| **Linux CI** (full matrix) | **11/16** | 11 hard · FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02 **FAIL-CLOSED** |
+| **Linux PR fast path** | **10/11 subset** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, SKILL-01, RED-01, AUTO-01, CHECK-01 |
 
-Tasks (15): ROUT-01, FS-01, FS-02, GIT-01, CODE-01, MCP-01, MEM-01, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02
+Tasks (16): ROUT-01, FS-01, FS-02, GIT-01, CODE-01, MCP-01, MEM-01, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **AUTO-01**
 
 ROUT-01 runs first (before FS-02 sandbox load and MCP/MEM embedder swap), pre-warms the chat model at harness start, drains five warmup streams (`keep_alive: 30m`, `num_ctx: 512`), then asserts the **median** of three Ollama server-side warm TTFT samples (`load_duration + prompt_eval_duration`) is ≤ 200ms.
 
@@ -34,9 +35,20 @@ ROUT-01 runs first (before FS-02 sandbox load and MCP/MEM embedder swap), pre-wa
 | **4 — SwiftUI** | macOS app, TCP daemon client, workspace bookmarks | **Done** |
 | **5 — Polish** | Keychain BYOK, hybrid memory RRF, DMG/notarize scripts, Linux CI | **Done** |
 | **6 — Graph v1 + eval** | Bi-temporal graph, ingest extract, GRAPH-01/LOOP-02/RED-01/SKILL-02, consolidate offline | **Done** |
+| **7 — Orchestration** | Automation scheduler (AUTO-01), maker-checker (CHECK-01 in progress), gateway (GATE-01 planned) | **In progress — 16/16 harness** |
 
 See [docs/ROADMAP_PHASES_1-5.md](docs/ROADMAP_PHASES_1-5.md) for Phases 1–5 acceptance criteria.  
-See [docs/ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md) for Phase 6 binding spec and independent audit checklist.
+See [docs/ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md) for Phase 6 binding spec.  
+See [docs/ROADMAP_PHASE_7.md](docs/ROADMAP_PHASE_7.md) for Phase 7 orchestration + gateway contract.
+
+## Phase 7 — Automations (slices 7.1–7.3)
+
+- **AutomationGrant** + scheduler registry in `aether-daemon` (`AutomationScheduler`, cron/file-watch/PR webhook stubs)
+- Triggers require explicit grant per `trigger_id`; denied runs audit to `audit_log`
+- **AUTO-01:** frozen cron fixture → enqueue → `run_task` LOOP-01 mini-plan → `audit_log` with `trigger_id`
+- Optional Darwin hooks: `scripts/install-automation-hooks.sh` (launchd/cron stub)
+
+Maker-checker orchestration (CHECK-01) and gateway (GATE-01) are tracked in [docs/ROADMAP_PHASE_7.md](docs/ROADMAP_PHASE_7.md).
 
 ## Layout
 
@@ -46,9 +58,9 @@ See [docs/ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md) for Phase 6 binding spec 
 - **Graph v1:** `crates/aether-db/src/graph.rs` — bi-temporal wiki zone; see [docs/GRAPH_V1.md](docs/GRAPH_V1.md)
 - Procedural skills: `skills/` (agentskills.io-style `SKILL.md`); progressive disclosure in [docs/RATEL_TOOL_INDEX.md](docs/RATEL_TOOL_INDEX.md)
 - Sandbox profile: `profiles/sandbox_tool.sb` (allow-default, Darwin-verified)
-- MCP allowlist: `mcp_allowlist.json` (SHA-256 pins for node + server script; harness auto-discovers via `npm root -g`)
+- MCP allowlist: `mcp_allowlist.json` (SHA-256 pins for node + server script + `tools_hash_pin`; runtime resolves paths via `AETHER_MCP_NODE` / `AETHER_MCP_FILESYSTEM_SCRIPT` or `npm root -g`)
 - macOS app: `macos/AetherForgeApp/` + `Package.swift` + `macos/AetherFFI/` (C ABI hints)
-- Specs: `docs/AetherForge_Canonical_Spec_v1.2.4.md`, `docs/ROADMAP_PHASES_1-5.md`, `docs/ROADMAP_PHASE_6.md`, `docs/GRAPH_V1.md`, `docs/RATEL_TOOL_INDEX.md`, `docs/DAEMON_IPC.md`, `docs/INSTALL.md`, `docs/LINUX_CI.md`
+- Specs: `docs/AetherForge_Canonical_Spec_v1.2.4.md`, `docs/ROADMAP_PHASES_1-5.md`, `docs/ROADMAP_PHASE_6.md`, `docs/ROADMAP_PHASE_7.md`, `docs/GRAPH_V1.md`, `docs/RATEL_TOOL_INDEX.md`, `docs/DAEMON_IPC.md`, `docs/INSTALL.md`, `docs/LINUX_CI.md`
 
 ## Build & evaluate
 
@@ -88,7 +100,7 @@ Streamed events: `plan`, `tool`, `observe`, `verify`, then `done` or `error`.
 `crates/aether-mcp/src/runtime.rs` provides a minimal stdio JSON-RPC MCP client:
 
 - Load allowlist → SHA-256 verify node + entry script → spawn
-- `initialize` → `tools/list` (hashes tool descriptions for audit)
+- `initialize` → `tools/list` (hashes tool descriptions; verifies `tools_hash_pin` when set)
 - `tools/call` with JSON args
 - `invoke_with_grant` enforces `mcp_call` capability before spawn
 
@@ -157,11 +169,11 @@ FFI (`aether_ffi_daemon_ipc`, `aether_daemon_default_port`) provides default hos
 - **RED-01:** ≥12 frozen adversarial cases (14 shipped); 0% forbidden-action escape
 - **SKILL-02:** book-to-skill progressive disclosure — [docs/RATEL_TOOL_INDEX.md](docs/RATEL_TOOL_INDEX.md)
 - **Consolidate offline:** `./scripts/consolidate_memory.sh` → `review_pending` until human apply
-- **CI:** `.github/workflows/ci.yml` — PR 8-task fast path · push/nightly Darwin **15/15** · Linux **10/15** fail-closed ([docs/LINUX_CI.md](docs/LINUX_CI.md))
+- **CI:** `.github/workflows/ci.yml` — PR Linux 11-task subset · Darwin PR **build + unit tests + Swift only (no Ollama harness)** · push/nightly Darwin **16/16** · Linux **11/16** fail-closed ([docs/LINUX_CI.md](docs/LINUX_CI.md))
 
 Install guide: [docs/INSTALL.md](docs/INSTALL.md)
 
 ## Architecture target vs product readiness
 
 - **Spec engineering target:** 8.5+ (see v1.2.3 / v1.2.4 docs; Phase 6 memory architecture via [ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md))
-- **Shipped harness baseline:** **15/15 on Darwin (15 hard / 0 soft)** — secure FS, sandbox, crash recovery (SIGTERM child), git grant enforcement, SSE streaming router, hybrid memory + graph hop RRF, MCP stdio JSON-RPC, procedural skills + progressive disclosure routing, ReAct loop + NL planner, permissions + adversarial red-team suite, Python lint, daemon IPC, macOS SwiftUI shell, offline consolidate review workflow
+- **Shipped harness baseline:** **16/16 on Darwin (16 hard / 0 soft)** — secure FS, sandbox, crash recovery (SIGTERM child), git grant enforcement, SSE streaming router, hybrid memory + graph hop RRF, MCP stdio JSON-RPC with pinned tools_hash, procedural skills + progressive disclosure routing, ReAct loop + NL planner, permissions + adversarial red-team suite, Python lint, daemon IPC, macOS SwiftUI shell, offline consolidate review workflow, automation trigger + audit (AUTO-01)

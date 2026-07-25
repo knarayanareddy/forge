@@ -48,6 +48,12 @@ pub struct FilesystemMcpPaths {
     pub script_sha256: String,
 }
 
+fn is_unverified_pin(pin: &str) -> bool {
+    pin.is_empty()
+        || pin.starts_with("PENDING")
+        || pin.starts_with("REPLACE_WITH_")
+}
+
 impl McpAllowlist {
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, McpError> {
         let content = fs::read_to_string(path)?;
@@ -55,12 +61,49 @@ impl McpAllowlist {
         Ok(allowlist)
     }
 
+    /// Merge repo `mcp_allowlist.json` version pins with runtime-discovered node/script paths.
+    pub fn resolve_filesystem() -> Result<Self, McpError> {
+        let paths = discover_filesystem_mcp()?;
+        let mut entry = paths.to_allowlist_entry();
+
+        let file_path = Path::new("mcp_allowlist.json");
+        if file_path.exists() {
+            if let Ok(file) = Self::load_from_file(file_path) {
+                if let Some(server) = file.servers.iter().find(|s| s.name == "filesystem") {
+                    if is_unverified_pin(&server.entry_sha256_pin.clone().unwrap_or_default())
+                        || is_unverified_pin(
+                            &server
+                                .tools_hash_pin
+                                .clone()
+                                .unwrap_or_default(),
+                        )
+                    {
+                        return Err(McpError::SecurityViolation(
+                            "filesystem allowlist entry or tools_hash pin is unverified".into(),
+                        ));
+                    }
+                    verify_file_hash(
+                        &paths.server_script,
+                        server.entry_sha256_pin.as_ref().unwrap(),
+                        "entry script",
+                    )?;
+                    entry.entry_sha256_pin = server.entry_sha256_pin.clone();
+                    entry.tools_hash_pin = server.tools_hash_pin.clone();
+                }
+            }
+        }
+
+        Ok(McpAllowlist {
+            servers: vec![entry],
+        })
+    }
+
     pub fn verify_and_get(&self, name: &str) -> Result<McpServerConfig, McpError> {
         for server in &self.servers {
             if server.name == name {
-                if server.sha256_pin.starts_with("PENDING") || server.sha256_pin.is_empty() {
+                if is_unverified_pin(&server.sha256_pin) {
                     return Err(McpError::SecurityViolation(format!(
-                        "MCP Server '{}' has unverified pending digest pin ('{}'). Execution blocked.",
+                        "MCP Server '{}' has unverified digest pin ('{}'). Execution blocked.",
                         name, server.sha256_pin
                     )));
                 }
@@ -68,7 +111,7 @@ impl McpAllowlist {
                 verify_file_hash(Path::new(&server.command), &server.sha256_pin, "command")?;
 
                 if let Some(entry_pin) = &server.entry_sha256_pin {
-                    if entry_pin.starts_with("PENDING") || entry_pin.is_empty() {
+                    if is_unverified_pin(entry_pin) {
                         return Err(McpError::SecurityViolation(format!(
                             "MCP Server '{}' entry script pin is pending",
                             name
@@ -225,6 +268,23 @@ impl FilesystemMcpPaths {
             entry_sha256_pin: Some(self.script_sha256.clone()),
             tools_hash_pin: None,
             default_policy: "prompt_always".into(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_filesystem_merges_repo_tools_hash_pin() {
+        let Ok(allowlist) = McpAllowlist::resolve_filesystem() else {
+            return;
+        };
+        let entry = allowlist.verify_and_get("filesystem").unwrap();
+        assert_eq!(entry.sha256_pin.len(), 64);
+        if let Some(pin) = &entry.tools_hash_pin {
+            assert_eq!(pin.len(), 64);
         }
     }
 }

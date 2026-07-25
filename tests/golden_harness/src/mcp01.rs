@@ -1,4 +1,4 @@
-use aether_mcp::{discover_filesystem_mcp, invoke_with_grant, McpAllowlist, McpError};
+use aether_mcp::{discover_filesystem_mcp, invoke_with_grant, McpAllowlist};
 use aether_permissions::{PermissionDecision, PermissionManager};
 use serde_json::json;
 use std::fs;
@@ -23,21 +23,41 @@ pub async fn test_mcp_01_impl(conn: &rusqlite::Connection) -> Result<(), String>
     if default_allowlist_path.exists() {
         let allowlist =
             McpAllowlist::load_from_file(default_allowlist_path).map_err(|e| e.to_string())?;
-        let res = allowlist.verify_and_get("filesystem");
-        match res {
-            Err(McpError::SecurityViolation(_)) => {}
-            _ => {
-                return Err(
-                    "Security violation expected when verifying default allowlist PENDING pin"
-                        .into(),
-                );
+        let server = allowlist
+            .servers
+            .iter()
+            .find(|s| s.name == "filesystem")
+            .ok_or_else(|| "Default allowlist missing filesystem server".to_string())?;
+        for (label, pin) in [
+            ("sha256_pin", server.sha256_pin.as_str()),
+            (
+                "entry_sha256_pin",
+                server.entry_sha256_pin.as_deref().unwrap_or(""),
+            ),
+            (
+                "tools_hash_pin",
+                server.tools_hash_pin.as_deref().unwrap_or(""),
+            ),
+        ] {
+            if pin.is_empty()
+                || pin.starts_with("PENDING")
+                || pin.starts_with("REPLACE_WITH_")
+            {
+                return Err(format!(
+                    "Default allowlist {} must be a verified 64-char hex pin, got {:?}",
+                    label, pin
+                ));
+            }
+            if pin.len() != 64 || !pin.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(format!(
+                    "Default allowlist {} must be 64-char hex, got {:?}",
+                    label, pin
+                ));
             }
         }
     }
 
-    let allowlist = McpAllowlist {
-        servers: vec![paths.to_allowlist_entry()],
-    };
+    let allowlist = McpAllowlist::resolve_filesystem().map_err(|e| e.to_string())?;
     allowlist
         .verify_and_get("filesystem")
         .map_err(|e| e.to_string())?;
