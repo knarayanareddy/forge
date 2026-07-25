@@ -130,19 +130,19 @@ class Fal:
         result = self.run(endpoint, payload, label=job)
 
         media = result.get(media_key)
-        if isinstance(media, list):
-            media = media[0]
-        if isinstance(media, dict):
-            url = media.get("url")
-        elif isinstance(media, str):
-            url = media
-        else:
-            url = result.get(f"{media_key}_url")
-        if not url:
+        if media is None:
+            media = result.get(f"{media_key}_url")
+        items = media if isinstance(media, list) else [media]
+        urls = [m.get("url") if isinstance(m, dict) else m for m in items if m]
+        if not urls:
             raise FalError(f"{job}: no '{media_key}' in response: {json.dumps(result)[:400]}")
 
-        dest = OUT / ("clips" if suffix in (".mp4", ".webm") else "assets") / f"{job}{suffix}"
-        self.download(url, dest)
+        folder = OUT / ("clips" if suffix in (".mp4", ".webm") else "assets")
+        dest = folder / f"{job}{suffix}"
+        self.download(urls[0], dest)
+        # Keep every variant so a sheet can be chosen rather than accepted.
+        for i, extra in enumerate(urls[1:], start=2):
+            self.download(extra, folder / f"{job}_v{i}{suffix}")
 
         meta_dir = OUT / "meta"
         meta_dir.mkdir(parents=True, exist_ok=True)
