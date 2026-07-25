@@ -25,15 +25,18 @@ final class AppModel {
         client.endpointDescription
     }
 
+    func ensureDaemonAndConnect() async {
+        await refreshConnection()
+    }
+
     func refreshConnection() async {
         guard !isRunningTask else { return }
-        let result = await client.ping()
-        switch result {
-        case .success:
+        do {
+            try await DaemonProcessManager.shared.ensureRunningAndReady()
             connectionStatus = .connected
             lastPingAt = Date()
             lastError = nil
-        case .failure(let error):
+        } catch {
             connectionStatus = .disconnected
             lastError = error.localizedDescription
         }
@@ -48,6 +51,16 @@ final class AppModel {
         streamedTokens = ""
         eventLog = []
         lastError = nil
+
+        do {
+            try await DaemonProcessManager.shared.ensureRunningAndReady()
+        } catch {
+            lastError = error.localizedDescription
+            lastResponseSummary = error.localizedDescription
+            connectionStatus = .disconnected
+            isRunningTask = false
+            return
+        }
 
         let stream = client.runTask(
             prompt: trimmed,

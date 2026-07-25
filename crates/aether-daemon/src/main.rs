@@ -31,6 +31,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db = Database::open(&db_path)?;
     let router = ModelRouter::from_env()?;
 
+    #[cfg(target_os = "macos")]
+    {
+        let _auth = aether_core::ensure_daemon_auth_token()?;
+        tracing::info!("daemon auth token loaded from Keychain");
+    }
+
     let state = Arc::new(DaemonState { db, router });
     let addr = aether_core::default_daemon_addr();
 

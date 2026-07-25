@@ -10,7 +10,10 @@ struct AetherForgeApp: App {
             RootView(workspace: workspace, model: model)
                 .frame(minWidth: 640, minHeight: 480)
                 .task {
-                    await model.refreshConnection()
+                    await model.ensureDaemonAndConnect()
+                }
+                .onDisappear {
+                    DaemonProcessManager.shared.shutdown()
                 }
         }
     }

@@ -9,7 +9,7 @@
 - Node.js + `@modelcontextprotocol/server-filesystem` (for MCP harness / optional tools)
 - Rust toolchain + Swift 6 (`swift build`)
 
-### From source
+### From source (single-app launch)
 
 ```bash
 git clone https://github.com/knarayanareddy/forge.git
@@ -19,20 +19,25 @@ cargo build --release -p aether-daemon
 swift build -c release
 ```
 
-**Terminal 1 — daemon**
-
-```bash
-cargo run -p aether-daemon
-# listens on 127.0.0.1:7433
-```
-
-**Terminal 2 — app**
+Launch the app only — it spawns `aether-daemon` automatically if ping fails:
 
 ```bash
 swift run AetherForgeApp
 ```
 
-Select a workspace folder during onboarding. Prompts stream tokens from the daemon over TCP JSON-lines.
+The app reads the daemon auth token from Keychain (service `AetherForge`, account `daemon-auth-token`). The daemon generates this token on first startup. Bundled `.app` builds include `aether-daemon` at `Contents/MacOS/aether-daemon`; dev builds search `target/debug/aether-daemon` or honor `AETHER_DAEMON_BIN`.
+
+Select a workspace folder during onboarding. Prompts stream tokens from the daemon over TCP JSON-lines in real time.
+
+### Manual two-terminal mode (optional)
+
+```bash
+# Terminal 1
+cargo run -p aether-daemon
+
+# Terminal 2
+swift run AetherForgeApp
+```
 
 ### BYOK (Bring Your Own Key)
 

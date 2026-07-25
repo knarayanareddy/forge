@@ -73,7 +73,11 @@ final class DaemonClient: @unchecked Sendable {
 
     func ping(timeoutSeconds: TimeInterval = 3) async -> Result<DaemonEvent, DaemonClientError> {
         do {
-            let events = try await send(method: "ping", params: [:], timeoutSeconds: timeoutSeconds)
+            let events = try await collectEvents(
+                method: "ping",
+                params: authParams(),
+                timeoutSeconds: timeoutSeconds
+            )
             if let pong = events.first(where: { $0.type == "pong" }) {
                 return .success(pong)
             }
@@ -88,35 +92,49 @@ final class DaemonClient: @unchecked Sendable {
         }
     }
 
+    /// Streams daemon events incrementally as JSON-lines arrive over TCP.
     func runTask(
         prompt: String,
         sessionId: String,
         workspacePath: String?,
         timeoutSeconds: TimeInterval = 120
     ) -> AsyncThrowingStream<DaemonEvent, Error> {
-        var params: [String: Any] = [
-            "prompt": prompt,
-            "session_id": sessionId
-        ]
+        var params = authParams()
+        params["prompt"] = prompt
+        params["session_id"] = sessionId
         if let workspacePath, !workspacePath.isEmpty {
             params["workspace_path"] = workspacePath
         }
+
+        return stream(method: "run_task", params: params, timeoutSeconds: timeoutSeconds)
+    }
+
+    private func authParams() -> [String: Any] {
+        if let token = DaemonAuth.loadToken() {
+            return ["auth_token": token]
+        }
+        return [:]
+    }
+
+    private func stream(
+        method: String,
+        params: [String: Any],
+        timeoutSeconds: TimeInterval
+    ) -> AsyncThrowingStream<DaemonEvent, Error> {
+        let payload: [String: Any] = ["method": method, "params": params]
         let requestData: Data
         do {
-            requestData = try JSONSerialization.data(withJSONObject: ["method": "run_task", "params": params])
+            requestData = try JSONSerialization.data(withJSONObject: payload)
         } catch {
             return AsyncThrowingStream { $0.finish(throwing: error) }
         }
 
         return AsyncThrowingStream { continuation in
-            Task {
+            DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    let events = try await self.send(requestData: requestData, timeoutSeconds: timeoutSeconds)
-                    for event in events {
+                    try self.streamSync(requestData: requestData, timeoutSeconds: timeoutSeconds) { event in
                         continuation.yield(event)
-                        if event.type == "done" || event.type == "error" {
-                            break
-                        }
+                        return event.type != "done" && event.type != "error" && event.type != "pong"
                     }
                     continuation.finish()
                 } catch {
@@ -126,17 +144,22 @@ final class DaemonClient: @unchecked Sendable {
         }
     }
 
-    private func send(
-        requestData: Data,
+    private func collectEvents(
+        method: String,
+        params: [String: Any],
         timeoutSeconds: TimeInterval
     ) async throws -> [DaemonEvent] {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    let events = try self.sendSync(
-                        requestData: requestData,
+                    var events: [DaemonEvent] = []
+                    try self.streamSync(
+                        requestData: try JSONSerialization.data(withJSONObject: ["method": method, "params": params]),
                         timeoutSeconds: timeoutSeconds
-                    )
+                    ) { event in
+                        events.append(event)
+                        return event.type != "done" && event.type != "error" && event.type != "pong"
+                    }
                     continuation.resume(returning: events)
                 } catch {
                     continuation.resume(throwing: error)
@@ -145,20 +168,13 @@ final class DaemonClient: @unchecked Sendable {
         }
     }
 
-    private func send(
-        method: String,
-        params: [String: Any],
-        timeoutSeconds: TimeInterval
-    ) async throws -> [DaemonEvent] {
-        let payload: [String: Any] = ["method": method, "params": params]
-        let requestData = try JSONSerialization.data(withJSONObject: payload)
-        return try await send(requestData: requestData, timeoutSeconds: timeoutSeconds)
-    }
-
-    private func sendSync(
+    /// Reads TCP bytes, parses complete JSON-lines, and invokes `onEvent` for each event.
+    /// Return `false` from `onEvent` to stop reading early.
+    private func streamSync(
         requestData: Data,
-        timeoutSeconds: TimeInterval
-    ) throws -> [DaemonEvent] {
+        timeoutSeconds: TimeInterval,
+        onEvent: (DaemonEvent) -> Bool
+    ) throws {
         let socketFD = try connect()
         defer { close(socketFD) }
 
@@ -170,7 +186,6 @@ final class DaemonClient: @unchecked Sendable {
             throw DaemonClientError.sendFailed
         }
 
-        var events: [DaemonEvent] = []
         var buffer = Data()
         let deadline = Date().addingTimeInterval(timeoutSeconds)
 
@@ -188,20 +203,18 @@ final class DaemonClient: @unchecked Sendable {
             while let newlineRange = buffer.firstRange(of: Data([0x0A])) {
                 let lineData = buffer.subdata(in: 0..<newlineRange.lowerBound)
                 buffer.removeSubrange(0..<newlineRange.upperBound)
-                guard let line = String(data: lineData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                guard let line = String(data: lineData, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
                       !line.isEmpty else { continue }
+
                 let event = try parseEvent(line)
-                events.append(event)
-                if event.type == "done" || event.type == "error" || event.type == "pong" {
-                    return events
+                if !onEvent(event) {
+                    return
                 }
             }
         }
 
-        if events.isEmpty {
-            throw DaemonClientError.receiveFailed
-        }
-        return events
+        throw DaemonClientError.receiveFailed
     }
 
     private func connect() throws -> Int32 {

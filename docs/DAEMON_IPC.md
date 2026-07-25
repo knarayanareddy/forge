@@ -4,6 +4,27 @@ Phase 1 uses **TCP JSON-lines** on localhost as the canonical IPC between client
 
 Default address: `127.0.0.1:7433` (override with `AETHER_DAEMON_ADDR` or `AETHER_DAEMON_PORT`).
 
+## Authentication (Tier A)
+
+On macOS, the daemon stores an IPC auth token in Keychain:
+
+- **Service:** `AetherForge`
+- **Account:** `daemon-auth-token`
+
+The token is created on first daemon startup (`ensure_daemon_auth_token`). Clients must include it in request params:
+
+```json
+{"method":"run_task","params":{"auth_token":"<token>","prompt":"Say hello","session_id":"demo-1"}}
+```
+
+**Fail-closed:** `run_task` without a valid `auth_token` returns `{"type":"error","message":"Invalid or missing auth_token"}`.
+
+`ping` does not require auth (health check only).
+
+The Swift app (`DaemonAuth.swift`) reads the token from Keychain and `DaemonProcessManager` spawns the daemon subprocess when needed.
+
+On non-macOS, auth is optional unless `AETHER_DAEMON_AUTH_TOKEN` is set.
+
 ## Start the daemon
 
 ```bash
@@ -19,6 +40,22 @@ Environment variables:
 | `AETHER_DB_PATH` | `~/.aether/aether.db` | SQLite database |
 | `AETHER_OLLAMA_ENDPOINT` | `http://localhost:11434` | Ollama base URL |
 | `AETHER_CHAT_MODEL` | `qwen2.5:3b` | Chat model for routing |
+
+### Authentication (Tier A)
+
+On macOS, the daemon stores an IPC auth token in Keychain (service `AetherForge`, account `daemon-auth-token`) on startup. **`run_task` requires a valid `auth_token` param** — requests without it are rejected fail-closed.
+
+```json
+{"method":"run_task","params":{"prompt":"Hello","session_id":"demo-1","auth_token":"<from-keychain>"}}
+```
+
+The Swift app loads the same Keychain entry and includes `auth_token` on every `run_task`. `ping` accepts an optional `auth_token` but does not require it.
+
+Retrieve the token for manual testing (after daemon has started once):
+
+```bash
+security find-generic-password -s AetherForge -a daemon-auth-token -w
+```
 
 ## Protocol
 
@@ -52,6 +89,8 @@ Structured loop plan (Phase 3 — emits `plan`/`tool`/`observe`/`verify` events)
 | `session_id` | no | Session for grants / audit |
 | `workspace_path` | loop only | Workspace directory (or set `AETHER_WORKSPACE`) |
 | `max_iterations` | no | Loop cap (default 8) |
+| `auth_token` | yes (macOS) | Daemon IPC token from Keychain |
+| `auth_token` | yes (Darwin) | Keychain daemon auth token — required on macOS |
 
 Optional params (Phase 3 loop):
 
@@ -121,7 +160,8 @@ cargo run -p aether-daemon
 
 # Terminal 2
 printf '%s\n' '{"method":"ping","params":{}}' | nc 127.0.0.1 7433
-printf '%s\n' '{"method":"run_task","params":{"prompt":"Reply with one word: forge"}}' | nc 127.0.0.1 7433
+TOKEN=$(security find-generic-password -s AetherForge -a daemon-auth-token -w 2>/dev/null)
+printf '%s\n' "{\"method\":\"run_task\",\"params\":{\"prompt\":\"Reply with one word: forge\",\"auth_token\":\"$TOKEN\"}}" | nc 127.0.0.1 7433
 ```
 
 Requires Ollama running with a chat model (e.g. `qwen2.5:3b`).

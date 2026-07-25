@@ -256,6 +256,22 @@ pub fn invoke_with_grant(
     let mut client = McpClient::spawn_verified(allowlist, server_name, extra_spawn_args)?;
     let tools_audit = client.list_tools()?;
 
+    let config = allowlist.verify_and_get(server_name)?;
+    if let Some(pin) = &config.tools_hash_pin {
+        if pin.starts_with("PENDING") || pin.is_empty() {
+            return Err(McpError::SecurityViolation(format!(
+                "MCP Server '{}' tools_hash pin is pending",
+                server_name
+            )));
+        }
+        if tools_audit.tools_hash != *pin {
+            return Err(McpError::SecurityViolation(format!(
+                "MCP tools_hash pin mismatch for '{}': expected {}, got {}",
+                server_name, pin, tools_audit.tools_hash
+            )));
+        }
+    }
+
     PermissionManager::audit_decision(
         conn,
         session_id,

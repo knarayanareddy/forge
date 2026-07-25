@@ -127,5 +127,37 @@ pub async fn test_mcp_01_impl(conn: &rusqlite::Connection) -> Result<(), String>
         ));
     }
 
+    let wrong_pin_allowlist = McpAllowlist {
+        servers: vec![{
+            let mut entry = paths.to_allowlist_entry();
+            entry.tools_hash_pin = Some("deadbeef".repeat(8));
+            entry
+        }],
+    };
+    let wrong_pin = invoke_with_grant(
+        conn,
+        session_id,
+        &workspace_str,
+        &wrong_pin_allowlist,
+        "filesystem",
+        "list_directory",
+        json!({ "path": workspace_str }),
+        &[workspace_str.clone()],
+    );
+    if wrong_pin.is_ok() {
+        return Err("Expected tools_hash pin mismatch to block MCP invoke".into());
+    }
+
+    let pinned_allowlist = McpAllowlist {
+        servers: vec![{
+            let mut entry = paths.to_allowlist_entry();
+            entry.tools_hash_pin = Some(tools_audit.tools_hash.clone());
+            entry
+        }],
+    };
+    pinned_allowlist
+        .verify_and_get("filesystem")
+        .map_err(|e| e.to_string())?;
+
     Ok(())
 }

@@ -19,6 +19,7 @@ aether-mcp = { path = "../aether-mcp" }
 aether-permissions = { path = "../aether-permissions" }
 aether-skills = { path = "../aether-skills" }
 keyring = "3.6"
+sha2 = "0.10"
 
 [dev-dependencies]
 aether-db = { path = "../aether-db" }

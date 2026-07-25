@@ -28,6 +28,8 @@ pub struct McpServerConfig {
     pub sha256_pin: String,
     #[serde(default)]
     pub entry_sha256_pin: Option<String>,
+    #[serde(default)]
+    pub tools_hash_pin: Option<String>,
     pub default_policy: String,
 }
 
@@ -219,6 +221,7 @@ impl FilesystemMcpPaths {
             args: vec![self.server_script.to_string_lossy().into_owned()],
             sha256_pin: self.node_sha256.clone(),
             entry_sha256_pin: Some(self.script_sha256.clone()),
+            tools_hash_pin: None,
             default_policy: "prompt_always".into(),
         }
     }

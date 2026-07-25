@@ -341,6 +341,31 @@ async fn test_safe_01(db: &Database) -> Result<(), String> {
         return Err("Expected path traversal via .. to be denied".into());
     }
 
+    let tmp = tempdir().map_err(|e| e.to_string())?;
+    let workspace = tmp.path();
+    let workspace_str = workspace.to_string_lossy().to_string();
+    conn.execute(
+        "INSERT INTO capability_grants (session_id, resource_path, permission_type) VALUES (?1, ?2, 'read')",
+        rusqlite::params![session_id, workspace_str],
+    ).map_err(|e| e.to_string())?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        let escape_link = workspace.join("escape-link");
+        symlink("/etc/passwd", &escape_link).map_err(|e| e.to_string())?;
+        let symlink_decision = PermissionManager::check_file_access(
+            &conn,
+            session_id,
+            &escape_link.to_string_lossy(),
+            "read",
+        )
+        .map_err(|e| e.to_string())?;
+        if symlink_decision != PermissionDecision::Denied {
+            return Err("Expected symlink escape outside granted workspace to be denied".into());
+        }
+    }
+
     let denied_count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM audit_log WHERE decision = 'denied';",
         [],

@@ -17,6 +17,8 @@ pub struct RequestParams {
     pub workspace_path: Option<String>,
     #[serde(default)]
     pub max_iterations: Option<usize>,
+    #[serde(default)]
+    pub auth_token: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

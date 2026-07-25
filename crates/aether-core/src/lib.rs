@@ -2,8 +2,9 @@ mod keychain;
 mod loop_engine;
 
 pub use keychain::{
-    load_byok_key, require_byok_key_if_configured, store_byok_key, KeychainError, BYOK_ACCOUNT,
-    BYOK_SERVICE,
+    ensure_daemon_auth_token, load_byok_key, load_daemon_auth_token, require_byok_key_if_configured,
+    store_byok_key, store_daemon_auth_token, verify_daemon_auth_token, KeychainError, BYOK_ACCOUNT,
+    BYOK_SERVICE, DAEMON_AUTH_ACCOUNT,
 };
 
 pub use loop_engine::{
