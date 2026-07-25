@@ -1,5 +1,14 @@
+mod graph_extract;
 mod keychain;
 mod loop_engine;
+mod nl_planner;
+
+pub use graph_extract::{
+    build_graph_extract_prompt, enforce_max_entities, graph_extract_schema_json,
+    payload_to_graph_inserts, run_graph_extract, strip_json_fence, validate_graph_extract,
+    ExtractEdge, ExtractNode, GraphExtractError, GraphExtractPayload, PreparedGraphEdge,
+    PreparedGraphNode, Provenance, GRAPH_EXTRACT_SCHEMA_PATH,
+};
 
 pub use keychain::{
     ensure_daemon_auth_token, load_byok_key, load_daemon_auth_token, load_daemon_auth_token_file,
@@ -10,7 +19,12 @@ pub use keychain::{
 
 pub use loop_engine::{
     GoalStopHook, LoopConfig, LoopRunResult, LoopStreamEvent, PythonLintVerifier, ReActLoopEngine,
-    StopHook, ToolInvocation, ToolObservation, ToolRegistry, Verifier,
+    StopHook, ToolInvocation, ToolObservation, ToolRegistry, Verifier, DEFAULT_MAX_LOOP_TOKENS,
+};
+
+pub use nl_planner::{
+    build_nl_plan_prompt, run_nl_planner, validate_nl_plan, NlPlanError, LOOP02_EVAL_PROMPT,
+    LOOP02_GOLD_TOOL_ORDER,
 };
 
 use aether_permissions::{PermissionDecision, PermissionManager};
@@ -137,6 +151,15 @@ impl ModelRouter {
         let backend = self.route_backend(complexity);
         OllamaProvider::complete_stream_backend(backend, prompt).await
     }
+
+    /// Non-streaming JSON-mode completion for structured extraction (Slice 6.4 graph_extract).
+    pub async fn complete_json(
+        &self,
+        prompt: &str,
+        num_predict: u32,
+    ) -> Result<CompletionResult, CompleteError> {
+        OllamaProvider::complete_json_backend(self.primary(), prompt, num_predict).await
+    }
 }
 
 pub type TokenStream = Pin<Box<dyn Stream<Item = Result<TokenChunk, CompleteError>> + Send>>;
@@ -151,15 +174,17 @@ pub struct CompletionResult {
 #[derive(Debug, Clone)]
 pub struct TokenChunk {
     pub text: String,
-    /// Time-to-first-token in milliseconds; set only on the first content chunk.
+    /// Client-side time-to-first-token in milliseconds; set only on the first content chunk.
     pub ttft_ms: Option<u128>,
+    /// Ollama server-side TTFT (`load_duration + prompt_eval_duration`) on the terminal chunk.
+    pub server_ttft_ms: Option<u128>,
     pub model: String,
     pub done: bool,
 }
 
 use std::sync::OnceLock;
 
-fn ollama_client() -> &'static reqwest::Client {
+pub(crate) fn ollama_client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
         reqwest::Client::builder()
@@ -169,6 +194,13 @@ fn ollama_client() -> &'static reqwest::Client {
             .expect("ollama reqwest client")
     })
 }
+
+/// Prompt used for ROUT-01 TTFT warmup and measurement (must match harness).
+pub const ROUT_TTFT_PROMPT: &str = "forge";
+
+/// Max Ollama `load_duration` (ns) to treat a sample as warm (model already resident).
+/// Apple Silicon often reports 100–250ms load overhead even when `/api/ps` shows the model loaded.
+pub const ROUT_WARM_LOAD_MAX_NS: u64 = 300_000_000;
 
 pub struct OllamaProvider;
 
@@ -189,8 +221,18 @@ impl OllamaProvider {
 
     /// Drain `rounds` streaming chat completions to load the model and keep it warm (`keep_alive: 30m`).
     pub async fn warm_chat_model(endpoint: &str, model: &str, rounds: usize) -> Result<(), CompleteError> {
+        Self::warm_chat_model_with_prompt(endpoint, model, ROUT_TTFT_PROMPT, rounds).await
+    }
+
+    /// Warm with an explicit prompt (ROUT-01 uses `ROUT_TTFT_PROMPT` for parity with TTFT measurement).
+    pub async fn warm_chat_model_with_prompt(
+        endpoint: &str,
+        model: &str,
+        prompt: &str,
+        rounds: usize,
+    ) -> Result<(), CompleteError> {
         for _ in 0..rounds {
-            let mut stream = Box::pin(Self::complete_stream(endpoint, model, "ok").await?);
+            let mut stream = Box::pin(Self::complete_stream(endpoint, model, prompt).await?);
             while let Some(chunk) = stream.next().await {
                 let chunk = chunk?;
                 if chunk.done {
@@ -203,7 +245,22 @@ impl OllamaProvider {
 
     /// Load the chat model into Ollama memory (`keep_alive: 30m`) before TTFT-sensitive work.
     pub async fn preload_chat_model(endpoint: &str, model: &str) -> Result<(), CompleteError> {
-        Self::warm_chat_model(endpoint, model, 1).await
+        Self::warm_chat_model(endpoint, model, 5).await
+    }
+
+    /// Returns true when `model` is resident in Ollama memory (`/api/ps`).
+    pub async fn is_model_loaded(endpoint: &str, model: &str) -> Result<bool, CompleteError> {
+        let client = ollama_client();
+        let url = format!("{}/api/ps", endpoint.trim_end_matches('/'));
+        let resp = client.get(&url).send().await?;
+        if !resp.status().is_success() {
+            return Err(CompleteError::Api(format!(
+                "Ollama ps check failed: HTTP {}",
+                resp.status()
+            )));
+        }
+        let data: PsResponse = resp.json().await?;
+        Ok(data.models.iter().any(|m| model_name_matches(&m.name, model)))
     }
 
     pub async fn complete(
@@ -250,6 +307,132 @@ impl OllamaProvider {
         }
     }
 
+    pub async fn complete_json_backend(
+        backend: &ModelBackend,
+        prompt: &str,
+        num_predict: u32,
+    ) -> Result<CompletionResult, CompleteError> {
+        match backend {
+            ModelBackend::OllamaMlx { endpoint, model } => {
+                Self::complete_json_ollama(endpoint, model, prompt, num_predict).await
+            }
+            ModelBackend::ByokCloud {
+                provider,
+                api_key,
+                model,
+            } => Self::complete_json_byok(provider, api_key, model, prompt, num_predict).await,
+            ModelBackend::LlamaCpp { .. } => Err(CompleteError::Api(
+                "LlamaCpp backend not implemented in MVP router".into(),
+            )),
+        }
+    }
+
+    async fn complete_json_ollama(
+        endpoint: &str,
+        model: &str,
+        prompt: &str,
+        num_predict: u32,
+    ) -> Result<CompletionResult, CompleteError> {
+        let client = ollama_client();
+        let url = format!("{}/api/chat", endpoint.trim_end_matches('/'));
+        let req = ChatRequest {
+            model: model.to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: prompt.to_string(),
+            }],
+            stream: false,
+            keep_alive: Some("30m".to_string()),
+            format: Some("json".to_string()),
+            options: Some(ChatOptions {
+                num_predict,
+                temperature: 0.0,
+                num_ctx: None,
+            }),
+        };
+
+        let start = Instant::now();
+        let resp = client.post(&url).json(&req).send().await?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(CompleteError::Api(format!("HTTP status {}: {}", status, body)));
+        }
+
+        let data: ChatResponse = resp.json().await?;
+        if data.message.content.trim().is_empty() {
+            return Err(CompleteError::Api("Empty JSON completion from Ollama".into()));
+        }
+
+        Ok(CompletionResult {
+            content: data.message.content,
+            ttft_ms: start.elapsed().as_millis(),
+            model: model.to_string(),
+        })
+    }
+
+    async fn complete_json_byok(
+        provider: &str,
+        api_key: &str,
+        model: &str,
+        prompt: &str,
+        num_predict: u32,
+    ) -> Result<CompletionResult, CompleteError> {
+        let base = std::env::var("AETHER_BYOK_ENDPOINT").unwrap_or_else(|_| {
+            match provider {
+                "openai" => "https://api.openai.com/v1".into(),
+                other => format!("https://api.{}.com/v1", other),
+            }
+        });
+        let url = format!("{}/chat/completions", base.trim_end_matches('/'));
+        let client = ollama_client();
+        let req = OpenAiChatRequest {
+            model: model.to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: prompt.to_string(),
+            }],
+            stream: false,
+            max_tokens: Some(num_predict),
+            response_format: Some(OpenAiResponseFormat {
+                format_type: "json_object".to_string(),
+            }),
+        };
+
+        let start = Instant::now();
+        let resp = client
+            .post(&url)
+            .bearer_auth(api_key)
+            .json(&req)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(CompleteError::Api(format!(
+                "BYOK {} HTTP {}: {}",
+                provider, status, body
+            )));
+        }
+
+        let data: OpenAiChatResponse = resp.json().await?;
+        let content = data
+            .choices
+            .first()
+            .map(|c| c.message.content.clone())
+            .unwrap_or_default();
+        if content.trim().is_empty() {
+            return Err(CompleteError::Api("Empty JSON completion from BYOK".into()));
+        }
+
+        Ok(CompletionResult {
+            content,
+            ttft_ms: start.elapsed().as_millis(),
+            model: model.to_string(),
+        })
+    }
+
     async fn complete_stream_ollama(
         endpoint: &str,
         model: &str,
@@ -265,9 +448,11 @@ impl OllamaProvider {
             }],
             stream: true,
             keep_alive: Some("30m".to_string()),
+            format: None,
             options: Some(ChatOptions {
                 num_predict: 16,
                 temperature: 0.0,
+                num_ctx: Some(512),
             }),
         };
 
@@ -300,9 +485,12 @@ impl OllamaProvider {
                     }
                     let data: StreamChatResponse = parse_stream_line(&line)?;
                     if data.done {
+                        let server_ttft_ms =
+                            ollama_warm_server_ttft_ms(data.load_duration, data.prompt_eval_duration);
                         yield TokenChunk {
                             text: String::new(),
                             ttft_ms: None,
+                            server_ttft_ms,
                             model: model_name.clone(),
                             done: true,
                         };
@@ -318,6 +506,7 @@ impl OllamaProvider {
                         yield TokenChunk {
                             text: data.message.content.clone(),
                             ttft_ms,
+                            server_ttft_ms: None,
                             model: model_name.clone(),
                             done: false,
                         };
@@ -350,6 +539,8 @@ impl OllamaProvider {
                 content: prompt.to_string(),
             }],
             stream: true,
+            max_tokens: None,
+            response_format: None,
         };
 
         let start = Instant::now();
@@ -401,6 +592,7 @@ impl OllamaProvider {
                             yield TokenChunk {
                                 text: choice.delta.content.clone(),
                                 ttft_ms,
+                                server_ttft_ms: None,
                                 model: model_name.clone(),
                                 done: false,
                             };
@@ -409,6 +601,7 @@ impl OllamaProvider {
                             yield TokenChunk {
                                 text: String::new(),
                                 ttft_ms: None,
+                                server_ttft_ms: None,
                                 model: model_name.clone(),
                                 done: true,
                             };
@@ -431,6 +624,8 @@ fn parse_stream_line(line: &str) -> Result<StreamChatResponse, CompleteError> {
                 content: String::new(),
             },
             done: true,
+            load_duration: None,
+            prompt_eval_duration: None,
         });
     }
     serde_json::from_str(json).map_err(|e| CompleteError::Api(format!("SSE parse error: {}", e)))
@@ -470,6 +665,25 @@ struct OpenAiChatRequest {
     model: String,
     messages: Vec<ChatMessage>,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<OpenAiResponseFormat>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiChatResponse {
+    choices: Vec<OpenAiChatChoice>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiChatChoice {
+    message: OpenAiChatMessage,
+}
+
+#[derive(Deserialize)]
+struct OpenAiChatMessage {
+    content: String,
 }
 
 #[derive(Deserialize)]
@@ -497,13 +711,28 @@ struct ChatRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     keep_alive: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     options: Option<ChatOptions>,
+}
+
+#[derive(Deserialize)]
+struct ChatResponse {
+    message: StreamMessage,
+}
+
+#[derive(Serialize)]
+struct OpenAiResponseFormat {
+    #[serde(rename = "type")]
+    format_type: String,
 }
 
 #[derive(Serialize)]
 struct ChatOptions {
     num_predict: u32,
     temperature: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    num_ctx: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -517,6 +746,47 @@ struct StreamChatResponse {
     message: StreamMessage,
     #[serde(default)]
     done: bool,
+    #[serde(default)]
+    load_duration: Option<u64>,
+    #[serde(default)]
+    prompt_eval_duration: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct PsResponse {
+    models: Vec<PsModel>,
+}
+
+#[derive(Deserialize)]
+struct PsModel {
+    name: String,
+}
+
+/// Server TTFT for warm samples — returns `None` when Ollama reports a cold model load.
+pub fn ollama_warm_server_ttft_ms(
+    load_duration: Option<u64>,
+    prompt_eval_duration: Option<u64>,
+) -> Option<u128> {
+    match (load_duration, prompt_eval_duration) {
+        (None, None) => None,
+        (Some(load), _) if load > ROUT_WARM_LOAD_MAX_NS => None,
+        (load, prompt) => {
+            let load_ms = load.unwrap_or(0) as u128 / 1_000_000;
+            let prompt_ms = prompt.unwrap_or(0) as u128 / 1_000_000;
+            Some(load_ms + prompt_ms)
+        }
+    }
+}
+
+fn model_name_matches(resident: &str, requested: &str) -> bool {
+    resident == requested
+        || resident.strip_suffix(":latest") == Some(requested)
+        || requested.strip_suffix(":latest") == Some(resident)
+        || resident.starts_with(requested)
+            && resident
+                .chars()
+                .nth(requested.len())
+                .is_some_and(|c| c == ':')
 }
 
 #[derive(Deserialize)]
@@ -553,10 +823,12 @@ pub async fn fetch_ollama_embedding(endpoint: &str, model: &str, text: &str) -> 
     Ok(data.embedding)
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Eq)]
 pub enum LoopError {
     #[error("Max iterations ({0}) exceeded")]
     MaxIterations(usize),
+    #[error("Token budget exceeded: {used} / {max}")]
+    BudgetExceeded { used: usize, max: usize },
     #[error("Turn error: {0}")]
     Turn(String),
 }

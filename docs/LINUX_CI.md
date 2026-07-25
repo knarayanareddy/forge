@@ -13,10 +13,12 @@ AetherForge treats **Darwin (macOS 15+)** as the canonical platform. Linux CI va
 | MCP-01 | hard | PASS* | Requires Node + MCP server installed in CI |
 | ROUT-01 | hard | **FAIL-CLOSED** | Requires live Ollama SSE streaming |
 | MEM-01 | hard | **FAIL-CLOSED** | Requires Ollama `all-minilm` embeddings |
+| GRAPH-01 | hard | **FAIL-CLOSED** | Requires Ollama embeddings + graph recall@k |
 | SKILL-01 | hard | PASS | Procedural skill loader |
 | SAFE-01 | hard | PASS | Permission + audit hash chain |
 | RES-01 | hard | PASS | SIGTERM child recovery (uses Unix signals) |
 | LOOP-01 | hard | PASS | ReAct loop in production crate |
+| LOOP-02 | hard | **FAIL-CLOSED** | Requires Ollama NL planner (`nl_planner`) |
 
 \* MCP-01 fails if `@modelcontextprotocol/server-filesystem` is not installed — install via `npm install -g` in CI.
 
@@ -24,9 +26,9 @@ AetherForge treats **Darwin (macOS 15+)** as the canonical platform. Linux CI va
 
 | Environment | Expected harness | Notes |
 |-------------|------------------|-------|
-| Darwin + Ollama + sandbox-exec | **11/11 (11 hard)** | Canonical release gate |
-| Linux (default CI) | **8/11** | FS-02, MEM-01, ROUT-01 fail-closed |
-| Linux + Ollama service | **10/11** | FS-02 still fail-closed without sandbox-exec |
+| Darwin + Ollama + sandbox-exec | **13/13 (13 hard)** | Canonical release gate (Phase 6 slice 6.6) |
+| Linux (default CI) | **8/13** | FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02 fail-closed |
+| Linux + Ollama service | **12/13** | FS-02 still fail-closed without sandbox-exec |
 
 ## CI workflow
 
@@ -36,7 +38,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs:
 2. `cargo test --workspace`
 3. `cargo run -p golden-harness` (results interpreted per matrix above)
 
-Linux jobs **must not** skip fail-closed tasks silently — harness prints `FAIL-CLOSED` for FS-02, MEM-01, ROUT-01 when prerequisites are absent.
+Linux jobs **must not** skip fail-closed tasks silently — harness prints `FAIL-CLOSED` for FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02 when prerequisites are absent.
 
 ## BYOK on Linux
 

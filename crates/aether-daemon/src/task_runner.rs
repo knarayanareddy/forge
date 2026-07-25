@@ -1,6 +1,9 @@
+use crate::ingest::{post_turn_graph_ingest, IngestConfig};
 use crate::protocol::EventLine;
 use crate::DaemonState;
-use aether_core::{LoopConfig, LoopStreamEvent, PromptComplexity, ReActLoopEngine};
+use aether_core::{
+    LoopConfig, LoopStreamEvent, PromptComplexity, ReActLoopEngine, DEFAULT_MAX_LOOP_TOKENS,
+};
 use aether_mcp::McpAllowlist;
 use aether_skills::SkillLoader;
 use futures::StreamExt;
@@ -15,6 +18,7 @@ pub struct RunTaskParams {
     pub session_id: Option<String>,
     pub workspace_path: Option<String>,
     pub max_iterations: Option<usize>,
+    pub max_tokens: Option<usize>,
 }
 
 pub async fn run_task(
@@ -24,6 +28,21 @@ pub async fn run_task(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if let Some(plan) = ReActLoopEngine::parse_plan_from_prompt(&params.prompt) {
         return run_loop_task(writer, state, params, plan).await;
+    }
+
+    if let Some(nl_goal) = params.prompt.strip_prefix("nl:") {
+        let max_iterations = params.max_iterations.unwrap_or(8);
+        match aether_core::run_nl_planner(&state.router, nl_goal.trim(), max_iterations).await {
+            Ok(plan) => return run_loop_task(writer, state, params, plan).await,
+            Err(e) => {
+                write_event(
+                    writer,
+                    EventLine::error(format!("NlPlanner failed: {}", e)),
+                )
+                .await?;
+                return Ok(());
+            }
+        }
     }
 
     run_stream_task(writer, state, params).await
@@ -46,9 +65,12 @@ async fn run_loop_task(
     let allowlist = load_allowlist();
     let skills = load_skills();
     let max_iterations = params.max_iterations.unwrap_or(8);
-    let config = LoopConfig {
+    let max_tokens = params.max_tokens.unwrap_or(DEFAULT_MAX_LOOP_TOKENS);
+    let mut config = LoopConfig {
         max_iterations,
-        session_id,
+        max_tokens,
+        tokens_used: 0,
+        session_id: session_id.clone(),
         workspace,
     };
     let engine = ReActLoopEngine::new(config.max_iterations);
@@ -58,7 +80,7 @@ async fn run_loop_task(
         let mut events = Vec::new();
         let result = engine.run_structured(
             &conn,
-            &config,
+            &mut config,
             plan,
             allowlist.as_ref(),
             &skills,
@@ -77,9 +99,22 @@ async fn run_loop_task(
         Ok(run) => {
             write_event(
                 writer,
-                EventLine::done(run.summary.clone(), 0, "loop".into()),
+                EventLine::done_with_tokens(
+                    run.summary.clone(),
+                    0,
+                    "loop".into(),
+                    Some(run.tokens_used),
+                ),
             )
             .await?;
+
+            post_turn_ingest(
+                state,
+                &session_id,
+                params.prompt.trim(),
+                run.summary.trim(),
+            )
+            .await;
         }
         Err(e) => {
             write_event(writer, EventLine::error(e.to_string())).await?;
@@ -154,9 +189,40 @@ async fn run_stream_task(
         ttft_ms = 0;
     }
 
-    write_event(writer, EventLine::done(full_content, ttft_ms, model)).await?;
+    write_event(
+        writer,
+        EventLine::done(full_content.clone(), ttft_ms, model),
+    )
+    .await?;
+
+    if let Some(session_id) = &params.session_id {
+        post_turn_ingest(
+            state,
+            session_id,
+            params.prompt.trim(),
+            full_content.trim(),
+        )
+        .await;
+    }
 
     Ok(())
+}
+
+async fn post_turn_ingest(
+    state: &Arc<DaemonState>,
+    session_id: &str,
+    user_text: &str,
+    assistant_text: &str,
+) {
+    post_turn_graph_ingest(
+        &state.db,
+        &state.router,
+        &IngestConfig::default(),
+        session_id,
+        user_text,
+        assistant_text,
+    )
+    .await;
 }
 
 fn resolve_workspace(workspace: Option<&str>) -> Result<PathBuf, String> {
@@ -228,6 +294,17 @@ fn loop_event_to_line(event: &LoopStreamEvent) -> Option<EventLine> {
             passed,
             detail,
         } => Some(EventLine::verify(*iteration, *passed, detail)),
+        LoopStreamEvent::Budget {
+            iteration,
+            max_iterations,
+            tokens_used,
+            max_tokens,
+        } => Some(EventLine::budget(
+            *iteration,
+            *max_iterations,
+            *tokens_used,
+            *max_tokens,
+        )),
         LoopStreamEvent::Done { .. } | LoopStreamEvent::Error { .. } => None,
     }
 }

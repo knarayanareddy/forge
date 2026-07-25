@@ -9,11 +9,30 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
+/// Default token cap for daemon loop tasks (`0` = unlimited).
+pub const DEFAULT_MAX_LOOP_TOKENS: usize = 0;
+
 #[derive(Debug, Clone)]
 pub struct LoopConfig {
     pub max_iterations: usize,
+    /// Token budget cap (`0` = unlimited).
+    pub max_tokens: usize,
+    /// Running token tally; updated by `ReActLoopEngine` during execution.
+    pub tokens_used: usize,
     pub session_id: String,
     pub workspace: PathBuf,
+}
+
+impl LoopConfig {
+    pub fn new(max_iterations: usize, session_id: String, workspace: PathBuf) -> Self {
+        Self {
+            max_iterations,
+            max_tokens: DEFAULT_MAX_LOOP_TOKENS,
+            tokens_used: 0,
+            session_id,
+            workspace,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,6 +80,7 @@ pub enum ToolInvocation {
 #[derive(Debug, Clone)]
 pub struct LoopRunResult {
     pub iterations: usize,
+    pub tokens_used: usize,
     pub observations: Vec<ToolObservation>,
     pub summary: String,
     pub done: bool,
@@ -89,6 +109,13 @@ pub enum LoopStreamEvent {
     Done {
         iterations: usize,
         summary: String,
+        tokens_used: usize,
+    },
+    Budget {
+        iteration: usize,
+        max_iterations: usize,
+        tokens_used: usize,
+        max_tokens: usize,
     },
     Error {
         message: String,
@@ -349,7 +376,7 @@ impl ReActLoopEngine {
     pub fn run_structured<F>(
         &self,
         conn: &Connection,
-        config: &LoopConfig,
+        config: &mut LoopConfig,
         plan: Vec<ToolInvocation>,
         allowlist: Option<&McpAllowlist>,
         skills: &HashMap<String, SkillDefinition>,
@@ -377,6 +404,14 @@ impl ReActLoopEngine {
                 action: action.to_string(),
             });
 
+            config.tokens_used = config
+                .tokens_used
+                .saturating_add(estimate_invocation_tokens(&step));
+            emit_budget_telemetry(config, iteration, &mut on_event);
+            if let Err(err) = check_token_budget(conn, config, iteration, &mut on_event) {
+                return Err(err);
+            }
+
             if matches!(step, ToolInvocation::Done) {
                 let obs = ToolRegistry::execute(
                     conn,
@@ -387,6 +422,13 @@ impl ReActLoopEngine {
                     &step,
                 )
                 .map_err(LoopError::Turn)?;
+                config.tokens_used = config
+                    .tokens_used
+                    .saturating_add(estimate_tokens(&obs.output));
+                emit_budget_telemetry(config, iteration, &mut on_event);
+                if let Err(err) = check_token_budget(conn, config, iteration, &mut on_event) {
+                    return Err(err);
+                }
                 observations.push(obs.clone());
                 on_event(LoopStreamEvent::Tool {
                     iteration,
@@ -402,6 +444,13 @@ impl ReActLoopEngine {
 
             let obs = ToolRegistry::execute(conn, config, allowlist, skills, iteration, &step)
                 .map_err(LoopError::Turn)?;
+            config.tokens_used = config
+                .tokens_used
+                .saturating_add(estimate_tokens(&obs.output));
+            emit_budget_telemetry(config, iteration, &mut on_event);
+            if let Err(err) = check_token_budget(conn, config, iteration, &mut on_event) {
+                return Err(err);
+            }
             on_event(LoopStreamEvent::Tool {
                 iteration,
                 tool: obs.tool.clone(),
@@ -456,10 +505,12 @@ impl ReActLoopEngine {
         on_event(LoopStreamEvent::Done {
             iterations: iteration,
             summary: summary.clone(),
+            tokens_used: config.tokens_used,
         });
 
         Ok(LoopRunResult {
             iterations: iteration,
+            tokens_used: config.tokens_used,
             observations,
             summary,
             done: true,
@@ -469,7 +520,7 @@ impl ReActLoopEngine {
     pub fn run_with_stop_hook<S: StopHook>(
         &self,
         conn: &Connection,
-        config: &LoopConfig,
+        config: &mut LoopConfig,
         plan: Vec<ToolInvocation>,
         allowlist: Option<&McpAllowlist>,
         skills: &HashMap<String, SkillDefinition>,
@@ -506,6 +557,89 @@ fn observation(iteration: usize, tool: &str, success: bool, output: String) -> T
     }
 }
 
+/// Conservative byte-length estimate (~4 bytes per token).
+fn estimate_tokens(text: &str) -> usize {
+    if text.is_empty() {
+        return 0;
+    }
+    (text.len() + 3) / 4
+}
+
+fn estimate_invocation_tokens(step: &ToolInvocation) -> usize {
+    match step {
+        ToolInvocation::FsWrite { content, path } => {
+            estimate_tokens(content) + estimate_tokens(path)
+        }
+        ToolInvocation::FsRead { path } => estimate_tokens(path),
+        ToolInvocation::PythonLint { source } => estimate_tokens(source),
+        ToolInvocation::GitInit { branch } => estimate_tokens(branch),
+        ToolInvocation::McpCall { server, tool, args } => {
+            estimate_tokens(server)
+                + estimate_tokens(tool)
+                + estimate_tokens(&args.to_string())
+        }
+        ToolInvocation::SkillExecute { skill_id, variables } => {
+            estimate_tokens(skill_id) + estimate_tokens(&serde_json::to_string(variables).unwrap_or_default())
+        }
+        ToolInvocation::VerifyContains { path, text } => {
+            estimate_tokens(path) + estimate_tokens(text)
+        }
+        ToolInvocation::Done => 1,
+    }
+}
+
+fn emit_budget_telemetry<F>(config: &LoopConfig, iteration: usize, on_event: &mut F)
+where
+    F: FnMut(LoopStreamEvent),
+{
+    on_event(LoopStreamEvent::Budget {
+        iteration,
+        max_iterations: config.max_iterations,
+        tokens_used: config.tokens_used,
+        max_tokens: config.max_tokens,
+    });
+}
+
+fn check_token_budget<F>(
+    conn: &Connection,
+    config: &LoopConfig,
+    iteration: usize,
+    on_event: &mut F,
+) -> Result<(), LoopError>
+where
+    F: FnMut(LoopStreamEvent),
+{
+    if config.max_tokens == 0 || config.tokens_used <= config.max_tokens {
+        return Ok(());
+    }
+
+    let used = config.tokens_used;
+    let max = config.max_tokens;
+    let msg = format!("Token budget exceeded: {} / {}", used, max);
+    let args = serde_json::json!({
+        "reason": "token_budget_exceeded",
+        "tokens_used": used,
+        "max_tokens": max,
+        "iteration": iteration,
+    })
+    .to_string();
+
+    let _ = PermissionManager::audit_decision(
+        conn,
+        &config.session_id,
+        "loop_budget",
+        &args,
+        &PermissionDecision::Denied,
+        Some(1),
+        None,
+    );
+
+    on_event(LoopStreamEvent::Error {
+        message: msg.clone(),
+    });
+    Err(LoopError::BudgetExceeded { used, max })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -537,8 +671,10 @@ mod tests {
         )
         .unwrap();
 
-        let config = LoopConfig {
+        let mut config = LoopConfig {
             max_iterations: 5,
+            max_tokens: 0,
+            tokens_used: 0,
             session_id: "s1".into(),
             workspace,
         };
@@ -557,10 +693,131 @@ mod tests {
 
         let engine = ReActLoopEngine::new(5);
         let result = engine
-            .run_structured(&conn, &config, plan, None, &HashMap::new(), |_| {})
+            .run_structured(&conn, &mut config, plan, None, &HashMap::new(), |_| {})
             .unwrap();
 
         assert!(result.done);
         assert!(result.iterations >= 2);
+        assert!(result.tokens_used > 0);
+    }
+
+    #[test]
+    fn test_token_budget_hard_stop_with_audit() {
+        let db = Database::open_in_memory().unwrap();
+        let conn = db.conn();
+        conn.execute(
+            "INSERT INTO sessions (id, title, status) VALUES ('s-budget', 't', 'active')",
+            [],
+        )
+        .unwrap();
+
+        let tmp = tempfile::tempdir().unwrap();
+        let workspace = tmp.path().to_path_buf();
+        let ws = workspace.to_string_lossy().to_string();
+        conn.execute(
+            "INSERT INTO capability_grants (session_id, resource_path, permission_type) VALUES ('s-budget', ?1, 'write')",
+            rusqlite::params![ws],
+        )
+        .unwrap();
+
+        let mut config = LoopConfig {
+            max_iterations: 5,
+            max_tokens: 8,
+            tokens_used: 0,
+            session_id: "s-budget".into(),
+            workspace,
+        };
+
+        let plan = vec![
+            ToolInvocation::FsWrite {
+                path: "big.txt".into(),
+                content: "x".repeat(128),
+            },
+            ToolInvocation::Done,
+        ];
+
+        let engine = ReActLoopEngine::new(5);
+        let mut budget_events = 0usize;
+        let err = engine
+            .run_structured(&conn, &mut config, plan, None, &HashMap::new(), |event| {
+                if matches!(event, LoopStreamEvent::Budget { .. }) {
+                    budget_events += 1;
+                }
+            })
+            .unwrap_err();
+
+        assert_eq!(
+            err,
+            LoopError::BudgetExceeded {
+                used: config.tokens_used,
+                max: 8
+            }
+        );
+        assert!(config.tokens_used > 8);
+        assert!(budget_events >= 1);
+
+        let audit_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM audit_log WHERE tool_name = 'loop_budget' AND decision = 'denied';",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(audit_count, 1);
+    }
+
+    #[test]
+    fn test_budget_telemetry_emitted_each_step() {
+        let db = Database::open_in_memory().unwrap();
+        let conn = db.conn();
+        conn.execute(
+            "INSERT INTO sessions (id, title, status) VALUES ('s-tel', 't', 'active')",
+            [],
+        )
+        .unwrap();
+
+        let tmp = tempfile::tempdir().unwrap();
+        let workspace = tmp.path().to_path_buf();
+        let ws = workspace.to_string_lossy().to_string();
+        conn.execute(
+            "INSERT INTO capability_grants (session_id, resource_path, permission_type) VALUES ('s-tel', ?1, 'write')",
+            rusqlite::params![ws],
+        )
+        .unwrap();
+
+        let mut config = LoopConfig {
+            max_iterations: 3,
+            max_tokens: 0,
+            tokens_used: 0,
+            session_id: "s-tel".into(),
+            workspace,
+        };
+
+        let plan = vec![
+            ToolInvocation::FsWrite {
+                path: "a.txt".into(),
+                content: "hi".into(),
+            },
+            ToolInvocation::Done,
+        ];
+
+        let engine = ReActLoopEngine::new(3);
+        let mut budget_snapshots = Vec::new();
+        engine
+            .run_structured(&conn, &mut config, plan, None, &HashMap::new(), |event| {
+                if let LoopStreamEvent::Budget {
+                    tokens_used,
+                    max_tokens,
+                    iteration,
+                    max_iterations,
+                } = event
+                {
+                    budget_snapshots.push((iteration, max_iterations, tokens_used, max_tokens));
+                }
+            })
+            .unwrap();
+
+        assert!(!budget_snapshots.is_empty());
+        assert_eq!(budget_snapshots.last().unwrap().2, config.tokens_used);
     }
 }

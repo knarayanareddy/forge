@@ -23,6 +23,9 @@ jobs:
       - name: Install MCP filesystem server
         run: npm install -g @modelcontextprotocol/server-filesystem
 
+      - name: Scan MCP allowlist (static gate)
+        run: chmod +x scripts/scan-mcp-allowlist.sh && ./scripts/scan-mcp-allowlist.sh
+
       - name: Build workspace
         run: cargo build --workspace
 
@@ -34,9 +37,9 @@ jobs:
           set +e
           cargo run -p golden-harness 2>&1 | tee harness.log
           PASS=$(grep -oP 'Passed: \K[0-9]+' harness.log | tail -1)
-          echo "Harness passed: ${PASS:-0}/11"
+          echo "Harness passed: ${PASS:-0}/13"
           if [[ "${PASS:-0}" -lt 8 ]]; then
-            echo "Expected at least 8/11 on Linux (FS-02, MEM-01, ROUT-01 fail-closed)"
+            echo "Expected at least 8/13 on Linux (FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02 fail-closed)"
             exit 1
           fi
 
@@ -56,6 +59,9 @@ jobs:
       - name: Install MCP filesystem server
         run: npm install -g @modelcontextprotocol/server-filesystem
 
+      - name: Scan MCP allowlist (static gate)
+        run: chmod +x scripts/scan-mcp-allowlist.sh && ./scripts/scan-mcp-allowlist.sh
+
       - name: Install Ollama models
         run: |
           brew install ollama || true
@@ -66,9 +72,11 @@ jobs:
 
       - name: Warm Ollama chat model (ROUT-01)
         run: |
-          curl -sf http://localhost:11434/api/chat \
-            -d '{"model":"qwen2.5:3b","messages":[{"role":"user","content":"ok"}],"stream":true,"keep_alive":"30m","options":{"num_predict":8,"temperature":0}}' \
-            --no-buffer -o /dev/null
+          for i in 1 2 3; do
+            curl -sf http://localhost:11434/api/chat \
+              -d '{"model":"qwen2.5:3b","messages":[{"role":"user","content":"forge"}],"stream":true,"keep_alive":"30m","options":{"num_predict":8,"temperature":0}}' \
+              --no-buffer -o /dev/null
+          done
 
       - name: Build workspace
         run: cargo build --workspace

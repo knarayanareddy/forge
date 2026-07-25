@@ -18,6 +18,8 @@ pub struct RequestParams {
     #[serde(default)]
     pub max_iterations: Option<usize>,
     #[serde(default)]
+    pub max_tokens: Option<usize>,
+    #[serde(default)]
     pub auth_token: Option<String>,
 }
 
@@ -51,6 +53,12 @@ pub struct EventLine {
     pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub action: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokens_used: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_iterations: Option<usize>,
 }
 
 impl EventLine {
@@ -70,6 +78,9 @@ impl EventLine {
             iterations: None,
             summary: None,
             action: None,
+            tokens_used: None,
+            max_tokens: None,
+            max_iterations: None,
         }
     }
 
@@ -87,10 +98,34 @@ impl EventLine {
     }
 
     pub fn done(content: String, ttft_ms: u128, model: String) -> Self {
+        Self::done_with_tokens(content, ttft_ms, model, None)
+    }
+
+    pub fn done_with_tokens(
+        content: String,
+        ttft_ms: u128,
+        model: String,
+        tokens_used: Option<usize>,
+    ) -> Self {
         let mut e = Self::base("done");
         e.content = Some(content);
         e.ttft_ms = Some(ttft_ms);
         e.model = Some(model);
+        e.tokens_used = tokens_used;
+        e
+    }
+
+    pub fn budget(
+        iteration: usize,
+        max_iterations: usize,
+        tokens_used: usize,
+        max_tokens: usize,
+    ) -> Self {
+        let mut e = Self::base("budget");
+        e.iteration = Some(iteration);
+        e.max_iterations = Some(max_iterations);
+        e.tokens_used = Some(tokens_used);
+        e.max_tokens = Some(max_tokens);
         e
     }
 

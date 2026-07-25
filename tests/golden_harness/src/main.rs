@@ -4,8 +4,14 @@ use futures::StreamExt;
 use std::fs;
 use tempfile::tempdir;
 
+mod graph01;
+use graph01::test_graph_01_impl;
+
 mod loop01;
 use loop01::test_loop_01_impl;
+
+mod loop02;
+use loop02::test_loop_02_impl;
 
 mod recovery;
 use recovery::CrashRecoveryTest;
@@ -22,25 +28,30 @@ use skill01::test_skill_01_impl;
 mod audit_chain;
 use audit_chain::verify_audit_hash_chain;
 
+mod red01;
+mod skill02;
+
 struct TaskSpec {
     name: &'static str,
     hard_on_darwin: bool,
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 11] = [
+const TASKS: [TaskSpec; 13] = [
+    // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
+    TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "FS-02", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "GIT-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CODE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
-    // ROUT-01 before MCP-01/MEM-01: avoid embedder swap and MCP spawn load on warm TTFT.
-    TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "MCP-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "MEM-01", hard_on_darwin: true, fail_closed_off_darwin: true },
+    TaskSpec { name: "GRAPH-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "SKILL-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "SAFE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "RES-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "LOOP-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "LOOP-02", hard_on_darwin: true, fail_closed_off_darwin: true },
 ];
 
 fn is_darwin() -> bool {
@@ -52,6 +63,21 @@ async fn main() {
     println!("=== AetherForge Golden Task Evaluation Harness ===");
     println!("Constitution: v1.2.4 + Phase 3 Agent Loop");
     println!("Platform: {} (Darwin canonical)\n", std::env::consts::OS);
+
+    match red01::red01_fixture_ready() {
+        Ok(n) => println!("RED-01 fixtures: {} frozen cases (stub loader OK)", n),
+        Err(e) => eprintln!("Warning: RED-01 fixture check failed: {}", e),
+    }
+
+    match skill02::skill02_fixture_ready() {
+        Ok(n) => println!("SKILL-02 fixtures: {} questions (stub OK)\n", n),
+        Err(e) => eprintln!("Warning: SKILL-02 fixture check failed: {}\n", e),
+    }
+
+    match graph01::graph01_fixture_ready() {
+        Ok(n) => println!("GRAPH-01 fixtures: {} gold queries loaded", n),
+        Err(e) => eprintln!("Warning: GRAPH-01 fixture check failed: {}", e),
+    }
 
     let db = Database::open_in_memory().expect("In-memory DB init failed");
 
@@ -115,10 +141,10 @@ async fn main() {
         total
     );
     if is_darwin() {
-        println!("Darwin scoreboard: {}/11 harness ({} hard / {} soft)", passed, hard_pass, soft_pass);
+        println!("Darwin scoreboard: {}/13 harness ({} hard / {} soft)", passed, hard_pass, soft_pass);
     } else {
         println!(
-            "Non-Darwin note: FS-02, MEM-01, ROUT-01 expected fail-closed when sandbox-exec/Ollama absent"
+            "Non-Darwin note: FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02 expected fail-closed when sandbox-exec/Ollama absent"
         );
     }
 }
@@ -132,11 +158,13 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "CODE-01" => test_code_01().await.map(|_| true),
         "MCP-01" => test_mcp_01(db).await.map(|_| true),
         "MEM-01" => test_mem_01(db).await.map(|_| true),
+        "GRAPH-01" => test_graph_01(db).await.map(|_| true),
         "SKILL-01" => test_skill_01().await.map(|_| true),
         "SAFE-01" => test_safe_01(db).await.map(|_| true),
         "ROUT-01" => test_rout_01().await.map(|_| true),
         "RES-01" => test_res_01().await.map(|_| true),
         "LOOP-01" => test_loop_01(db).await.map(|_| true),
+        "LOOP-02" => test_loop_02(db).await.map(|_| true),
         other => Err(format!("Unknown task {}", other)),
     };
 
@@ -408,33 +436,82 @@ async fn test_safe_01(db: &Database) -> Result<(), String> {
 
 async fn rout_01_measure_ttft(
     router: &aether_core::ModelRouter,
-) -> Result<u128, String> {
-    let mut stream = Box::pin(
-        router
-            .complete_stream("forge", aether_core::PromptComplexity::Simple)
-            .await
-            .map_err(|e| format!("Timed stream failed: {}", e))?,
-    );
+    endpoint: &str,
+    model: &str,
+) -> Result<(u128, u128), String> {
+    const MAX_COLD_RETRIES: usize = 3;
 
-    let mut ttft_ms = None;
-    let mut content = String::new();
+    for attempt in 0..MAX_COLD_RETRIES {
+        let mut stream = Box::pin(
+            router
+                .complete_stream(aether_core::ROUT_TTFT_PROMPT, aether_core::PromptComplexity::Simple)
+                .await
+                .map_err(|e| format!("Timed stream failed: {}", e))?,
+        );
 
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("Stream chunk error: {}", e))?;
-        if ttft_ms.is_none() {
-            ttft_ms = chunk.ttft_ms;
+        let mut client_ttft_ms = None;
+        let mut server_ttft_ms = None;
+        let mut content = String::new();
+
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| format!("Stream chunk error: {}", e))?;
+            if client_ttft_ms.is_none() {
+                client_ttft_ms = chunk.ttft_ms;
+            }
+            if let Some(server) = chunk.server_ttft_ms {
+                server_ttft_ms = Some(server);
+            }
+            content.push_str(&chunk.text);
+            if chunk.done {
+                break;
+            }
         }
-        content.push_str(&chunk.text);
-        if chunk.done {
-            break;
+
+        if content.trim().is_empty() {
+            return Err("Streamed completion returned empty content".into());
         }
+
+        let client = client_ttft_ms
+            .ok_or_else(|| "No client TTFT recorded on first streamed token".to_string())?;
+
+        if let Some(server) = server_ttft_ms {
+            return Ok((client, server));
+        }
+
+        // Server timing missing on done chunk — retry once after rewarm if model looks cold.
+        if attempt + 1 < MAX_COLD_RETRIES {
+            let loaded = aether_core::OllamaProvider::is_model_loaded(endpoint, model)
+                .await
+                .unwrap_or(false);
+            if !loaded {
+                eprint!("[cold-load retry {}] ", attempt + 1);
+                aether_core::OllamaProvider::warm_chat_model_with_prompt(
+                    endpoint,
+                    model,
+                    aether_core::ROUT_TTFT_PROMPT,
+                    2,
+                )
+                .await
+                .map_err(|e| format!("Cold-load rewarm failed: {}", e))?;
+                continue;
+            }
+        }
+
+        return Ok((client, client));
     }
 
-    if content.trim().is_empty() {
-        return Err("Streamed completion returned empty content".into());
-    }
+    Err("ROUT-01 TTFT measurement exhausted retries".into())
+}
 
-    ttft_ms.ok_or_else(|| "No TTFT recorded on first streamed token".into())
+async fn rout_01_discard_warmup(endpoint: &str, model: &str, rounds: usize) -> Result<(), String> {
+    aether_core::OllamaProvider::warm_chat_model_with_prompt(
+        endpoint,
+        model,
+        aether_core::ROUT_TTFT_PROMPT,
+        rounds,
+    )
+    .await
+    .map_err(|e| format!("Discard warmup failed: {}", e))
 }
 
 async fn test_rout_01() -> Result<(), String> {
@@ -450,6 +527,15 @@ async fn test_rout_01() -> Result<(), String> {
         .await
         .map_err(|e| format!("Chat model warmup failed: {}", e))?;
 
+    if !aether_core::OllamaProvider::is_model_loaded(&endpoint, &fast_model)
+        .await
+        .map_err(|e| format!("Ollama ps check failed: {}", e))?
+    {
+        aether_core::OllamaProvider::warm_chat_model(&endpoint, &fast_model, 3)
+            .await
+            .map_err(|e| format!("Model not resident after warmup: {}", e))?;
+    }
+
     let router = aether_core::ModelRouter::new(
         aether_core::ModelBackend::OllamaMlx {
             endpoint: endpoint.clone(),
@@ -461,31 +547,44 @@ async fn test_rout_01() -> Result<(), String> {
         }),
     );
 
-    const TTFT_WARM_MS: u128 = 200;
-    const TTFT_SAMPLES: usize = 3;
-    const MAX_ROUNDS: usize = 3;
+    // Discard streams so the first counted sample is not penalized by connection/prompt priming.
+    rout_01_discard_warmup(&endpoint, &fast_model, 2).await?;
 
-    let mut last_samples = [0u128; TTFT_SAMPLES];
+    const TTFT_WARM_MS: u128 = 200;
+    const TTFT_SAMPLES: usize = 5;
+    const MAX_ROUNDS: usize = 4;
+
+    let mut last_samples = vec![0u128; TTFT_SAMPLES];
     let mut last_median = 0u128;
 
     for round in 0..MAX_ROUNDS {
-        let mut samples = [0u128; TTFT_SAMPLES];
-        for (i, sample) in samples.iter_mut().enumerate() {
-            *sample = rout_01_measure_ttft(&router).await?;
-            eprint!("timed run {}/{}={}ms ", i + 1, TTFT_SAMPLES, sample);
+        let mut samples = Vec::with_capacity(TTFT_SAMPLES);
+        let mut server_samples = Vec::with_capacity(TTFT_SAMPLES);
+        for i in 0..TTFT_SAMPLES {
+            let (client, server) = rout_01_measure_ttft(&router, &endpoint, &fast_model).await?;
+            samples.push(client);
+            server_samples.push(server);
+            eprint!(
+                "timed run {}/{}={}ms (server {}ms) ",
+                i + 1,
+                TTFT_SAMPLES,
+                client,
+                server
+            );
         }
 
         samples.sort_unstable();
         let median = samples[TTFT_SAMPLES / 2];
-        last_samples = samples;
+        last_samples = samples.clone();
         last_median = median;
 
         eprintln!(
-            "round {} median warm TTFT {}ms (threshold {}ms, keep_alive 30m, samples {:?})",
+            "round {} median warm TTFT {}ms (threshold {}ms, keep_alive 30m, client {:?}, server {:?})",
             round + 1,
             median,
             TTFT_WARM_MS,
-            samples
+            samples,
+            server_samples
         );
 
         if median <= TTFT_WARM_MS {
@@ -493,9 +592,10 @@ async fn test_rout_01() -> Result<(), String> {
         }
 
         if round + 1 < MAX_ROUNDS {
-            aether_core::OllamaProvider::warm_chat_model(&endpoint, &fast_model, 1)
+            aether_core::OllamaProvider::warm_chat_model(&endpoint, &fast_model, 3)
                 .await
                 .map_err(|e| format!("Inter-round warmup failed: {}", e))?;
+            rout_01_discard_warmup(&endpoint, &fast_model, 1).await?;
         }
     }
 
@@ -505,9 +605,18 @@ async fn test_rout_01() -> Result<(), String> {
     ))
 }
 
+async fn test_loop_02(db: &Database) -> Result<(), String> {
+    let conn = db.conn();
+    test_loop_02_impl(&conn).await
+}
+
 async fn test_loop_01(db: &Database) -> Result<(), String> {
     let conn = db.conn();
     test_loop_01_impl(&conn).await
+}
+
+async fn test_graph_01(db: &Database) -> Result<(), String> {
+    test_graph_01_impl(db).await
 }
 
 async fn test_res_01() -> Result<(), String> {

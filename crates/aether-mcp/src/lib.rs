@@ -1,6 +1,8 @@
 mod runtime;
+mod tool_index;
 
 pub use runtime::{invoke_with_grant, McpClient, McpToolInfo, McpToolsAudit};
+pub use tool_index::ToolIndex;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

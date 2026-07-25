@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "skill_id": "book_skill",
+  "description": "Frozen SKILL-02 eval rubric — skill-creator layout with citation fidelity gate",
+  "citation_fidelity_threshold": 0.9,
+  "citation_fidelity_notes": "Answers must fuzzy-match citation_span at >= 0.9; no hallucinated API names.",
+  "source_uri": "fixtures/skills/book_skill/references/source.md",
+  "questions": [
+    {
+      "id": "q-daemon-bind",
+      "query": "What is the default TCP listen address for aether-daemon?",
+      "expected_chapter": "chapters/01-daemon-lifecycle.md",
+      "routing_keywords": ["daemon", "listen", "7878", "startup"],
+      "citation_span": "127.0.0.1:7878",
+      "forbidden_hallucinations": ["0.0.0.0:8080", "localhost:3000"]
+    },
+    {
+      "id": "q-ingest-audit",
+      "query": "What audit tool name is recorded when graph ingest fails?",
+      "expected_chapter": "chapters/02-graph-ingest.md",
+      "routing_keywords": ["ingest", "audit", "graph_extract", "failure"],
+      "citation_span": "ingest_turn",
+      "forbidden_hallucinations": ["ingest_skip", "graph_silent_fail"]
+    },
+    {
+      "id": "q-recovery-startup",
+      "query": "Which recovery function runs on database startup after a crash?",
+      "expected_chapter": "chapters/03-crash-recovery.md",
+      "routing_keywords": ["recovery", "startup", "undo", "journal"],
+      "citation_span": "RecoveryManager::recover_on_startup",
+      "forbidden_hallucinations": ["RecoveryManager::wipe_sessions", "JournalPurge::run"]
+    }
+  ]
+}

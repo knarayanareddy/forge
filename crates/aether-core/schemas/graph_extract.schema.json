@@ -1,0 +1,94 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aetherforge.local/schemas/graph_extract.schema.json",
+  "title": "GraphExtractPayload",
+  "description": "Ollama graph_extract output (Graphify provenance borrow). Slice 6.4 validates before insert.",
+  "type": "object",
+  "required": ["nodes", "edges"],
+  "additionalProperties": false,
+  "properties": {
+    "nodes": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/ExtractNode" }
+    },
+    "edges": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/ExtractEdge" }
+    }
+  },
+  "definitions": {
+    "Provenance": {
+      "type": "string",
+      "enum": ["extracted", "inferred"]
+    },
+    "EntityType": {
+      "type": "string",
+      "enum": [
+        "person",
+        "project",
+        "concept",
+        "file",
+        "tool",
+        "event",
+        "other"
+      ]
+    },
+    "RelationType": {
+      "type": "string",
+      "enum": [
+        "related_to",
+        "part_of",
+        "authored_by",
+        "depends_on",
+        "located_in",
+        "implements",
+        "contradicts",
+        "other"
+      ]
+    },
+    "ExtractNode": {
+      "type": "object",
+      "required": [
+        "id",
+        "entity_type",
+        "canonical_name",
+        "provenance",
+        "evidence_text"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "entity_type": { "$ref": "#/definitions/EntityType" },
+        "canonical_name": { "type": "string", "minLength": 1 },
+        "aliases": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "properties": { "type": "object" },
+        "provenance": { "$ref": "#/definitions/Provenance" },
+        "evidence_text": { "type": "string", "minLength": 1 },
+        "source_uri": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ExtractEdge": {
+      "type": "object",
+      "required": [
+        "src_node_id",
+        "dst_node_id",
+        "relation_type",
+        "provenance",
+        "evidence_text"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "src_node_id": { "type": "string", "minLength": 1 },
+        "dst_node_id": { "type": "string", "minLength": 1 },
+        "relation_type": { "$ref": "#/definitions/RelationType" },
+        "weight": { "type": "number", "minimum": 0 },
+        "provenance": { "$ref": "#/definitions/Provenance" },
+        "evidence_text": { "type": "string", "minLength": 1 },
+        "source_uri": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

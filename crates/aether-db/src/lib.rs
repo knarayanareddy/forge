@@ -1,5 +1,15 @@
+mod consolidate_review;
+mod graph;
 mod recovery;
 
+pub use consolidate_review::{
+    format_consolidate_review, ConsolidateEdgeDiff, ConsolidateNodeDiff, ConsolidatePreview,
+    EdgeAction, NodeAction,
+};
+pub use graph::{
+    EntityType, GraphEdge, GraphNeighbor, GraphNode, NewGraphEdge, NewGraphNode, QueryPolicy,
+    RelationType,
+};
 pub use recovery::{RecoveryManager, RecoveryReport};
 
 use rusqlite::{Connection, Result};
@@ -149,6 +159,89 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_log(session_id);
             CREATE INDEX IF NOT EXISTS idx_grants_session ON capability_grants(session_id);
             CREATE INDEX IF NOT EXISTS idx_undo_session ON undo_journal(session_id);
+
+            CREATE TABLE IF NOT EXISTS graph_nodes (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                entity_type TEXT NOT NULL CHECK(entity_type IN (
+                    'person', 'project', 'concept', 'file', 'tool', 'event', 'other'
+                )),
+                canonical_name TEXT NOT NULL,
+                aliases_json TEXT NOT NULL DEFAULT '[]',
+                properties_json TEXT NOT NULL DEFAULT '{}',
+                source_uri TEXT NOT NULL,
+                valid_from TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                valid_to TIMESTAMP,
+                recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                superseded_by TEXT,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY(superseded_by) REFERENCES graph_nodes(id) ON DELETE SET NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_graph_nodes_session ON graph_nodes(session_id);
+            CREATE INDEX IF NOT EXISTS idx_graph_nodes_name ON graph_nodes(canonical_name);
+            CREATE INDEX IF NOT EXISTS idx_graph_nodes_valid ON graph_nodes(valid_from, valid_to);
+
+            CREATE TABLE IF NOT EXISTS graph_edges (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                src_node_id TEXT NOT NULL,
+                dst_node_id TEXT NOT NULL,
+                relation_type TEXT NOT NULL CHECK(relation_type IN (
+                    'related_to', 'part_of', 'authored_by', 'depends_on',
+                    'located_in', 'implements', 'contradicts', 'other'
+                )),
+                weight REAL NOT NULL DEFAULT 1.0,
+                evidence_text TEXT NOT NULL,
+                source_uri TEXT NOT NULL,
+                valid_from TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                valid_to TIMESTAMP,
+                recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY(src_node_id) REFERENCES graph_nodes(id) ON DELETE CASCADE,
+                FOREIGN KEY(dst_node_id) REFERENCES graph_nodes(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_graph_edges_src ON graph_edges(src_node_id);
+            CREATE INDEX IF NOT EXISTS idx_graph_edges_dst ON graph_edges(dst_node_id);
+            CREATE INDEX IF NOT EXISTS idx_graph_edges_session ON graph_edges(session_id);
+            CREATE INDEX IF NOT EXISTS idx_graph_edges_valid ON graph_edges(valid_from, valid_to);
+
+            CREATE TABLE IF NOT EXISTS graph_chunk_links (
+                chunk_id TEXT NOT NULL,
+                node_id TEXT NOT NULL,
+                link_confidence REAL NOT NULL DEFAULT 1.0,
+                PRIMARY KEY (chunk_id, node_id),
+                FOREIGN KEY(node_id) REFERENCES graph_nodes(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS consolidation_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                finished_at TIMESTAMP,
+                status TEXT NOT NULL CHECK(status IN ('running', 'review_pending', 'applied', 'rejected')),
+                input_node_count INTEGER NOT NULL,
+                output_node_count INTEGER,
+                contradiction_count INTEGER DEFAULT 0,
+                dedupe_count INTEGER DEFAULT 0,
+                review_artifact_path TEXT,
+                applied_at TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS query_policy (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                policy_name TEXT UNIQUE NOT NULL,
+                rrf_k REAL NOT NULL DEFAULT 60.0,
+                graph_hop_depth INTEGER NOT NULL DEFAULT 1 CHECK(graph_hop_depth BETWEEN 0 AND 1),
+                fts_weight REAL NOT NULL DEFAULT 1.0,
+                vec_weight REAL NOT NULL DEFAULT 1.0,
+                graph_weight REAL NOT NULL DEFAULT 1.0,
+                max_graph_expansion INTEGER NOT NULL DEFAULT 32,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            INSERT OR IGNORE INTO query_policy (policy_name, graph_hop_depth)
+            VALUES ('default', 1);
         ")
     }
 
@@ -222,6 +315,135 @@ impl Database {
             let rrf = 1.0 / (RRF_K + (rank as f64) + 1.0);
             scores
                 .entry(chunk_id.clone())
+                .and_modify(|(_, s)| *s += rrf)
+                .or_insert((chunk_text, rrf));
+        }
+
+        let mut fused: Vec<(String, String, f64, f32)> = scores
+            .into_iter()
+            .map(|(id, (text, rrf_score))| {
+                let sim = vec_similarity.get(&id).copied().unwrap_or(0.0);
+                (id, text, rrf_score, sim)
+            })
+            .collect();
+        fused.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+        fused.truncate(limit);
+        Ok(fused
+            .into_iter()
+            .map(|(id, text, _, sim)| (id, text, sim))
+            .collect())
+    }
+
+    /// Hybrid retrieval with optional 1-hop graph RRF (Phase 6).
+    ///
+    /// When `query_policy.graph_hop_depth = 0`, returns the same ranking as
+    /// [`search_semantic_memory_hybrid`](Self::search_semantic_memory_hybrid).
+    pub fn search_hybrid_with_graph(
+        &self,
+        session_id: &str,
+        query_text: &str,
+        query_embedding: &[f32],
+        limit: usize,
+    ) -> Result<Vec<(String, String, f32)>> {
+        self.search_hybrid_with_graph_policy(session_id, query_text, query_embedding, limit, "default")
+    }
+
+    pub fn search_hybrid_with_graph_policy(
+        &self,
+        session_id: &str,
+        query_text: &str,
+        query_embedding: &[f32],
+        limit: usize,
+        policy_name: &str,
+    ) -> Result<Vec<(String, String, f32)>> {
+        assert_eq!(query_embedding.len(), 384, "Query embedding dimension must be exactly 384");
+
+        let policy = self.get_query_policy(policy_name)?;
+        if policy.graph_hop_depth == 0 {
+            return self.search_semantic_memory_hybrid(query_text, query_embedding, limit);
+        }
+
+        let fetch = limit.saturating_mul(4).max(limit);
+
+        let fts_ranks = self.search_fts_ranked(query_text, fetch)?;
+        let vec_ranks = self.search_semantic_memory_knn(query_embedding, fetch)
+            .or_else(|_| self.search_semantic_memory_linear(query_embedding, fetch))?;
+
+        let mut seed_chunk_ids: Vec<String> = Vec::new();
+        for (chunk_id, _, _) in fts_ranks.iter().chain(vec_ranks.iter()) {
+            if !seed_chunk_ids.iter().any(|id| id == chunk_id) {
+                seed_chunk_ids.push(chunk_id.clone());
+            }
+        }
+
+        let seed_refs: Vec<&str> = seed_chunk_ids.iter().map(|s| s.as_str()).collect();
+        let seed_node_ids = self.get_node_ids_for_chunks(&seed_refs)?;
+
+        let seed_node_refs: Vec<&str> = seed_node_ids.iter().map(|s| s.as_str()).collect();
+        let neighbors = self.get_one_hop_neighbors(session_id, &seed_node_refs, None)?;
+
+        let seed_score_map: std::collections::HashMap<&str, f64> = seed_node_ids
+            .iter()
+            .map(|id| (id.as_str(), 1.0))
+            .collect();
+
+        // Graph RRF ranks chunks linked to 1-hop neighbors only — seed chunks already
+        // contribute via FTS/vec; re-ranking them here would double-count.
+        let mut node_scores: Vec<(String, f64)> = Vec::new();
+        for neighbor in neighbors {
+            let src_score = seed_score_map
+                .get(neighbor.edge.src_node_id.as_str())
+                .copied()
+                .unwrap_or(1.0);
+            let expanded_score = neighbor.edge.weight * src_score;
+            let entry = node_scores
+                .iter()
+                .position(|(id, _)| id == &neighbor.edge.dst_node_id);
+            match entry {
+                Some(idx) => {
+                    if expanded_score > node_scores[idx].1 {
+                        node_scores[idx].1 = expanded_score;
+                    }
+                }
+                None => node_scores.push((neighbor.edge.dst_node_id.clone(), expanded_score)),
+            }
+        }
+
+        let graph_ranks = if node_scores.is_empty() {
+            Vec::new()
+        } else {
+            self.get_graph_ranked_chunks(
+                &node_scores,
+                policy.max_graph_expansion as usize,
+            )?
+        };
+
+        let mut scores: std::collections::HashMap<String, (String, f64)> =
+            std::collections::HashMap::new();
+        let mut vec_similarity: std::collections::HashMap<String, f32> =
+            std::collections::HashMap::new();
+
+        for (rank, (chunk_id, chunk_text, _)) in fts_ranks.into_iter().enumerate() {
+            let rrf = policy.fts_weight / (policy.rrf_k + (rank as f64) + 1.0);
+            scores
+                .entry(chunk_id)
+                .and_modify(|(_, s)| *s += rrf)
+                .or_insert((chunk_text, rrf));
+        }
+
+        for (rank, (chunk_id, chunk_text, similarity)) in vec_ranks.into_iter().enumerate() {
+            vec_similarity.insert(chunk_id.clone(), similarity);
+            let rrf = policy.vec_weight / (policy.rrf_k + (rank as f64) + 1.0);
+            scores
+                .entry(chunk_id.clone())
+                .and_modify(|(_, s)| *s += rrf)
+                .or_insert((chunk_text, rrf));
+        }
+
+        for (rank, (chunk_id, chunk_text, _)) in graph_ranks.into_iter().enumerate() {
+            let rrf = policy.graph_weight / (policy.rrf_k + (rank as f64) + 1.0);
+            scores
+                .entry(chunk_id)
                 .and_modify(|(_, s)| *s += rrf)
                 .or_insert((chunk_text, rrf));
         }
@@ -524,5 +746,159 @@ mod tests {
             .unwrap();
         assert_eq!(hybrid[0].0, "chk-aether");
         assert!(hybrid[0].2 > 0.0);
+    }
+
+    fn seed_session(db: &Database, session_id: &str) {
+        let conn = db.conn();
+        conn.execute(
+            "INSERT INTO sessions (id, title, status) VALUES (?1, 'Graph hybrid test', 'active')",
+            rusqlite::params![session_id],
+        )
+        .unwrap();
+    }
+
+    fn set_graph_hop_depth(db: &Database, depth: i32) {
+        let conn = db.conn();
+        conn.execute(
+            "UPDATE query_policy SET graph_hop_depth = ?1 WHERE policy_name = 'default'",
+            rusqlite::params![depth],
+        )
+        .unwrap();
+    }
+
+    fn set_graph_weight(db: &Database, weight: f64) {
+        let conn = db.conn();
+        conn.execute(
+            "UPDATE query_policy SET graph_weight = ?1 WHERE policy_name = 'default'",
+            rusqlite::params![weight],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_hybrid_with_graph_hop_zero_parity_with_phase5_hybrid() {
+        let db = Database::open_in_memory().unwrap();
+        set_graph_hop_depth(&db, 0);
+
+        let emb_a = vec![1.0f32; 384];
+        let mut emb_b = vec![0.0f32; 384];
+        emb_b[0] = 1.0;
+
+        db.insert_memory_chunk(
+            "chk-fact-a",
+            "memory://fact-a",
+            "AetherForge secure local Mac agent runtime",
+            &emb_a,
+        )
+        .unwrap();
+        db.insert_memory_chunk(
+            "chk-fact-b",
+            "memory://fact-b",
+            "Python data science web backend programming",
+            &emb_b,
+        )
+        .unwrap();
+
+        let query_emb = emb_a.clone();
+        let query = "AetherForge Mac agent platform";
+
+        let baseline = db
+            .search_semantic_memory_hybrid(query, &query_emb, 2)
+            .unwrap();
+        let with_graph = db
+            .search_hybrid_with_graph("unused-session", query, &query_emb, 2)
+            .unwrap();
+
+        assert_eq!(with_graph.len(), baseline.len());
+        for (graph_hit, base_hit) in with_graph.iter().zip(baseline.iter()) {
+            assert_eq!(graph_hit.0, base_hit.0);
+            assert_eq!(graph_hit.1, base_hit.1);
+            assert!((graph_hit.2 - base_hit.2).abs() < f32::EPSILON);
+        }
+    }
+
+    #[test]
+    fn test_hybrid_with_graph_boosts_graph_linked_chunk() {
+        use crate::{EntityType, NewGraphEdge, NewGraphNode, RelationType};
+
+        let db = Database::open_in_memory().unwrap();
+        seed_session(&db, "sess-hybrid-graph");
+        set_graph_hop_depth(&db, 1);
+        set_graph_weight(&db, 3.0);
+
+        let mut emb_noise = vec![0.0f32; 384];
+        emb_noise[0] = 1.0;
+        let emb_maintainer = vec![0.0f32; 384];
+
+        db.insert_memory_chunk(
+            "chk-noise",
+            "memory://noise",
+            "Generic platform runtime overview",
+            &emb_noise,
+        )
+        .unwrap();
+        db.insert_memory_chunk(
+            "chk-maintainer",
+            "memory://maintainer",
+            "Alex keeps the forge service healthy",
+            &emb_maintainer,
+        )
+        .unwrap();
+
+        db.insert_graph_node(NewGraphNode {
+            id: "node-forge",
+            session_id: "sess-hybrid-graph",
+            entity_type: EntityType::Project,
+            canonical_name: "AetherForge",
+            aliases_json: "[]",
+            properties_json: "{}",
+            source_uri: "memory://seed",
+            valid_from: None,
+            valid_to: None,
+        })
+        .unwrap();
+        db.insert_graph_node(NewGraphNode {
+            id: "node-maintainer",
+            session_id: "sess-hybrid-graph",
+            entity_type: EntityType::Person,
+            canonical_name: "Alex Maintainer",
+            aliases_json: "[]",
+            properties_json: "{}",
+            source_uri: "memory://seed",
+            valid_from: None,
+            valid_to: None,
+        })
+        .unwrap();
+
+        db.insert_graph_edge(NewGraphEdge {
+            session_id: "sess-hybrid-graph",
+            src_node_id: "node-forge",
+            dst_node_id: "node-maintainer",
+            relation_type: RelationType::RelatedTo,
+            weight: 2.0,
+            evidence_text: "Alex maintains AetherForge.",
+            source_uri: "memory://seed",
+            valid_from: None,
+            valid_to: None,
+        })
+        .unwrap();
+
+        db.link_graph_chunk("chk-noise", "node-forge", 0.9).unwrap();
+        db.link_graph_chunk("chk-maintainer", "node-maintainer", 0.95)
+            .unwrap();
+
+        let query_emb = emb_noise.clone();
+        let query = "platform runtime overview";
+
+        let baseline = db
+            .search_semantic_memory_hybrid(query, &query_emb, 2)
+            .unwrap();
+        assert_eq!(baseline[0].0, "chk-noise");
+
+        let graph_augmented = db
+            .search_hybrid_with_graph("sess-hybrid-graph", query, &query_emb, 2)
+            .unwrap();
+        assert_eq!(graph_augmented[0].0, "chk-maintainer");
+        assert_ne!(graph_augmented[0].0, baseline[0].0);
     }
 }

@@ -36,8 +36,10 @@ pub async fn test_loop_01_impl(conn: &rusqlite::Connection) -> Result<(), String
         ToolInvocation::Done,
     ];
 
-    let config = LoopConfig {
+    let mut config = LoopConfig {
         max_iterations: 6,
+        max_tokens: 0,
+        tokens_used: 0,
         session_id: session_id.into(),
         workspace: workspace.clone(),
     };
@@ -50,7 +52,7 @@ pub async fn test_loop_01_impl(conn: &rusqlite::Connection) -> Result<(), String
     let result = engine
         .run_structured(
             conn,
-            &config,
+            &mut config,
             plan,
             None,
             &HashMap::new(),

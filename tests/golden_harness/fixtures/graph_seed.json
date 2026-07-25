@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "description": "GRAPH-01 frozen wiki-zone seed: entities, relations, memory chunks, and gold queries",
+  "session_id": "sess-graph-01",
+  "embed_model": "all-minilm",
+  "embed_endpoint": "http://localhost:11434",
+  "extract_json": {
+    "nodes": [
+      {
+        "id": "node-forge",
+        "entity_type": "project",
+        "canonical_name": "AetherForge",
+        "aliases": ["Forge", "Aether Forge"],
+        "provenance": "extracted",
+        "evidence_text": "AetherForge is the local-first Mac agent runtime project."
+      },
+      {
+        "id": "node-forge-maintainer",
+        "entity_type": "person",
+        "canonical_name": "Alex Maintainer",
+        "aliases": ["Alex"],
+        "properties": { "role": "daemon maintainer" },
+        "provenance": "extracted",
+        "evidence_text": "Alex Maintainer maintains the AetherForge daemon and ships release builds."
+      },
+      {
+        "id": "node-aether-daemon",
+        "entity_type": "tool",
+        "canonical_name": "AetherForge daemon",
+        "aliases": ["forge daemon", "aether-daemon"],
+        "provenance": "extracted",
+        "evidence_text": "The AetherForge daemon runs the TCP task runner and ingest pipeline."
+      },
+      {
+        "id": "node-forge-repo",
+        "entity_type": "file",
+        "canonical_name": "forge repository",
+        "aliases": ["forge repo"],
+        "provenance": "extracted",
+        "evidence_text": "The forge repository hosts crates/aether-daemon and the golden harness."
+      },
+      {
+        "id": "node-ingest-pipeline",
+        "entity_type": "concept",
+        "canonical_name": "graph ingest pipeline",
+        "aliases": ["session ingest"],
+        "provenance": "inferred",
+        "evidence_text": "Session ingest normalizes turns and writes wiki-zone graph rows."
+      }
+    ],
+    "edges": [
+      {
+        "src_node_id": "node-forge",
+        "dst_node_id": "node-forge-maintainer",
+        "relation_type": "related_to",
+        "weight": 2.5,
+        "provenance": "extracted",
+        "evidence_text": "The AetherForge project maintainer owns daemon operations."
+      },
+      {
+        "src_node_id": "node-aether-daemon",
+        "dst_node_id": "node-forge-maintainer",
+        "relation_type": "related_to",
+        "weight": 2.0,
+        "provenance": "extracted",
+        "evidence_text": "Daemon on-call rotation routes to Alex Maintainer."
+      },
+      {
+        "src_node_id": "node-forge-maintainer",
+        "dst_node_id": "node-forge",
+        "relation_type": "authored_by",
+        "provenance": "extracted",
+        "evidence_text": "Alex Maintainer maintains the AetherForge project and daemon releases."
+      },
+      {
+        "src_node_id": "node-forge-maintainer",
+        "dst_node_id": "node-aether-daemon",
+        "relation_type": "related_to",
+        "weight": 2.0,
+        "provenance": "extracted",
+        "evidence_text": "Alex Maintainer keeps the AetherForge daemon healthy in production."
+      },
+      {
+        "src_node_id": "node-forge",
+        "dst_node_id": "node-aether-daemon",
+        "relation_type": "depends_on",
+        "provenance": "extracted",
+        "evidence_text": "AetherForge relies on the daemon for task execution and ingest hooks."
+      },
+      {
+        "src_node_id": "node-forge",
+        "dst_node_id": "node-forge-repo",
+        "relation_type": "located_in",
+        "provenance": "extracted",
+        "evidence_text": "AetherForge source code lives in the forge repository."
+      },
+      {
+        "src_node_id": "node-forge",
+        "dst_node_id": "node-ingest-pipeline",
+        "relation_type": "implements",
+        "provenance": "inferred",
+        "evidence_text": "AetherForge hybrid retrieval architecture includes graph ingest for wiki-zone memory."
+      },
+      {
+        "src_node_id": "node-aether-daemon",
+        "dst_node_id": "node-ingest-pipeline",
+        "relation_type": "implements",
+        "provenance": "inferred",
+        "evidence_text": "The daemon post-turn hook runs the graph ingest pipeline."
+      }
+    ]
+  },
+  "memory_chunks": [
+    {
+      "chunk_id": "chk-graph-forge-noise",
+      "source_uri": "memory://graph-seed/forge-noise",
+      "text": "AetherForge platform runtime overview covers hybrid retrieval architecture and local Mac agent execution design patterns.",
+      "link_node_id": "node-forge",
+      "link_confidence": 0.95
+    },
+    {
+      "chunk_id": "chk-graph-maintainer",
+      "source_uri": "memory://graph-seed/maintainer",
+      "text": "Who maintains the AetherForge daemon: Alex Maintainer is the designated maintainer for daemon releases, patch cadence, and on-call response.",
+      "link_node_id": "node-forge-maintainer",
+      "link_confidence": 0.98
+    },
+    {
+      "chunk_id": "chk-graph-daemon",
+      "source_uri": "memory://graph-seed/daemon",
+      "text": "The aether daemon TCP service binds IPC sockets, executes ReAct task loops, and forwards stream events to SwiftUI.",
+      "link_node_id": "node-aether-daemon",
+      "link_confidence": 0.92
+    },
+    {
+      "chunk_id": "chk-graph-repo",
+      "source_uri": "memory://graph-seed/repo",
+      "text": "The forge repository contains crates/aether-daemon, aether-db graph tables, and tests/golden_harness fixtures.",
+      "link_node_id": "node-forge-repo",
+      "link_confidence": 0.9
+    },
+    {
+      "chunk_id": "chk-graph-ingest",
+      "source_uri": "memory://graph-seed/ingest",
+      "text": "Wiki-zone graph ingest pipeline validates graph_extract JSON and inserts nodes after bounded session turns.",
+      "link_node_id": "node-ingest-pipeline",
+      "link_confidence": 0.88
+    },
+    {
+      "chunk_id": "chk-graph-distraction",
+      "source_uri": "memory://graph-seed/distraction",
+      "text": "Python data science notebooks and web backend frameworks are popular for unrelated machine learning tutorials.",
+      "link_node_id": "node-forge",
+      "link_confidence": 0.5
+    }
+  ],
+  "gold_queries": [
+    {
+      "id": "gq-maintainer-direct",
+      "query": "Who maintains the AetherForge daemon?",
+      "expected_node_ids": ["node-forge-maintainer"],
+      "expect_graph_rank_change": false
+    },
+    {
+      "id": "gq-platform-overview-hop",
+      "query": "AetherForge platform runtime overview",
+      "expected_node_ids": ["node-forge-maintainer"],
+      "expect_graph_rank_change": true
+    },
+    {
+      "id": "gq-repo-hop",
+      "query": "forge repository source tree layout",
+      "expected_node_ids": ["node-forge-repo"],
+      "expect_graph_rank_change": true
+    },
+    {
+      "id": "gq-daemon-service",
+      "query": "Tell me about the aether daemon TCP service",
+      "expected_node_ids": ["node-aether-daemon"],
+      "expect_graph_rank_change": false
+    },
+    {
+      "id": "gq-daemon-hop",
+      "query": "AetherForge hybrid retrieval architecture",
+      "expected_node_ids": ["node-aether-daemon"],
+      "expect_graph_rank_change": true
+    }
+  ]
+}

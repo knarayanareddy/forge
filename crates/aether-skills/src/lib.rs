@@ -1,3 +1,7 @@
+mod disclosure;
+
+pub use disclosure::{DisclosureEntry, DisclosureIndex, DisclosureKind};
+
 use aether_permissions::{PermissionDecision, PermissionManager};
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -321,6 +325,58 @@ fn render_template(template: &str, variables: &HashMap<String, String>) -> Strin
     rendered
 }
 
+/// Minimal layout check for progressive-disclosure skills (SKILL-02 prep).
+/// Procedural skills use `SkillLoader`; multi-chapter routing skills use this validator.
+pub fn validate_progressive_skill_layout(skill_dir: &Path) -> Result<(), SkillError> {
+    let skill_md = skill_dir.join("SKILL.md");
+    if !skill_md.is_file() {
+        return Err(SkillError::Parse(format!(
+            "Missing SKILL.md in {}",
+            skill_dir.display()
+        )));
+    }
+
+    let content = fs::read_to_string(&skill_md)?;
+    let (frontmatter, body) = split_frontmatter(&content)?;
+    let meta = parse_frontmatter(&frontmatter)?;
+
+    for key in ["name", "description"] {
+        if !meta.contains_key(key) {
+            return Err(SkillError::Parse(format!(
+                "Progressive skill missing '{}' in frontmatter",
+                key
+            )));
+        }
+    }
+
+    if extract_section(body, "Chapters").is_none() {
+        return Err(SkillError::Parse(
+            "Progressive skill missing '## Chapters' section".into(),
+        ));
+    }
+
+    let chapters_dir = skill_dir.join("chapters");
+    if !chapters_dir.is_dir() {
+        return Err(SkillError::Parse(format!(
+            "Missing chapters/ directory in {}",
+            skill_dir.display()
+        )));
+    }
+
+    let chapter_count = fs::read_dir(&chapters_dir)?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
+        .count();
+
+    if chapter_count == 0 {
+        return Err(SkillError::Parse(
+            "chapters/ must contain at least one .md file".into(),
+        ));
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -345,5 +401,17 @@ description: Append a dated entry to CHANGELOG.md
         let skill = SkillLoader::parse(content, Path::new("skills/changelog/SKILL.md")).unwrap();
         assert_eq!(skill.name, "changelog");
         assert_eq!(skill.steps.len(), 2);
+    }
+
+    #[test]
+    fn test_progressive_skill_fixture_layout() {
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        for fixture_name in ["rust-cookbook", "forge-api-guide", "book_skill"] {
+            let fixture = Path::new(manifest).join(format!(
+                "../../tests/golden_harness/fixtures/skills/{fixture_name}"
+            ));
+            validate_progressive_skill_layout(&fixture)
+                .unwrap_or_else(|e| panic!("{fixture_name} fixture layout: {e}"));
+        }
     }
 }
