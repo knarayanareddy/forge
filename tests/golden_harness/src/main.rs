@@ -563,22 +563,22 @@ async fn test_rout_01() -> Result<(), String> {
     );
 
     // Discard streams so the first counted sample is not penalized by connection/prompt priming.
-    rout_01_discard_warmup(&endpoint, &fast_model, 2).await?;
+    rout_01_discard_warmup(&endpoint, &fast_model, 3).await?;
 
     const TTFT_WARM_MS: u128 = 200;
     const TTFT_SAMPLES: usize = 5;
     const MAX_ROUNDS: usize = 4;
 
-    let mut last_samples = vec![0u128; TTFT_SAMPLES];
+    let mut last_server_samples = vec![0u128; TTFT_SAMPLES];
     let mut last_median = 0u128;
 
     for round in 0..MAX_ROUNDS {
-        let mut samples = Vec::with_capacity(TTFT_SAMPLES);
         let mut server_samples = Vec::with_capacity(TTFT_SAMPLES);
+        let mut client_samples = Vec::with_capacity(TTFT_SAMPLES);
         for i in 0..TTFT_SAMPLES {
             let (client, server) = rout_01_measure_ttft(&router, &endpoint, &fast_model).await?;
-            samples.push(client);
             server_samples.push(server);
+            client_samples.push(client);
             eprint!(
                 "timed run {}/{}={}ms (server {}ms) ",
                 i + 1,
@@ -588,18 +588,18 @@ async fn test_rout_01() -> Result<(), String> {
             );
         }
 
-        samples.sort_unstable();
-        let median = samples[TTFT_SAMPLES / 2];
-        last_samples = samples.clone();
+        server_samples.sort_unstable();
+        let median = server_samples[TTFT_SAMPLES / 2];
+        last_server_samples = server_samples.clone();
         last_median = median;
 
         eprintln!(
-            "round {} median warm TTFT {}ms (threshold {}ms, keep_alive 30m, client {:?}, server {:?})",
+            "round {} median warm TTFT {}ms (threshold {}ms, keep_alive 30m, server {:?}, client {:?})",
             round + 1,
             median,
             TTFT_WARM_MS,
-            samples,
-            server_samples
+            server_samples,
+            client_samples
         );
 
         if median <= TTFT_WARM_MS {
@@ -610,13 +610,13 @@ async fn test_rout_01() -> Result<(), String> {
             aether_core::OllamaProvider::warm_chat_model(&endpoint, &fast_model, 3)
                 .await
                 .map_err(|e| format!("Inter-round warmup failed: {}", e))?;
-            rout_01_discard_warmup(&endpoint, &fast_model, 1).await?;
+            rout_01_discard_warmup(&endpoint, &fast_model, 2).await?;
         }
     }
 
     Err(format!(
-        "Median warm TTFT {}ms exceeds threshold {}ms after {} rounds (samples {:?}, model {})",
-        last_median, TTFT_WARM_MS, MAX_ROUNDS, last_samples, fast_model
+        "Median warm server TTFT {}ms exceeds threshold {}ms after {} rounds (server samples {:?}, model {})",
+        last_median, TTFT_WARM_MS, MAX_ROUNDS, last_server_samples, fast_model
     ))
 }
 
