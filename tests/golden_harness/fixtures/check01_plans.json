@@ -1,0 +1,79 @@
+{
+  "good_plan": {
+    "id": "check01-good",
+    "session_id": "sess-check01-good",
+    "expected_content": "CHECK-01-verified",
+    "loop": [
+      { "action": "fs_write", "path": "check_marker.txt", "content": "CHECK-01-verified" },
+      { "action": "verify_contains", "path": "check_marker.txt", "text": "CHECK-01-verified" },
+      { "action": "python_lint", "source": "def ok():\n    return True\n" },
+      { "action": "done" }
+    ]
+  },
+  "bad_plans": [
+    {
+      "id": "bad-01-wrong-content",
+      "expected_content": "gold-marker",
+      "loop": [
+        { "action": "fs_write", "path": "out.txt", "content": "wrong-content" },
+        { "action": "done" }
+      ]
+    },
+    {
+      "id": "bad-02-missing-marker",
+      "expected_content": "required-marker",
+      "loop": [
+        { "action": "fs_write", "path": "out.txt", "content": "no-marker-here" },
+        { "action": "done" }
+      ]
+    },
+    {
+      "id": "bad-03-path-a",
+      "expected_content": "alpha-marker",
+      "loop": [
+        { "action": "fs_write", "path": "a.txt", "content": "beta-body" },
+        { "action": "done" }
+      ]
+    },
+    {
+      "id": "bad-04-path-b",
+      "expected_content": "beta-marker",
+      "loop": [
+        { "action": "fs_write", "path": "b.txt", "content": "gamma-body" },
+        { "action": "done" }
+      ]
+    },
+    {
+      "id": "bad-05-injection",
+      "expected_content": "clean-marker",
+      "loop": [
+        { "action": "fs_write", "path": "safe.txt", "content": "dirty-body" },
+        { "action": "done" }
+      ]
+    },
+    {
+      "id": "bad-06-whitespace",
+      "expected_content": "trimmed-marker",
+      "loop": [
+        { "action": "fs_write", "path": "ws.txt", "content": "trimmed only" },
+        { "action": "done" }
+      ]
+    },
+    {
+      "id": "bad-07-case",
+      "expected_content": "Forge",
+      "loop": [
+        { "action": "fs_write", "path": "case.txt", "content": "forge" },
+        { "action": "done" }
+      ]
+    },
+    {
+      "id": "bad-08-multiline",
+      "expected_content": "line1\nline2",
+      "loop": [
+        { "action": "fs_write", "path": "multi.txt", "content": "line1" },
+        { "action": "done" }
+      ]
+    }
+  ]
+}

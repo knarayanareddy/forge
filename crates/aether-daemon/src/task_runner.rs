@@ -3,7 +3,8 @@ use crate::protocol::EventLine;
 use crate::automation::AutomationTrigger;
 use crate::DaemonState;
 use aether_core::{
-    LoopConfig, LoopStreamEvent, PromptComplexity, ReActLoopEngine, DEFAULT_MAX_LOOP_TOKENS,
+    LoopConfig, LoopStreamEvent, OrchestrationGraph, PromptComplexity, ReActLoopEngine,
+    DEFAULT_MAX_LOOP_TOKENS,
 };
 use aether_mcp::McpAllowlist;
 use aether_skills::SkillLoader;
@@ -27,10 +28,6 @@ pub async fn run_task(
     state: &Arc<DaemonState>,
     params: &RunTaskParams,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    if let Some(plan) = ReActLoopEngine::parse_plan_from_prompt(&params.prompt) {
-        return run_loop_task(writer, state, params, plan).await;
-    }
-
     if let Some(nl_goal) = params.prompt.strip_prefix("nl:") {
         let max_iterations = params.max_iterations.unwrap_or(8);
         match aether_core::run_nl_planner(&state.router, nl_goal.trim(), max_iterations).await {
@@ -44,6 +41,14 @@ pub async fn run_task(
                 return Ok(());
             }
         }
+    }
+
+    if OrchestrationGraph::parse_checker_goal(&params.prompt).is_some() {
+        return run_loop_task(writer, state, params, vec![]).await;
+    }
+
+    if let Some(plan) = ReActLoopEngine::parse_plan_from_prompt(&params.prompt) {
+        return run_loop_task(writer, state, params, plan).await;
     }
 
     run_stream_task(writer, state, params).await
@@ -73,20 +78,40 @@ async fn run_loop_task(
         session_id: session_id.clone(),
         workspace,
     };
-    let engine = ReActLoopEngine::new(config.max_iterations);
 
+    let checker_goal = OrchestrationGraph::parse_checker_goal(&params.prompt);
+    let graph = OrchestrationGraph::new(checker_goal.is_some(), max_iterations);
+    let engine = ReActLoopEngine::new(max_iterations);
     let (result, events) = {
         let conn = state.db.conn();
         ensure_session_and_grants(&conn, &session_id, &config.workspace)?;
         let mut events = Vec::new();
-        let result = engine.run_structured(
-            &conn,
-            &mut config,
-            plan,
-            allowlist.as_ref(),
-            &skills,
-            |event| events.push(event),
-        );
+        let result = if let Some(goal) = checker_goal.as_ref() {
+            let plan = if plan.is_empty() {
+                ReActLoopEngine::parse_plan_from_prompt(&params.prompt)
+                    .ok_or_else(|| aether_core::LoopError::Turn("checker prompt missing loop plan".into()))?
+            } else {
+                plan
+            };
+            graph.run_maker_checker(
+                &conn,
+                &mut config,
+                goal,
+                plan,
+                allowlist.as_ref(),
+                &skills,
+                |event| events.push(event),
+            )
+        } else {
+            engine.run_structured(
+                &conn,
+                &mut config,
+                plan,
+                allowlist.as_ref(),
+                &skills,
+                |event| events.push(event),
+            )
+        };
         (result, events)
     };
 
@@ -305,16 +330,7 @@ fn ensure_session_and_grants(
 }
 
 fn load_allowlist() -> Option<McpAllowlist> {
-    let path = std::path::Path::new("mcp_allowlist.json");
-    if path.exists() {
-        McpAllowlist::load_from_file(path).ok()
-    } else {
-        aether_mcp::discover_filesystem_mcp()
-            .ok()
-            .map(|p| McpAllowlist {
-                servers: vec![p.to_allowlist_entry()],
-            })
-    }
+    aether_mcp::McpAllowlist::resolve_filesystem().ok()
 }
 
 fn load_skills() -> HashMap<String, aether_skills::SkillDefinition> {

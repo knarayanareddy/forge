@@ -42,9 +42,9 @@ jobs:
           cargo run -p golden-harness 2>&1 | tee harness.log
           PASS=$(grep -oP 'Passed: \K[0-9]+' harness.log | tail -1)
           HARD=$(grep -oP 'Hard green: \K[0-9]+' harness.log | tail -1)
-          echo "Harness passed: ${PASS:-0}/16 (${HARD:-0} hard)"
-          if [[ "${PASS:-0}" -lt 11 ]]; then
-            echo "Expected at least 11/16 on Linux (FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02 fail-closed)"
+          echo "Harness passed: ${PASS:-0}/17 (${HARD:-0} hard)"
+          if [[ "${PASS:-0}" -lt 12 ]]; then
+            echo "Expected at least 12/17 on Linux (FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02 fail-closed)"
             exit 1
           fi
 

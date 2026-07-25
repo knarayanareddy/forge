@@ -2,6 +2,8 @@ mod graph_extract;
 mod keychain;
 mod loop_engine;
 mod nl_planner;
+mod orchestration_graph;
+mod verifier_node;
 
 pub use graph_extract::{
     build_graph_extract_prompt, enforce_max_entities, graph_extract_schema_json,
@@ -26,6 +28,9 @@ pub use nl_planner::{
     build_nl_plan_prompt, run_nl_planner, validate_nl_plan, NlPlanError, LOOP02_EVAL_PROMPT,
     LOOP02_GOLD_TOOL_ORDER,
 };
+
+pub use orchestration_graph::OrchestrationGraph;
+pub use verifier_node::{MakerCheckerGoal, VerifierNode};
 
 use aether_permissions::{PermissionDecision, PermissionManager};
 use async_stream::try_stream;

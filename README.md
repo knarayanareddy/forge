@@ -6,20 +6,21 @@ AetherForge MVP — **Phase 7 in progress** on Darwin (Phases 1–6 retained).
 
 ```text
 cargo run -p golden-harness --bin golden-harness
-→ 16/16 harness (16 hard / 0 soft) when ROUT-01 median warm TTFT ≤ 200ms,
+→ 17/17 harness (17 hard / 0 soft) when ROUT-01 median warm TTFT ≤ 200ms,
   GRAPH-01 recall@3 ≥ 1.0, LOOP-02 NL plan trajectory matches gold,
   RED-01 blocks all frozen adversarial cases (≥12, currently 14),
   SKILL-02 routes 3/3 book_skill questions with citation fidelity ≥ 0.9,
-  and AUTO-01 fires a granted automation trigger → run_task → audit_log
+  AUTO-01 fires a granted automation trigger → run_task → audit_log,
+  and CHECK-01 rejects ≥8 frozen bad plans with 0 unverified writes
 ```
 
 | Platform | Expected score | Hard / soft |
 |----------|----------------|-------------|
-| **Darwin** (Ollama + `sandbox-exec`) | **16/16** | 16 hard / 0 soft |
-| **Linux CI** (full matrix) | **11/16** | 11 hard · FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02 **FAIL-CLOSED** |
-| **Linux PR fast path** | **10/11 subset** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, SKILL-01, RED-01, AUTO-01, CHECK-01 |
+| **Darwin** (Ollama + `sandbox-exec`) | **17/17** | 17 hard / 0 soft |
+| **Linux CI** (full matrix) | **12/17** | 12 hard · FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02 **FAIL-CLOSED** |
+| **Linux PR fast path** | **11/12 subset** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, SKILL-01, RED-01, AUTO-01, CHECK-01 |
 
-Tasks (16): ROUT-01, FS-01, FS-02, GIT-01, CODE-01, MCP-01, MEM-01, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **AUTO-01**
+Tasks (17): ROUT-01, FS-01, FS-02, GIT-01, CODE-01, MCP-01, MEM-01, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **AUTO-01**, **CHECK-01**
 
 ROUT-01 runs first (before FS-02 sandbox load and MCP/MEM embedder swap), pre-warms the chat model at harness start, drains five warmup streams (`keep_alive: 30m`, `num_ctx: 512`), then asserts the **median** of three Ollama server-side warm TTFT samples (`load_duration + prompt_eval_duration`) is ≤ 200ms.
 
@@ -35,7 +36,7 @@ ROUT-01 runs first (before FS-02 sandbox load and MCP/MEM embedder swap), pre-wa
 | **4 — SwiftUI** | macOS app, TCP daemon client, workspace bookmarks | **Done** |
 | **5 — Polish** | Keychain BYOK, hybrid memory RRF, DMG/notarize scripts, Linux CI | **Done** |
 | **6 — Graph v1 + eval** | Bi-temporal graph, ingest extract, GRAPH-01/LOOP-02/RED-01/SKILL-02, consolidate offline | **Done** |
-| **7 — Orchestration** | Automation scheduler (AUTO-01), maker-checker (CHECK-01 in progress), gateway (GATE-01 planned) | **In progress — 16/16 harness** |
+| **7 — Orchestration** | Automation scheduler (AUTO-01), maker-checker (CHECK-01), gateway (GATE-01 planned) | **In progress — 17/17 harness** |
 
 See [docs/ROADMAP_PHASES_1-5.md](docs/ROADMAP_PHASES_1-5.md) for Phases 1–5 acceptance criteria.  
 See [docs/ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md) for Phase 6 binding spec.  
@@ -48,7 +49,7 @@ See [docs/ROADMAP_PHASE_7.md](docs/ROADMAP_PHASE_7.md) for Phase 7 orchestration
 - **AUTO-01:** frozen cron fixture → enqueue → `run_task` LOOP-01 mini-plan → `audit_log` with `trigger_id`
 - Optional Darwin hooks: `scripts/install-automation-hooks.sh` (launchd/cron stub)
 
-Maker-checker orchestration (CHECK-01) and gateway (GATE-01) are tracked in [docs/ROADMAP_PHASE_7.md](docs/ROADMAP_PHASE_7.md).
+Maker-checker orchestration (CHECK-01) ships in `OrchestrationGraph` + read-only `VerifierNode`; gateway (GATE-01) is next in [docs/ROADMAP_PHASE_7.md](docs/ROADMAP_PHASE_7.md).
 
 ## Layout
 
@@ -169,11 +170,11 @@ FFI (`aether_ffi_daemon_ipc`, `aether_daemon_default_port`) provides default hos
 - **RED-01:** ≥12 frozen adversarial cases (14 shipped); 0% forbidden-action escape
 - **SKILL-02:** book-to-skill progressive disclosure — [docs/RATEL_TOOL_INDEX.md](docs/RATEL_TOOL_INDEX.md)
 - **Consolidate offline:** `./scripts/consolidate_memory.sh` → `review_pending` until human apply
-- **CI:** `.github/workflows/ci.yml` — PR Linux 11-task subset · Darwin PR **build + unit tests + Swift only (no Ollama harness)** · push/nightly Darwin **16/16** · Linux **11/16** fail-closed ([docs/LINUX_CI.md](docs/LINUX_CI.md))
+- **CI:** `.github/workflows/ci.yml` — PR Linux 11-task subset · Darwin PR **build + unit tests + Swift only (no Ollama harness)** · push/nightly Darwin **17/17** · Linux **12/17** fail-closed ([docs/LINUX_CI.md](docs/LINUX_CI.md))
 
 Install guide: [docs/INSTALL.md](docs/INSTALL.md)
 
 ## Architecture target vs product readiness
 
 - **Spec engineering target:** 8.5+ (see v1.2.3 / v1.2.4 docs; Phase 6 memory architecture via [ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md))
-- **Shipped harness baseline:** **16/16 on Darwin (16 hard / 0 soft)** — secure FS, sandbox, crash recovery (SIGTERM child), git grant enforcement, SSE streaming router, hybrid memory + graph hop RRF, MCP stdio JSON-RPC with pinned tools_hash, procedural skills + progressive disclosure routing, ReAct loop + NL planner, permissions + adversarial red-team suite, Python lint, daemon IPC, macOS SwiftUI shell, offline consolidate review workflow, automation trigger + audit (AUTO-01)
+- **Shipped harness baseline:** **17/17 on Darwin (17 hard / 0 soft)** — secure FS, sandbox, crash recovery (SIGTERM child), git grant enforcement, SSE streaming router, hybrid memory + graph hop RRF, MCP stdio JSON-RPC with pinned tools_hash, procedural skills + progressive disclosure routing, ReAct loop + NL planner, permissions + adversarial red-team suite, Python lint, daemon IPC, macOS SwiftUI shell, offline consolidate review workflow, automation trigger + audit (AUTO-01), maker-checker verifier deny (CHECK-01)
