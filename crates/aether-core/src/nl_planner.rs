@@ -99,6 +99,8 @@ Each step is an object with an "action" field. Use only these actions, with exac
 
 Rules:
 - Include only the steps the goal actually requires. Do not add steps the goal did not ask for.
+- Preserve the order in which the user requests operations. Do not move a later operation before
+  an earlier one.
 - If the goal only reads, opens, inspects, or summarises an existing file, use fs_read then done.
 - If the goal initialises version control, use git_init then done.
 - If the goal only asks to lint Python, use python_lint then done.
