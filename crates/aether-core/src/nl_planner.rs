@@ -123,6 +123,24 @@ User goal:
 /// The validation error is fed back as structured feedback so the model can correct the specific
 /// defect, rather than resampling blind.
 pub fn build_nl_repair_prompt(nl_goal: &str, previous: &str, error: &NlPlanError) -> String {
+    let correction = match error {
+        NlPlanError::MissingRequestedTool { tool } => format!(
+            "The corrected plan MUST contain an action named {tool:?}. Preserve the other \
+             requested steps and add exactly that missing action with every required field. \
+             Copy literal content or source text from the user goal; do not substitute another tool."
+        ),
+        NlPlanError::InvalidStep { index, detail } => format!(
+            "Step {index} has invalid arguments: {detail}. Preserve its intended action and add \
+             every field required by that action's contract."
+        ),
+        NlPlanError::ForbiddenPattern { index, detail } => format!(
+            "Fix the forbidden pattern at step {index}: {detail}. Do not remove other operations \
+             explicitly requested by the user."
+        ),
+        _ => "Correct the rejected plan while preserving every operation explicitly requested by \
+              the user."
+            .into(),
+    };
     format!(
         r#"{base}
 
@@ -134,10 +152,14 @@ Previous answer:
 Rejection reason:
 {error}
 
+Required correction:
+{correction}
+
 Emit a corrected plan that fixes exactly this problem. Return ONLY the JSON object."#,
         base = build_nl_plan_prompt(nl_goal),
         previous = previous.trim(),
         error = error,
+        correction = correction,
     )
 }
 
