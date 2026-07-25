@@ -116,11 +116,12 @@ fn reject_encoded_traversal(path: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Strip Unicode BOM and other leading control chars used in path confusion attacks.
+/// Strip Unicode BOM and zero-width spaces anywhere in the path.
+/// Mid-path confusables (e.g. `\u{FEFF}..`) must not prevent `..` traversal detection.
 fn strip_path_confusables(path: &str) -> String {
-    path.trim_start_matches('\u{FEFF}')
-        .trim_start_matches('\u{200B}')
-        .to_string()
+    path.chars()
+        .filter(|&c| c != '\u{FEFF}' && c != '\u{200B}')
+        .collect()
 }
 
 pub fn canonicalize_access_path(path: &str) -> Result<PathBuf, String> {

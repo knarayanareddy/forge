@@ -253,6 +253,14 @@ impl OllamaProvider {
         Self::warm_chat_model(endpoint, model, 5).await
     }
 
+    /// Probe the embed model so Ollama loads it before MEM-01 / GRAPH-01 embedding work.
+    pub async fn warm_embed_model(endpoint: &str, model: &str) -> Result<(), CompleteError> {
+        fetch_ollama_embedding(endpoint, model, "forge embed warmup")
+            .await
+            .map(|_| ())
+            .map_err(|e| CompleteError::Api(e.to_string()))
+    }
+
     /// Returns true when `model` is resident in Ollama memory (`/api/ps`).
     pub async fn is_model_loaded(endpoint: &str, model: &str) -> Result<bool, CompleteError> {
         let client = ollama_client();
