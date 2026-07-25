@@ -11,6 +11,7 @@ use tracing_subscriber::EnvFilter;
 pub struct DaemonState {
     pub db: Database,
     pub router: ModelRouter,
+    pub auth_token: String,
 }
 
 #[tokio::main]
@@ -32,18 +33,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let router = ModelRouter::from_env()?;
 
     #[cfg(target_os = "macos")]
-    {
-        let _auth = aether_core::ensure_daemon_auth_token()?;
-        tracing::info!("daemon auth token loaded from Keychain");
-    }
+    let auth_token = aether_core::ensure_daemon_auth_token()?;
+    #[cfg(not(target_os = "macos"))]
+    let auth_token = std::env::var("AETHER_DAEMON_AUTH_TOKEN").unwrap_or_default();
 
-    let state = Arc::new(DaemonState { db, router });
+    let state = Arc::new(DaemonState {
+        db,
+        router,
+        auth_token,
+    });
     let addr = aether_core::default_daemon_addr();
 
     tracing::info!("aether-daemon listening on {}", addr);
     tracing::info!("database: {}", db_path);
+    if !state.auth_token.is_empty() {
+        tracing::info!("daemon auth token enabled (Keychain + IPC gate)");
+    }
     if std::env::var("AETHER_BYOK_PROVIDER").is_ok() {
-        tracing::info!("router: BYOK via Keychain ({})", std::env::var("AETHER_BYOK_PROVIDER").unwrap_or_default());
+        tracing::info!(
+            "router: BYOK via Keychain ({})",
+            std::env::var("AETHER_BYOK_PROVIDER").unwrap_or_default()
+        );
     } else {
         let model = std::env::var("AETHER_CHAT_MODEL").unwrap_or_else(|_| "qwen2.5:3b".to_string());
         tracing::info!("router: Ollama ({})", model);

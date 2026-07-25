@@ -47,24 +47,13 @@ async fn handle_client(
         match request.method.as_str() {
             "run_task" => {
                 let token = request.params.auth_token.as_deref().unwrap_or("");
-                match aether_core::verify_daemon_auth_token(token) {
-                    Ok(true) => {}
-                    Ok(false) => {
-                        write_event(
-                            &mut writer,
-                            EventLine::error("Invalid or missing auth_token".into()),
-                        )
-                        .await?;
-                        continue;
-                    }
-                    Err(e) => {
-                        write_event(
-                            &mut writer,
-                            EventLine::error(format!("Auth token check failed: {}", e)),
-                        )
-                        .await?;
-                        continue;
-                    }
+                if !aether_core::verify_daemon_auth_token_expected(token, &state.auth_token) {
+                    write_event(
+                        &mut writer,
+                        EventLine::error("Invalid or missing auth_token".into()),
+                    )
+                    .await?;
+                    continue;
                 }
 
                 if request.params.prompt.is_empty() {

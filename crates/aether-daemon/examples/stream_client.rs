@@ -16,10 +16,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nth(1)
         .unwrap_or_else(|| "Reply with one word: forge".to_string());
 
-    let request = format!(
-        r#"{{"method":"run_task","params":{{"prompt":"{}"}}}}"#,
-        prompt.replace('\\', "\\\\").replace('"', "\\\"")
-    );
+    #[cfg(target_os = "macos")]
+    let auth_token = aether_core::load_daemon_auth_token()
+        .ok()
+        .flatten()
+        .or_else(aether_core::load_daemon_auth_token_file)
+        .unwrap_or_default();
+
+    let request = {
+        #[cfg(target_os = "macos")]
+        {
+            format!(
+                r#"{{"method":"run_task","params":{{"prompt":"{}","auth_token":"{}"}}}}"#,
+                prompt.replace('\\', "\\\\").replace('"', "\\\""),
+                auth_token.replace('\\', "\\\\").replace('"', "\\\"")
+            )
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            format!(
+                r#"{{"method":"run_task","params":{{"prompt":"{}"}}}}"#,
+                prompt.replace('\\', "\\\\").replace('"', "\\\"")
+            )
+        }
+    };
     writeln!(stream, "{}", request)?;
     stream.flush()?;
 

@@ -54,7 +54,8 @@ The Swift app loads the same Keychain entry and includes `auth_token` on every `
 Retrieve the token for manual testing (after daemon has started once):
 
 ```bash
-security find-generic-password -s AetherForge -a daemon-auth-token -w
+security find-generic-password -s AetherForge -a daemon-auth-token -w 2>/dev/null \
+  || tr -d '\n' < ~/.aether/daemon_auth_token
 ```
 
 ## Protocol

@@ -6,6 +6,23 @@ enum DaemonAuth {
     static let account = "daemon-auth-token"
 
     static func loadToken() -> String? {
+        if let keychain = loadFromKeychain() {
+            return keychain
+        }
+        let path = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".aether/daemon_auth_token")
+        guard
+            let data = try? Data(contentsOf: path),
+            let token = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !token.isEmpty
+        else {
+            return nil
+        }
+        return token
+    }
+
+    private static func loadFromKeychain() -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

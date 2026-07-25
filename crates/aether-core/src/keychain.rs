@@ -1,3 +1,5 @@
+use std::fs;
+use std::path::PathBuf;
 use sha2::Digest;
 use thiserror::Error;
 
@@ -82,7 +84,7 @@ pub fn ensure_daemon_auth_token() -> Result<String, KeychainError> {
     Ok(token)
 }
 
-/// Store daemon IPC auth token in Keychain.
+/// Store daemon IPC auth token in Keychain and a user-readable fallback file.
 pub fn store_daemon_auth_token(token: &str) -> Result<(), KeychainError> {
     if !cfg!(target_os = "macos") {
         return Err(KeychainError::UnavailableOnPlatform);
@@ -91,7 +93,42 @@ pub fn store_daemon_auth_token(token: &str) -> Result<(), KeychainError> {
         .map_err(|e| KeychainError::Access(e.to_string()))?;
     entry
         .set_password(token)
-        .map_err(|e| KeychainError::Access(e.to_string()))
+        .map_err(|e| KeychainError::Access(e.to_string()))?;
+    write_daemon_auth_token_file(token);
+    Ok(())
+}
+
+fn daemon_auth_token_file() -> Option<PathBuf> {
+    std::env::var("HOME")
+        .ok()
+        .map(|home| PathBuf::from(home).join(".aether/daemon_auth_token"))
+}
+
+fn write_daemon_auth_token_file(token: &str) {
+    let Some(path) = daemon_auth_token_file() else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if fs::write(&path, token).is_ok() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+        }
+    }
+}
+
+pub fn load_daemon_auth_token_file() -> Option<String> {
+    let path = daemon_auth_token_file()?;
+    let token = fs::read_to_string(path).ok()?;
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        None
+    } else {
+        Some(token)
+    }
 }
 
 fn tokens_match(provided: &str, expected: &str) -> bool {
@@ -119,9 +156,20 @@ pub fn verify_daemon_auth_token(provided: &str) -> Result<bool, KeychainError> {
 
     let expected = match load_daemon_auth_token()? {
         Some(token) => token,
-        None => return Ok(false),
+        None => load_daemon_auth_token_file().unwrap_or_default(),
     };
+    if expected.is_empty() {
+        return Ok(false);
+    }
     Ok(tokens_match(provided, &expected))
+}
+
+/// Verify against an in-memory token (daemon startup) with optional reload fallback.
+pub fn verify_daemon_auth_token_expected(provided: &str, expected: &str) -> bool {
+    if expected.is_empty() {
+        return false;
+    }
+    tokens_match(provided, expected)
 }
 
 /// Require a BYOK key when `AETHER_BYOK_PROVIDER` is set. Fail-closed off Darwin.
@@ -155,6 +203,29 @@ mod tests {
         let result = require_byok_key_if_configured();
         std::env::remove_var("AETHER_BYOK_PROVIDER");
         assert!(matches!(result, Err(KeychainError::UnavailableOnPlatform)));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn daemon_auth_roundtrip() {
+        let token = ensure_daemon_auth_token().expect("ensure token");
+        assert!(!token.is_empty());
+        let reloaded = load_daemon_auth_token()
+            .ok()
+            .flatten()
+            .or_else(load_daemon_auth_token_file);
+        assert_eq!(reloaded.as_deref(), Some(token.as_str()), "keychain reload mismatch");
+        assert!(verify_daemon_auth_token_expected(&token, &token));
+        assert!(!verify_daemon_auth_token("wrong-token").expect("verify wrong"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn byok_store_load_roundtrip_on_macos() {
+        let test_key = format!("test-key-{}", std::process::id());
+        store_byok_key(&test_key).expect("store on macOS");
+        let loaded = load_byok_key().expect("load");
+        assert_eq!(loaded.as_deref(), Some(test_key.as_str()));
     }
 
     #[cfg(target_os = "macos")]
