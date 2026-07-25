@@ -1,0 +1,324 @@
+{
+  "_comment": "Narration. One voice, one TTS pass per line, placed against the timeline by scripts/build_audio.py. Placement is relative to a timeline entry so the edit can be reordered without recomputing absolute times. Run scripts/animatic.py --check-only after any change here.",
+  "_density_note": "Speaking density is the dial that controls whether this feels austere or crowded. The first draft ran 440 words over 130s (140% density - unplayable). This draft is deliberately terse: every line states its impossibility once, as logistics, and stops. If a line feels like it wants another clause, it does not.",
+  "voice": {
+    "description": "Generic British RP, male, 50s. Measured, unhurried, faintly bored. Reading a record, not telling a story.",
+    "direction": "Never marvel. Never emphasise the impossible detail - deliver it at exactly the same weight as the grid reference. Fall slightly at the end of each sentence. No upward inflection, no warmth, no smile.",
+    "forbidden": "Do not clone or approximate David Attenborough or any other identifiable living broadcaster. A recognisable voice makes the film about the impersonation and turns an art piece into a deepfake.",
+    "speed": 0.94,
+    "stability": 0.75
+  },
+  "lines": [
+    {
+      "id": "vo01",
+      "at": {
+        "entry": "shot01",
+        "offset": 1.2
+      },
+      "text": "Four species that cannot be reliably observed. The following footage is the best available."
+    },
+    {
+      "id": "vo02",
+      "at": {
+        "entry": "shot02",
+        "offset": 1.0
+      },
+      "text": "A hedgerow in Somerset. Eleven weeks of continuous filming."
+    },
+    {
+      "id": "vo03",
+      "at": {
+        "entry": "shot02",
+        "offset": 5.2
+      },
+      "text": "Noctuella evanescens is present in this frame."
+    },
+    {
+      "id": "vo04",
+      "at": {
+        "entry": "shot03",
+        "offset": 0.8
+      },
+      "text": "It cannot be filmed directly. The species is absent from wherever the operator is attending."
+    },
+    {
+      "id": "vo05",
+      "at": {
+        "entry": "shot04",
+        "offset": 0.8
+      },
+      "text": "Only at the frame edge. Only out of focus."
+    },
+    {
+      "id": "vo06",
+      "at": {
+        "entry": "shot04",
+        "offset": 4.8
+      },
+      "text": "That is the specimen."
+    },
+    {
+      "id": "vo07",
+      "at": {
+        "entry": "shot05",
+        "offset": 1.0
+      },
+      "text": "No centred image was obtained. This is routine."
+    },
+    {
+      "id": "vo08",
+      "at": {
+        "entry": "shot06",
+        "offset": 0.8
+      },
+      "text": "Automatic cameras, with no operator present, return empty frames."
+    },
+    {
+      "id": "vo09",
+      "at": {
+        "entry": "shot06b",
+        "offset": 0.8
+      },
+      "text": "The requirement is not the camera. It is the attention.",
+      "note": "Plants the word the film ends on."
+    },
+    {
+      "id": "vo10",
+      "at": {
+        "entry": "shot06b",
+        "offset": 5.4
+      },
+      "text": "The Survey lists it as common."
+    },
+    {
+      "id": "vo11",
+      "at": {
+        "entry": "shot07",
+        "offset": 0.6
+      },
+      "text": "Eleven minutes past four. A right whale surfaces west of the Hebrides."
+    },
+    {
+      "id": "vo12",
+      "at": {
+        "entry": "shot09",
+        "offset": 0.6
+      },
+      "text": "Eleven minutes past four. A right whale surfaces off the Kaikoura Trench.",
+      "note": "Deliberately near-identical to vo11. The repetition is the evidence. shot08 carries no narration at all - the callosity pattern is held in silence."
+    },
+    {
+      "id": "vo13",
+      "at": {
+        "entry": "shot10",
+        "offset": 0.6
+      },
+      "text": "The callosity pattern is identical. Callosities identify an individual."
+    },
+    {
+      "id": "vo14",
+      "at": {
+        "entry": "shot10",
+        "offset": 4.4
+      },
+      "text": "The Survey records one animal."
+    },
+    {
+      "id": "vo15",
+      "at": {
+        "entry": "shot11",
+        "offset": 0.8
+      },
+      "text": "Neither body has been observed to travel."
+    },
+    {
+      "id": "vo16",
+      "at": {
+        "entry": "shot11",
+        "offset": 4.2
+      },
+      "text": "Catalogued separately for nineteen years, until the night both were filmed at once."
+    },
+    {
+      "id": "vo17",
+      "at": {
+        "entry": "shot11b",
+        "offset": 1.0
+      },
+      "text": "It is not known what the animal was before that.",
+      "note": "The only foreshadow in the film. Establishes that observation does things, so the appendix is a rule the audience has been taught rather than a twist."
+    },
+    {
+      "id": "vo18",
+      "at": {
+        "entry": "shot12",
+        "offset": 1.0
+      },
+      "text": "A wax cylinder, 1890. A hedgerow outside Ludlow."
+    },
+    {
+      "id": "vo19",
+      "at": {
+        "entry": "shot13",
+        "offset": 2.4
+      },
+      "text": "Last April. The same hedgerow."
+    },
+    {
+      "id": "vo20",
+      "at": {
+        "entry": "shot14",
+        "offset": 0.5
+      },
+      "text": "Consecutive notes of the same song."
+    },
+    {
+      "id": "vo21",
+      "at": {
+        "entry": "shot14",
+        "offset": 3.0
+      },
+      "text": "The song takes three to four hundred years. The Survey holds nine notes."
+    },
+    {
+      "id": "vo22",
+      "at": {
+        "entry": "shot14b",
+        "offset": 0.6
+      },
+      "text": "No individual has heard more than one note."
+    },
+    {
+      "id": "vo23",
+      "at": {
+        "entry": "shot14b",
+        "offset": 4.2
+      },
+      "text": "The species is not thought to know that it is singing."
+    },
+    {
+      "id": "vo24",
+      "at": {
+        "entry": "shot15",
+        "offset": 1.2
+      },
+      "text": "One further species. It has not been named."
+    },
+    {
+      "id": "vo25",
+      "at": {
+        "entry": "shot15",
+        "offset": 4.8
+      },
+      "text": "No footage exists. It has never been photographed."
+    },
+    {
+      "id": "vo26",
+      "at": {
+        "entry": "shot15b",
+        "offset": 0.8
+      },
+      "text": "It comes into existence upon being observed. One instance per observer."
+    },
+    {
+      "id": "vo27",
+      "at": {
+        "entry": "shot16",
+        "offset": 0.6
+      },
+      "text": "At the beginning of this programme, the known population was three hundred and twelve.",
+      "note": "Must land clear of the chyron tick at 6.25s into shot16. The two seconds of silence between this line and the tick are load-bearing."
+    },
+    {
+      "id": "vo28",
+      "at": {
+        "entry": "slate_end",
+        "offset": 0.8
+      },
+      "text": "The Survey thanks you for your attention.",
+      "note": "Last word of the film is 'attention', which vo09 established as the mechanism. That callback is what makes the taxonomy a system rather than a list."
+    }
+  ],
+  "notes": [
+    {
+      "id": "note_1890",
+      "at": {
+        "entry": "shot12",
+        "offset": 3.2
+      },
+      "prompt": "A single sustained song thrush note, one clean fluting phrase, recorded outdoors, no other birds, no music, no reverb.",
+      "gain_db": -14,
+      "treatment": "shellac",
+      "note": "Generated clean and degraded in ffmpeg. Never ask a model for a period recording - it invents damage that will not match the modern note."
+    },
+    {
+      "id": "note_modern",
+      "at": {
+        "entry": "shot13",
+        "offset": 4.4
+      },
+      "prompt": "A single sustained song thrush note at a different pitch, one clean fluting phrase, close modern field recording, no other birds, no music.",
+      "gain_db": -13,
+      "treatment": "clean"
+    }
+  ],
+  "ambience": [
+    {
+      "id": "amb_hedgerow",
+      "entries": [
+        "shot01",
+        "shot02",
+        "shot03",
+        "shot04",
+        "shot05",
+        "shot06",
+        "shot06b"
+      ],
+      "prompt": "Continuous quiet English hedgerow ambience, late autumn, overcast: wind in dry hawthorn and bramble, occasional water dripping from leaves, a distant rook. No birdsong, no insects, no human sound, no music.",
+      "gain_db": -26
+    },
+    {
+      "id": "amb_sea",
+      "entries": [
+        "shot07",
+        "shot08",
+        "shot09",
+        "shot10",
+        "shot11",
+        "shot11b"
+      ],
+      "prompt": "Open ocean ambience from a small vessel: swell, wind across a microphone, water against a hull. No gulls, no engine, no voices, no music.",
+      "gain_db": -24
+    },
+    {
+      "id": "amb_spring",
+      "entries": [
+        "shot13",
+        "shot14",
+        "shot14b"
+      ],
+      "prompt": "Quiet spring hedgerow ambience at dusk, close and intimate, faint wind, no birdsong, no music.",
+      "gain_db": -26
+    },
+    {
+      "id": "amb_dusk",
+      "entries": [
+        "shot15",
+        "shot15b",
+        "shot16"
+      ],
+      "prompt": "Very quiet hedgerow at last light, wind dropping to almost nothing, no birds, no insects, no music.",
+      "gain_db": -28
+    }
+  ],
+  "archive_layer": {
+    "_comment": "The 1890 shellac degradation. Synthesised in ffmpeg, no model required - see SHELLAC in scripts/build_audio.py. Applied to note_1890 only, and gone by the time the picture resolves into the modern plate.",
+    "entry": "shot12",
+    "filters": "highpass=300, lowpass=3200, vibrato for wow and flutter, hard compression",
+    "note": "The joke in Specimen 003 lives entirely in this transition: bandlimited shellac resolving into clean modern field recording sells four hundred years better than any image could."
+  },
+  "room_tone": {
+    "_comment": "Low-level pink noise under the entire film so that cuts to silence read as recorded quiet rather than as a dropout.",
+    "gain_db": -42
+  }
+}

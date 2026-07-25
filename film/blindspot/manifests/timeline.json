@@ -1,0 +1,251 @@
+{
+  "_comment": "The edit. Drives scripts/assemble.py. Entry durations are FINAL CUT lengths and are independent of the generation durations in shots.json - a shot generated at 8s can be cut at 5s. Never set a cut length longer than the generated clip: wind and water make clone-padding visible. Extend a beat by cutting to a second plate instead, which is what shot06b, shot11b, shot14b and shot15b are for.",
+  "spec": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 24,
+    "pix_fmt": "yuv420p",
+    "audio_rate": 48000
+  },
+  "fonts": {
+    "serif": "/usr/share/fonts/truetype/croscore/Tinos-Regular.ttf",
+    "serif_bold": "/usr/share/fonts/truetype/croscore/Tinos-Bold.ttf",
+    "sans": "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "sans_bold": "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "sans_italic": "/usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf",
+    "mono": "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf"
+  },
+  "entries": [
+    {
+      "id": "slate_open",
+      "type": "card",
+      "style": "slate",
+      "duration": 7.0,
+      "lines": [
+        "THE SURVEY",
+        "",
+        "RECORD OF SPECIES NOT RELIABLY OBSERVED",
+        "",
+        "VOLUME IV"
+      ]
+    },
+    {
+      "id": "shot01",
+      "type": "shot",
+      "duration": 8.0
+    },
+    {
+      "id": "card_ch1",
+      "type": "card",
+      "style": "chapter",
+      "duration": 5.0,
+      "lines": [
+        "I.",
+        "PROBLEMS OF OBSERVATION"
+      ]
+    },
+    {
+      "id": "shot02",
+      "type": "shot",
+      "duration": 8.0,
+      "chyron": {
+        "in": 0.75,
+        "duration": 6.0,
+        "lines": [
+          "SPECIMEN 001",
+          "Noctuella evanescens",
+          "KNOWN POPULATION: —"
+        ]
+      }
+    },
+    {
+      "id": "shot03",
+      "type": "shot",
+      "duration": 7.0
+    },
+    {
+      "id": "shot04",
+      "type": "shot",
+      "duration": 7.0
+    },
+    {
+      "id": "shot05",
+      "type": "shot",
+      "duration": 5.0
+    },
+    {
+      "id": "shot06",
+      "type": "shot",
+      "duration": 6.0
+    },
+    {
+      "id": "shot06b",
+      "type": "shot",
+      "duration": 8.0
+    },
+    {
+      "id": "card_ch2",
+      "type": "card",
+      "style": "chapter",
+      "duration": 5.0,
+      "lines": [
+        "II.",
+        "PROBLEMS OF IDENTITY"
+      ]
+    },
+    {
+      "id": "shot07",
+      "type": "shot",
+      "duration": 6.0,
+      "stamp": "NORTH ATLANTIC · 04:11 GMT",
+      "chyron": {
+        "in": 0.75,
+        "duration": 6.0,
+        "lines": [
+          "SPECIMEN 002",
+          "Eubalaena indivisa",
+          "KNOWN POPULATION: 1"
+        ]
+      }
+    },
+    {
+      "id": "shot08",
+      "type": "shot",
+      "duration": 5.0,
+      "note": "No narration. The callosity pattern is held in silence so the audience can compare it to shot10."
+    },
+    {
+      "id": "shot09",
+      "type": "shot",
+      "duration": 6.0,
+      "stamp": "SOUTH PACIFIC · 04:11 GMT"
+    },
+    {
+      "id": "shot10",
+      "type": "shot",
+      "duration": 7.0
+    },
+    {
+      "id": "shot11",
+      "type": "shot",
+      "duration": 10.0
+    },
+    {
+      "id": "shot11b",
+      "type": "shot",
+      "duration": 6.0
+    },
+    {
+      "id": "card_ch3",
+      "type": "card",
+      "style": "chapter",
+      "duration": 5.0,
+      "lines": [
+        "III.",
+        "PROBLEMS OF TIME"
+      ]
+    },
+    {
+      "id": "shot12",
+      "type": "shot",
+      "duration": 6.0,
+      "stamp": "WAX CYLINDER · 1890",
+      "post": [
+        "sepia",
+        "pillarbox_4x3",
+        "gate_weave",
+        "dust",
+        "heavy_grain"
+      ],
+      "chyron": {
+        "in": 0.75,
+        "duration": 5.0,
+        "lines": [
+          "SPECIMEN 003",
+          "Cantator saecularis",
+          "KNOWN POPULATION: UNCOUNTED"
+        ]
+      }
+    },
+    {
+      "id": "shot13",
+      "type": "shot",
+      "duration": 6.0,
+      "stamp": "FIELD RECORDING · APRIL",
+      "transition": {
+        "type": "xfade",
+        "duration": 1.5,
+        "from": "shot12"
+      }
+    },
+    {
+      "id": "shot14",
+      "type": "shot",
+      "duration": 8.0
+    },
+    {
+      "id": "shot14b",
+      "type": "shot",
+      "duration": 8.0
+    },
+    {
+      "id": "card_appendix",
+      "type": "card",
+      "style": "chapter",
+      "duration": 5.0,
+      "lines": [
+        "APPENDIX A"
+      ]
+    },
+    {
+      "id": "shot15",
+      "type": "shot",
+      "duration": 8.0,
+      "chyron": {
+        "in": 0.75,
+        "duration": 6.0,
+        "lines": [
+          "SPECIMEN 004",
+          "CLASSIFICATION: PENDING",
+          "KNOWN POPULATION: 312"
+        ]
+      }
+    },
+    {
+      "id": "shot15b",
+      "type": "shot",
+      "duration": 6.0
+    },
+    {
+      "id": "shot16",
+      "type": "shot",
+      "duration": 10.0,
+      "chyron": {
+        "in": 0.5,
+        "duration": 9.5,
+        "lines": [
+          "SPECIMEN 004",
+          "CLASSIFICATION: PENDING",
+          "KNOWN POPULATION: 312"
+        ],
+        "population_tick": {
+          "at": 8.0,
+          "line_index": 2,
+          "to": "KNOWN POPULATION: 313"
+        }
+      },
+      "note": "The tick is the ending. No sound, no sting, no zoom, no music - the number simply changes."
+    },
+    {
+      "id": "slate_end",
+      "type": "card",
+      "style": "slate",
+      "duration": 6.0,
+      "lines": [
+        "THE SURVEY",
+        "",
+        "VOLUME IV OF NINE"
+      ]
+    }
+  ]
+}
