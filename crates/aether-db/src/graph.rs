@@ -337,6 +337,78 @@ impl Database {
         Ok(())
     }
 
+    /// Active edges for a session at query time `as_of`.
+    pub fn get_active_graph_edges(&self, session_id: &str, as_of: Option<&str>) -> Result<Vec<GraphEdge>> {
+        let conn = self.conn.lock().unwrap();
+        let (sql, query_params): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(ts) = as_of {
+            (
+                "SELECT e.id, e.session_id, e.src_node_id, e.dst_node_id,
+                        e.relation_type, e.weight, e.evidence_text, e.source_uri,
+                        e.valid_from, e.valid_to, e.recorded_at
+                 FROM graph_edges e
+                 JOIN graph_nodes src ON src.id = e.src_node_id
+                 JOIN graph_nodes dst ON dst.id = e.dst_node_id
+                 WHERE e.session_id = ?1
+                   AND e.valid_from <= ?2
+                   AND (e.valid_to IS NULL OR e.valid_to > ?2)
+                   AND src.valid_from <= ?2
+                   AND (src.valid_to IS NULL OR src.valid_to > ?2)
+                   AND dst.valid_from <= ?2
+                   AND (dst.valid_to IS NULL OR dst.valid_to > ?2)
+                   AND src.superseded_by IS NULL
+                   AND dst.superseded_by IS NULL
+                 ORDER BY e.id",
+                vec![
+                    Box::new(session_id.to_string()),
+                    Box::new(ts.to_string()),
+                ],
+            )
+        } else {
+            (
+                "SELECT e.id, e.session_id, e.src_node_id, e.dst_node_id,
+                        e.relation_type, e.weight, e.evidence_text, e.source_uri,
+                        e.valid_from, e.valid_to, e.recorded_at
+                 FROM graph_edges e
+                 JOIN graph_nodes src ON src.id = e.src_node_id
+                 JOIN graph_nodes dst ON dst.id = e.dst_node_id
+                 WHERE e.session_id = ?1
+                   AND e.valid_from <= datetime('now')
+                   AND (e.valid_to IS NULL OR e.valid_to > datetime('now'))
+                   AND src.valid_from <= datetime('now')
+                   AND (src.valid_to IS NULL OR src.valid_to > datetime('now'))
+                   AND dst.valid_from <= datetime('now')
+                   AND (dst.valid_to IS NULL OR dst.valid_to > datetime('now'))
+                   AND src.superseded_by IS NULL
+                   AND dst.superseded_by IS NULL
+                 ORDER BY e.id",
+                vec![Box::new(session_id.to_string())],
+            )
+        };
+
+        let mut stmt = conn.prepare(sql)?;
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            query_params.iter().map(|p| p.as_ref()).collect();
+        let mut rows = stmt.query(param_refs.as_slice())?;
+
+        let mut edges = Vec::new();
+        while let Some(row) = rows.next()? {
+            edges.push(GraphEdge {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                src_node_id: row.get(2)?,
+                dst_node_id: row.get(3)?,
+                relation_type: row.get(4)?,
+                weight: row.get(5)?,
+                evidence_text: row.get(6)?,
+                source_uri: row.get(7)?,
+                valid_from: row.get(8)?,
+                valid_to: row.get(9)?,
+                recorded_at: row.get(10)?,
+            });
+        }
+        Ok(edges)
+    }
+
     pub fn get_query_policy(&self, policy_name: &str) -> Result<QueryPolicy> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
