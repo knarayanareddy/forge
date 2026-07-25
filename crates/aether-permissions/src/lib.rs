@@ -182,6 +182,78 @@ pub fn path_is_subpath(child: &Path, parent: &Path) -> bool {
     child_bytes.len() > parent_len && child_bytes[parent_len] == b'/'
 }
 
+/// Phase 7 automation grant — one explicit grant per trigger_id + session_id pair.
+pub struct AutomationGrant;
+
+impl AutomationGrant {
+    pub fn check(
+        conn: &Connection,
+        trigger_id: &str,
+        session_id: &str,
+    ) -> Result<PermissionDecision> {
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM automation_grants
+             WHERE trigger_id = ?1 AND session_id = ?2 AND is_stale = 0",
+            params![trigger_id, session_id],
+            |row| row.get(0),
+        )?;
+        if count > 0 {
+            Ok(PermissionDecision::Approved)
+        } else {
+            Ok(PermissionDecision::Denied)
+        }
+    }
+
+    pub fn grant(conn: &Connection, trigger_id: &str, session_id: &str) -> Result<()> {
+        conn.execute(
+            "INSERT OR REPLACE INTO automation_grants (trigger_id, session_id, is_stale)
+             VALUES (?1, ?2, 0)",
+            params![trigger_id, session_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn revoke(conn: &Connection, trigger_id: &str, session_id: &str) -> Result<()> {
+        conn.execute(
+            "UPDATE automation_grants SET is_stale = 1
+             WHERE trigger_id = ?1 AND session_id = ?2",
+            params![trigger_id, session_id],
+        )?;
+        Ok(())
+    }
+
+    /// Append a hash-chained audit entry for automation lifecycle events.
+    pub fn audit_event(
+        conn: &Connection,
+        session_id: &str,
+        trigger_id: &str,
+        event: &str,
+        decision: &PermissionDecision,
+        detail: &serde_json::Value,
+    ) -> Result<()> {
+        let mut args = serde_json::json!({
+            "trigger_id": trigger_id,
+            "event": event,
+        });
+        if let Some(obj) = args.as_object_mut() {
+            if let Some(extra) = detail.as_object() {
+                for (k, v) in extra {
+                    obj.insert(k.clone(), v.clone());
+                }
+            }
+        }
+        PermissionManager::audit_decision(
+            conn,
+            session_id,
+            "automation_run",
+            &args.to_string(),
+            decision,
+            None,
+            None,
+        )
+    }
+}
+
 pub struct FileMutator;
 
 impl FileMutator {
@@ -305,6 +377,67 @@ mod tests {
     #[test]
     fn test_strips_bom_before_traversal_check() {
         assert!(canonicalize_access_path("/tmp/workspace/\u{FEFF}../etc/passwd").is_err());
+    }
+
+    #[test]
+    fn test_automation_grant_check() {
+        let db = aether_db::Database::open_in_memory().unwrap();
+        let conn = db.conn();
+        conn.execute(
+            "INSERT INTO sessions (id, title, status) VALUES ('sess-auto', 'Auto', 'active')",
+            [],
+        )
+        .unwrap();
+
+        let denied = AutomationGrant::check(&conn, "trg-cron-01", "sess-auto").unwrap();
+        assert_eq!(denied, PermissionDecision::Denied);
+
+        AutomationGrant::grant(&conn, "trg-cron-01", "sess-auto").unwrap();
+        let approved = AutomationGrant::check(&conn, "trg-cron-01", "sess-auto").unwrap();
+        assert_eq!(approved, PermissionDecision::Approved);
+
+        AutomationGrant::revoke(&conn, "trg-cron-01", "sess-auto").unwrap();
+        let revoked = AutomationGrant::check(&conn, "trg-cron-01", "sess-auto").unwrap();
+        assert_eq!(revoked, PermissionDecision::Denied);
+    }
+
+    #[test]
+    fn test_automation_audit_event() {
+        let db = aether_db::Database::open_in_memory().unwrap();
+        let conn = db.conn();
+        conn.execute(
+            "INSERT INTO sessions (id, title, status) VALUES ('sess-auto', 'Auto', 'active')",
+            [],
+        )
+        .unwrap();
+
+        AutomationGrant::audit_event(
+            &conn,
+            "sess-auto",
+            "trg-cron-01",
+            "tick",
+            &PermissionDecision::Approved,
+            &serde_json::json!({"source": "cron"}),
+        )
+        .unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM audit_log WHERE tool_name = 'automation_run'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+
+        let args: String = conn
+            .query_row(
+                "SELECT arguments_json FROM audit_log WHERE tool_name = 'automation_run' LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(args.contains("trg-cron-01"));
     }
 
     #[test]

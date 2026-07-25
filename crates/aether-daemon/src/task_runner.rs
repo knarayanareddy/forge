@@ -1,5 +1,6 @@
 use crate::ingest::{post_turn_graph_ingest, IngestConfig};
 use crate::protocol::EventLine;
+use crate::automation::AutomationTrigger;
 use crate::DaemonState;
 use aether_core::{
     LoopConfig, LoopStreamEvent, PromptComplexity, ReActLoopEngine, DEFAULT_MAX_LOOP_TOKENS,
@@ -60,7 +61,6 @@ async fn run_loop_task(
         .unwrap_or_else(|| "daemon-loop".into());
 
     let workspace = resolve_workspace(params.workspace_path.as_deref())?;
-    ensure_session_and_grants(state, &session_id, &workspace)?;
 
     let allowlist = load_allowlist();
     let skills = load_skills();
@@ -77,6 +77,7 @@ async fn run_loop_task(
 
     let (result, events) = {
         let conn = state.db.conn();
+        ensure_session_and_grants(&conn, &session_id, &config.workspace)?;
         let mut events = Vec::new();
         let result = engine.run_structured(
             &conn,
@@ -208,6 +209,54 @@ async fn run_stream_task(
     Ok(())
 }
 
+/// Execute a dequeued automation trigger via the same loop shell as `run_task` (AUTO-01 / slice 7.3).
+pub fn run_automation_trigger(
+    conn: &rusqlite::Connection,
+    trigger: &AutomationTrigger,
+) -> Result<(), String> {
+    let workspace = resolve_workspace(trigger.workspace_path.as_deref())?;
+    ensure_session_and_grants(
+        conn,
+        &trigger.session_id,
+        &workspace,
+    )?;
+
+    let plan = if let Some(plan) = ReActLoopEngine::parse_plan_from_prompt(&trigger.task_prompt) {
+        plan
+    } else {
+        return Err(format!(
+            "automation trigger {} requires structured plan: prompt",
+            trigger.trigger_id
+        ));
+    };
+
+    let allowlist = load_allowlist();
+    let skills = load_skills();
+    let mut config = LoopConfig {
+        max_iterations: 8,
+        max_tokens: DEFAULT_MAX_LOOP_TOKENS,
+        tokens_used: 0,
+        session_id: trigger.session_id.clone(),
+        workspace,
+    };
+    let engine = ReActLoopEngine::new(config.max_iterations);
+
+    let result = engine.run_structured(
+        conn,
+        &mut config,
+        plan,
+        allowlist.as_ref(),
+        &skills,
+        |_| {},
+    );
+
+    match result {
+        Ok(run) if run.done => Ok(()),
+        Ok(_) => Err("automation loop did not reach done".into()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 async fn post_turn_ingest(
     state: &Arc<DaemonState>,
     session_id: &str,
@@ -235,11 +284,10 @@ fn resolve_workspace(workspace: Option<&str>) -> Result<PathBuf, String> {
 }
 
 fn ensure_session_and_grants(
-    state: &Arc<DaemonState>,
+    conn: &rusqlite::Connection,
     session_id: &str,
     workspace: &PathBuf,
 ) -> Result<(), String> {
-    let conn = state.db.conn();
     conn.execute(
         "INSERT OR IGNORE INTO sessions (id, title, status) VALUES (?1, 'Loop Session', 'active')",
         rusqlite::params![session_id],

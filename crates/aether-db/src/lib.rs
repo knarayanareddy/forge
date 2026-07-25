@@ -244,6 +244,52 @@ impl Database {
 
             INSERT OR IGNORE INTO query_policy (policy_name, graph_hop_depth)
             VALUES ('default', 1);
+
+            CREATE TABLE IF NOT EXISTS automation_grants (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trigger_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                is_stale BOOLEAN DEFAULT 0,
+                granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                UNIQUE(trigger_id, session_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_automation_grants_trigger
+                ON automation_grants(trigger_id);
+
+            CREATE TABLE IF NOT EXISTS automation_triggers (
+                trigger_id TEXT PRIMARY KEY,
+                trigger_type TEXT NOT NULL CHECK(trigger_type IN ('cron', 'file_watch', 'pr_webhook')),
+                session_id TEXT NOT NULL,
+                config_json TEXT NOT NULL DEFAULT '{}',
+                task_prompt TEXT NOT NULL,
+                workspace_path TEXT,
+                enabled BOOLEAN DEFAULT 1,
+                last_fired_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_automation_triggers_session
+                ON automation_triggers(session_id);
+
+            CREATE TABLE IF NOT EXISTS automation_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trigger_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('pending', 'running', 'completed', 'denied', 'failed'))
+                    DEFAULT 'pending',
+                detail_json TEXT NOT NULL DEFAULT '{}',
+                enqueued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                started_at TIMESTAMP,
+                finished_at TIMESTAMP,
+                FOREIGN KEY(trigger_id) REFERENCES automation_triggers(trigger_id) ON DELETE CASCADE,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_automation_queue_status
+                ON automation_queue(status);
         ")
     }
 
@@ -630,6 +676,32 @@ mod tests {
         let conn = db.conn();
         let stmt = conn.prepare("SELECT name FROM sqlite_master WHERE type='table';");
         assert!(stmt.is_ok());
+
+        let automation_tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type='table' AND name IN ('automation_grants', 'automation_triggers', 'automation_queue')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(automation_tables, 3);
+    }
+
+    #[test]
+    fn test_automation_schema_tables_exist() {
+        let db = Database::open_in_memory().unwrap();
+        let conn = db.conn();
+        for table in ["automation_triggers", "automation_grants", "automation_queue"] {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name = ?1",
+                    rusqlite::params![table],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 1, "missing table {}", table);
+        }
     }
 
     #[test]

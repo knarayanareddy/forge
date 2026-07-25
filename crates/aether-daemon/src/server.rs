@@ -1,11 +1,29 @@
+use crate::automation::{AutomationScheduler, AutomationTrigger, TriggerConfig, TriggerType};
+use crate::automation_webhook;
 use crate::protocol::{EventLine, RequestLine};
 use crate::task_runner::{run_task, RunTaskParams};
 use crate::DaemonState;
+use aether_permissions::AutomationGrant;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 
 pub async fn serve(addr: String, state: Arc<DaemonState>) -> Result<(), Box<dyn std::error::Error>> {
+    let scheduler_state = Arc::clone(&state);
+    tokio::spawn(async move {
+        automation_webhook::run_automation_scheduler(scheduler_state).await;
+    });
+
+    if let Ok(webhook_port) = std::env::var("AETHER_AUTOMATION_WEBHOOK_PORT") {
+        let webhook_addr = format!("127.0.0.1:{}", webhook_port);
+        let webhook_state = Arc::clone(&state);
+        tokio::spawn(async move {
+            if let Err(e) = automation_webhook::serve_webhook(webhook_addr, webhook_state).await {
+                tracing::error!("automation webhook server failed: {}", e);
+            }
+        });
+    }
+
     let listener = TcpListener::bind(&addr).await?;
     loop {
         let (socket, peer) = listener.accept().await?;
@@ -80,6 +98,47 @@ async fn handle_client(
             "ping" => {
                 write_event(&mut writer, EventLine::pong()).await?;
             }
+            "register_automation" => {
+                if let Err(e) = handle_register_automation(&state, &request).await {
+                    write_event(
+                        &mut writer,
+                        EventLine::error(format!("register_automation failed: {}", e)),
+                    )
+                    .await?;
+                } else {
+                    write_event(
+                        &mut writer,
+                        EventLine::automation_registered(
+                            request.params.trigger_id.as_deref().unwrap_or(""),
+                        ),
+                    )
+                    .await?;
+                }
+            }
+            "automation_tick" => {
+                let tick_count = {
+                    let conn = state.db.conn();
+                    let mut scheduler = AutomationScheduler::new();
+                    scheduler
+                        .tick_cron(&conn, std::time::SystemTime::now())
+                        .map(|o| o.len())
+                        .map_err(|e| e.to_string())?
+                };
+                write_event(
+                    &mut writer,
+                    EventLine::automation_tick(tick_count),
+                )
+                .await?;
+            }
+            "automation_run" => {
+                if let Err(e) = handle_automation_run(&state, &mut writer).await {
+                    write_event(
+                        &mut writer,
+                        EventLine::error(format!("automation_run failed: {}", e)),
+                    )
+                    .await?;
+                }
+            }
             other => {
                 write_event(
                     &mut writer,
@@ -88,6 +147,82 @@ async fn handle_client(
                 .await?;
             }
         }
+    }
+
+    Ok(())
+}
+
+async fn handle_automation_run(
+    state: &Arc<DaemonState>,
+    writer: &mut tokio::net::tcp::OwnedWriteHalf,
+) -> Result<(), String> {
+    let results = {
+        let conn = state.db.conn();
+        AutomationScheduler::run_pending(&conn, 4, |trigger| {
+            crate::task_runner::run_automation_trigger(&conn, trigger)
+        })?
+    };
+
+    write_event(
+        writer,
+        EventLine::automation_run_complete(results.len()),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+async fn handle_register_automation(
+    state: &Arc<DaemonState>,
+    request: &RequestLine,
+) -> Result<(), String> {
+    let trigger_id = request
+        .params
+        .trigger_id
+        .as_deref()
+        .ok_or("missing trigger_id")?;
+    let session_id = request
+        .params
+        .session_id
+        .as_deref()
+        .ok_or("missing session_id")?;
+    let trigger_type = TriggerType::parse(
+        request
+            .params
+            .trigger_type
+            .as_deref()
+            .ok_or("missing trigger_type")?,
+    )
+    .ok_or("invalid trigger_type")?;
+
+    let config: TriggerConfig = request
+        .params
+        .config_json
+        .as_deref()
+        .map(|s| serde_json::from_str(s).unwrap_or_default())
+        .unwrap_or_default();
+
+    let trigger = AutomationTrigger {
+        trigger_id: trigger_id.to_string(),
+        trigger_type,
+        session_id: session_id.to_string(),
+        config,
+        task_prompt: request
+            .params
+            .task_prompt
+            .clone()
+            .unwrap_or_default(),
+        workspace_path: request.params.workspace_path.clone(),
+        enabled: true,
+        last_fired_at: None,
+    };
+
+    let conn = state.db.conn();
+    AutomationScheduler::register_trigger(&conn, &trigger)?;
+
+    if request.params.grant_automation.unwrap_or(false) {
+        AutomationGrant::grant(&conn, trigger_id, session_id).map_err(|e| e.to_string())?;
     }
 
     Ok(())

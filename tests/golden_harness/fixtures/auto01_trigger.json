@@ -1,0 +1,14 @@
+{
+  "trigger_id": "auto01-cron-frozen",
+  "session_id": "sess-auto-01",
+  "trigger_type": "cron",
+  "config": {
+    "interval_secs": 1
+  },
+  "loop_plan": [
+    { "action": "fs_write", "path": "auto_marker.txt", "content": "AUTO-01-verified" },
+    { "action": "verify_contains", "path": "auto_marker.txt", "text": "AUTO-01-verified" },
+    { "action": "python_lint", "source": "def ok():\n    return 1\n" },
+    { "action": "done" }
+  ]
+}

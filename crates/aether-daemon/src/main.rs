@@ -1,19 +1,9 @@
-mod ingest;
-mod protocol;
-mod server;
-mod task_runner;
-
 use aether_core::ModelRouter;
 use aether_db::Database;
+use aether_daemon::server;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
-
-pub struct DaemonState {
-    pub db: Database,
-    pub router: ModelRouter,
-    pub auth_token: String,
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -38,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(target_os = "macos"))]
     let auth_token = std::env::var("AETHER_DAEMON_AUTH_TOKEN").unwrap_or_default();
 
-    let state = Arc::new(DaemonState {
+    let state = Arc::new(aether_daemon::DaemonState {
         db,
         router,
         auth_token,

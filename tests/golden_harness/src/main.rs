@@ -13,6 +13,9 @@ use loop01::test_loop_01_impl;
 mod loop02;
 use loop02::test_loop_02_impl;
 
+mod auto01;
+use auto01::test_auto01_impl;
+
 mod recovery;
 use recovery::CrashRecoveryTest;
 
@@ -39,7 +42,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 15] = [
+const TASKS: [TaskSpec; 16] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -56,6 +59,7 @@ const TASKS: [TaskSpec; 15] = [
     TaskSpec { name: "RES-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "LOOP-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "LOOP-02", hard_on_darwin: true, fail_closed_off_darwin: true },
+    TaskSpec { name: "AUTO-01", hard_on_darwin: true, fail_closed_off_darwin: false },
 ];
 
 fn is_darwin() -> bool {
@@ -76,6 +80,11 @@ async fn main() {
     match skill02::skill02_fixture_ready() {
         Ok(n) => println!("SKILL-02 fixtures: {} frozen eval questions loaded\n", n),
         Err(e) => eprintln!("Warning: SKILL-02 fixture check failed: {}\n", e),
+    }
+
+    match auto01::auto01_fixture_ready() {
+        Ok(()) => println!("AUTO-01 fixtures: frozen cron trigger loaded"),
+        Err(e) => eprintln!("Warning: AUTO-01 fixture check failed: {}", e),
     }
 
     match graph01::graph01_fixture_ready() {
@@ -145,7 +154,7 @@ async fn main() {
         total
     );
     if is_darwin() {
-        println!("Darwin scoreboard: {}/15 harness ({} hard / {} soft)", passed, hard_pass, soft_pass);
+        println!("Darwin scoreboard: {}/{} harness ({} hard / {} soft)", passed, total, hard_pass, soft_pass);
     } else {
         println!(
             "Non-Darwin note: FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02 expected fail-closed when sandbox-exec/Ollama absent"
@@ -171,6 +180,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "RES-01" => test_res_01().await.map(|_| true),
         "LOOP-01" => test_loop_01(db).await.map(|_| true),
         "LOOP-02" => test_loop_02(db).await.map(|_| true),
+        "AUTO-01" => test_auto01(db).await.map(|_| true),
         other => Err(format!("Unknown task {}", other)),
     };
 
@@ -623,6 +633,11 @@ async fn test_rout_01() -> Result<(), String> {
 async fn test_loop_02(db: &Database) -> Result<(), String> {
     let conn = db.conn();
     test_loop_02_impl(&conn).await
+}
+
+async fn test_auto01(db: &Database) -> Result<(), String> {
+    let conn = db.conn();
+    test_auto01_impl(&conn).await
 }
 
 async fn test_loop_01(db: &Database) -> Result<(), String> {

@@ -21,6 +21,16 @@ pub struct RequestParams {
     pub max_tokens: Option<usize>,
     #[serde(default)]
     pub auth_token: Option<String>,
+    #[serde(default)]
+    pub trigger_id: Option<String>,
+    #[serde(default)]
+    pub trigger_type: Option<String>,
+    #[serde(default)]
+    pub task_prompt: Option<String>,
+    #[serde(default)]
+    pub config_json: Option<String>,
+    #[serde(default)]
+    pub grant_automation: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -59,6 +69,12 @@ pub struct EventLine {
     pub max_tokens: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_iterations: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trigger_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tick_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runs_completed: Option<usize>,
 }
 
 impl EventLine {
@@ -81,6 +97,9 @@ impl EventLine {
             tokens_used: None,
             max_tokens: None,
             max_iterations: None,
+            trigger_id: None,
+            tick_count: None,
+            runs_completed: None,
         }
     }
 
@@ -167,5 +186,23 @@ impl EventLine {
 
     pub fn pong() -> Self {
         Self::base("pong")
+    }
+
+    pub fn automation_registered(trigger_id: &str) -> Self {
+        let mut e = Self::base("automation_registered");
+        e.trigger_id = Some(trigger_id.to_string());
+        e
+    }
+
+    pub fn automation_tick(count: usize) -> Self {
+        let mut e = Self::base("automation_tick");
+        e.tick_count = Some(count);
+        e
+    }
+
+    pub fn automation_run_complete(count: usize) -> Self {
+        let mut e = Self::base("automation_run_complete");
+        e.tick_count = Some(count);
+        e
     }
 }

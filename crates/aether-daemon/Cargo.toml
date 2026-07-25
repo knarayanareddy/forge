@@ -3,6 +3,10 @@ name = "aether-daemon"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "aether_daemon"
+path = "src/lib.rs"
+
 [[bin]]
 name = "aether-daemon"
 path = "src/main.rs"
@@ -25,3 +29,6 @@ aether-db = { path = "../aether-db" }
 aether-permissions = { path = "../aether-permissions" }
 aether-mcp = { path = "../aether-mcp" }
 aether-skills = { path = "../aether-skills" }
+
+[dev-dependencies]
+tempfile = "3.10"
