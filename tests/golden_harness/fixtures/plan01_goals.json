@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "description": "Diverse NL planner goals. A case passes only when all required tools and no forbidden tools appear.",
+  "minimum_pass_rate": 0.9,
+  "cases": [
+    {
+      "id": "write-verify-lint",
+      "goal": "Write a file named plan01_marker.txt containing exactly PLAN-01-verified. Verify plan01_marker.txt contains PLAN-01-verified. Lint this Python source: def ok():\n    return 1\n. Then finish.",
+      "required_tools": ["fs_write", "verify_contains", "python_lint"],
+      "forbidden_tools": ["fs_read", "git_init", "mcp_call", "skill_execute"]
+    },
+    {
+      "id": "read-only",
+      "goal": "Read the file notes.txt.",
+      "required_tools": ["fs_read"],
+      "forbidden_tools": ["fs_write", "verify_contains", "python_lint", "git_init", "mcp_call", "skill_execute"]
+    },
+    {
+      "id": "git-explicit-branch",
+      "goal": "Initialise a git repository on branch main in this workspace.",
+      "required_tools": ["git_init"],
+      "forbidden_tools": ["fs_write", "fs_read", "python_lint", "mcp_call", "skill_execute"]
+    },
+    {
+      "id": "write-and-verify",
+      "goal": "Create a README.md containing hello, then verify that README.md contains hello.",
+      "required_tools": ["fs_write", "verify_contains"],
+      "forbidden_tools": ["fs_read", "python_lint", "git_init", "mcp_call", "skill_execute"]
+    },
+    {
+      "id": "mcp-filesystem",
+      "goal": "Call the filesystem MCP server's list_directory tool with path '.'.",
+      "required_tools": ["mcp_call"],
+      "forbidden_tools": ["fs_write", "fs_read", "verify_contains", "python_lint", "git_init", "skill_execute"]
+    },
+    {
+      "id": "read-config",
+      "goal": "Open config.yaml.",
+      "required_tools": ["fs_read"],
+      "forbidden_tools": ["fs_write", "verify_contains", "python_lint", "git_init", "mcp_call", "skill_execute"]
+    },
+    {
+      "id": "write-nested-file",
+      "goal": "Write a file called notes/todo.md containing exactly buy milk.",
+      "required_tools": ["fs_write"],
+      "forbidden_tools": ["fs_read", "python_lint", "git_init", "mcp_call", "skill_execute"]
+    },
+    {
+      "id": "lint-only",
+      "goal": "Lint this Python source: def add(a, b):\n    return a + b\n",
+      "required_tools": ["python_lint"],
+      "forbidden_tools": ["fs_write", "fs_read", "verify_contains", "git_init", "mcp_call", "skill_execute"]
+    },
+    {
+      "id": "git-default-branch",
+      "goal": "Set up version control here.",
+      "required_tools": ["git_init"],
+      "forbidden_tools": ["fs_write", "fs_read", "verify_contains", "python_lint", "mcp_call", "skill_execute"]
+    },
+    {
+      "id": "skill-routing",
+      "goal": "Run the changelog skill.",
+      "required_tools": ["skill_execute"],
+      "forbidden_tools": ["fs_write", "fs_read", "verify_contains", "python_lint", "git_init", "mcp_call"]
+    }
+  ]
+}
