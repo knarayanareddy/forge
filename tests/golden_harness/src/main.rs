@@ -29,6 +29,7 @@ mod audit_chain;
 use audit_chain::verify_audit_hash_chain;
 
 mod red01;
+use red01::test_red01_impl;
 mod skill02;
 
 struct TaskSpec {
@@ -37,7 +38,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 13] = [
+const TASKS: [TaskSpec; 14] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -49,6 +50,7 @@ const TASKS: [TaskSpec; 13] = [
     TaskSpec { name: "GRAPH-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "SKILL-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "SAFE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "RED-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "RES-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "LOOP-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "LOOP-02", hard_on_darwin: true, fail_closed_off_darwin: true },
@@ -64,8 +66,8 @@ async fn main() {
     println!("Constitution: v1.2.4 + Phase 3 Agent Loop");
     println!("Platform: {} (Darwin canonical)\n", std::env::consts::OS);
 
-    match red01::red01_fixture_ready() {
-        Ok(n) => println!("RED-01 fixtures: {} frozen cases (stub loader OK)", n),
+    match red01::load_red_team_fixtures() {
+        Ok(f) => println!("RED-01 fixtures: {} frozen adversarial cases loaded", f.cases.len()),
         Err(e) => eprintln!("Warning: RED-01 fixture check failed: {}", e),
     }
 
@@ -141,7 +143,7 @@ async fn main() {
         total
     );
     if is_darwin() {
-        println!("Darwin scoreboard: {}/13 harness ({} hard / {} soft)", passed, hard_pass, soft_pass);
+        println!("Darwin scoreboard: {}/14 harness ({} hard / {} soft)", passed, hard_pass, soft_pass);
     } else {
         println!(
             "Non-Darwin note: FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02 expected fail-closed when sandbox-exec/Ollama absent"
@@ -161,6 +163,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "GRAPH-01" => test_graph_01(db).await.map(|_| true),
         "SKILL-01" => test_skill_01().await.map(|_| true),
         "SAFE-01" => test_safe_01(db).await.map(|_| true),
+        "RED-01" => test_red_01(db).await.map(|_| true),
         "ROUT-01" => test_rout_01().await.map(|_| true),
         "RES-01" => test_res_01().await.map(|_| true),
         "LOOP-01" => test_loop_01(db).await.map(|_| true),
@@ -512,6 +515,11 @@ async fn rout_01_discard_warmup(endpoint: &str, model: &str, rounds: usize) -> R
     )
     .await
     .map_err(|e| format!("Discard warmup failed: {}", e))
+}
+
+async fn test_red_01(db: &Database) -> Result<(), String> {
+    let conn = db.conn();
+    test_red01_impl(&conn)
 }
 
 async fn test_rout_01() -> Result<(), String> {

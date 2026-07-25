@@ -6,10 +6,10 @@ AetherForge MVP — **Phase 5 Polish** complete on Darwin (Phases 1–4 retained
 
 ```text
 cargo run -p golden-harness --bin golden-harness
-→ 13/13 harness (13 hard / 0 soft) when ROUT-01 median warm TTFT ≤ 200ms, GRAPH-01 recall@3 ≥ 1.0, and LOOP-02 NL plan trajectory matches gold
+→ 14/14 harness (14 hard / 0 soft) when ROUT-01 median warm TTFT ≤ 200ms, GRAPH-01 recall@3 ≥ 1.0, LOOP-02 NL plan trajectory matches gold, and RED-01 blocks all 14 adversarial cases
 ```
 
-Tasks: ROUT-01, FS-01, FS-02, GIT-01, CODE-01, MCP-01, MEM-01, GRAPH-01, SKILL-01, SAFE-01, RES-01, LOOP-01, LOOP-02
+Tasks: ROUT-01, FS-01, FS-02, GIT-01, CODE-01, MCP-01, MEM-01, GRAPH-01, SKILL-01, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02
 
 ROUT-01 runs first (before FS-02 sandbox load and MCP/MEM embedder swap), pre-warms the chat model at harness start, drains five warmup streams (`keep_alive: 30m`, `num_ctx: 512`), then asserts the **median** of three Ollama server-side warm TTFT samples (`load_duration + prompt_eval_duration`) is ≤ 200ms.
 
@@ -136,11 +136,11 @@ FFI (`aether_ffi_daemon_ipc`, `aether_daemon_default_port`) provides default hos
 - **Keychain BYOK:** `AETHER_BYOK_PROVIDER=openai` loads API key from macOS Keychain (`AetherForge` / `byok-api-key`); fail-closed on non-macOS.
 - **Hybrid memory:** `search_semantic_memory_hybrid` fuses FTS5 BM25 + sqlite-vec KNN via Reciprocal Rank Fusion (MEM-01 uses hybrid path).
 - **Packaging:** `./scripts/create-dmg.sh` builds a drag-and-drop DMG; `./scripts/notarize.sh` for Apple notarization when Developer ID cert is available.
-- **CI:** `.github/workflows/ci.yml` — Darwin 12/12 gate, Linux 8/12 fail-closed matrix ([docs/LINUX_CI.md](docs/LINUX_CI.md)).
+- **CI:** `.github/workflows/ci.yml` — Darwin 14/14 gate, Linux 9/14 fail-closed matrix ([docs/LINUX_CI.md](docs/LINUX_CI.md)).
 
 Install guide: [docs/INSTALL.md](docs/INSTALL.md)
 
 ## Architecture target vs product readiness
 
 - **Spec engineering target:** 8.5+ (see v1.2.3 / v1.2.4 docs)
-- **Shipped harness baseline:** 12/12 on Darwin (12 hard) when ROUT-01 warm TTFT passes and GRAPH-01 recall@3 ≥ 1.0 — secure FS, sandbox, crash recovery (SIGTERM child), git grant enforcement, SSE streaming router, memory (sqlite-vec KNN + graph hop RRF), MCP stdio JSON-RPC, procedural skills, ReAct loop, permissions, Python lint, daemon IPC, macOS SwiftUI shell
+- **Shipped harness baseline:** 14/14 on Darwin (14 hard) when ROUT-01 warm TTFT passes, GRAPH-01 recall@3 ≥ 1.0, and RED-01 0% escape — secure FS, sandbox, crash recovery (SIGTERM child), git grant enforcement, SSE streaming router, memory (sqlite-vec KNN + graph hop RRF), MCP stdio JSON-RPC, procedural skills, ReAct loop, permissions, adversarial red-team suite, Python lint, daemon IPC, macOS SwiftUI shell

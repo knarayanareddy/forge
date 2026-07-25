@@ -1,13 +1,13 @@
 use crate::{GitOps, LoopError, PythonLinter};
 use aether_mcp::{invoke_with_grant, McpAllowlist};
-use aether_permissions::{PermissionDecision, PermissionManager};
+use aether_permissions::{path_is_subpath, PermissionDecision, PermissionManager};
 use aether_skills::{SkillDefinition, SkillExecutor};
 use rusqlite::Connection;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Default token cap for daemon loop tasks (`0` = unlimited).
 pub const DEFAULT_MAX_LOOP_TOKENS: usize = 0;
@@ -183,20 +183,17 @@ impl ToolRegistry {
     ) -> Result<ToolObservation, String> {
         match invocation {
             ToolInvocation::FsWrite { path, content } => {
-                let full = config.workspace.join(path);
-                let workspace_str = config.workspace.to_string_lossy().to_string();
+                let full = resolve_workspace_path(&config.workspace, path)?;
+                let full_str = full.to_string_lossy().to_string();
                 let decision = PermissionManager::check_file_access(
                     conn,
                     &config.session_id,
-                    &workspace_str,
+                    &full_str,
                     "write",
                 )
                 .map_err(|e| e.to_string())?;
                 if decision != PermissionDecision::Approved {
-                    return Err(format!(
-                        "Write denied for workspace {}",
-                        workspace_str
-                    ));
+                    return Err(format!("Write denied for target path {}", full_str));
                 }
                 fs::write(&full, content).map_err(|e| e.to_string())?;
                 Ok(observation(
@@ -207,7 +204,7 @@ impl ToolRegistry {
                 ))
             }
             ToolInvocation::FsRead { path } => {
-                let full = config.workspace.join(path);
+                let full = resolve_workspace_path(&config.workspace, path)?;
                 let full_str = full.to_string_lossy().to_string();
                 let decision = PermissionManager::check_file_access(
                     conn,
@@ -273,6 +270,7 @@ impl ToolRegistry {
             ToolInvocation::McpCall { server, tool, args } => {
                 let allowlist = allowlist
                     .ok_or_else(|| "MCP allowlist not configured".to_string())?;
+                validate_mcp_arguments_in_workspace(&config.workspace, args)?;
                 let workspace_str = config.workspace.to_string_lossy().to_string();
                 let extra = vec![workspace_str.clone()];
                 match invoke_with_grant(
@@ -324,7 +322,7 @@ impl ToolRegistry {
                 }
             }
             ToolInvocation::VerifyContains { path, text } => {
-                let full = config.workspace.join(path);
+                let full = resolve_workspace_path(&config.workspace, path)?;
                 let content = fs::read_to_string(&full).map_err(|e| e.to_string())?;
                 let ok = content.contains(text);
                 Ok(observation(
@@ -387,6 +385,7 @@ impl ReActLoopEngine {
     {
         let mut observations = Vec::new();
         let mut iteration = 0usize;
+        let mut pending_writes: Vec<String> = Vec::new();
 
         for step in plan {
             if iteration >= self.max_iterations {
@@ -413,6 +412,18 @@ impl ReActLoopEngine {
             }
 
             if matches!(step, ToolInvocation::Done) {
+                if let Err(msg) = require_verified_writes(&pending_writes) {
+                    on_event(LoopStreamEvent::Error {
+                        message: msg.clone(),
+                    });
+                    return Err(LoopError::Turn(msg));
+                }
+                if let Err(msg) = verify_shell_before_done(&observations) {
+                    on_event(LoopStreamEvent::Error {
+                        message: msg.clone(),
+                    });
+                    return Err(LoopError::Turn(msg));
+                }
                 let obs = ToolRegistry::execute(
                     conn,
                     config,
@@ -461,6 +472,12 @@ impl ReActLoopEngine {
                 summary: obs.output.clone(),
             });
 
+            if let ToolInvocation::FsWrite { path, .. } = &step {
+                if obs.success {
+                    pending_writes.push(path.clone());
+                }
+            }
+
             if matches!(step, ToolInvocation::PythonLint { .. }) {
                 observations.push(obs.clone());
                 let passed = obs.success;
@@ -478,7 +495,12 @@ impl ReActLoopEngine {
                 continue;
             }
 
-            if matches!(step, ToolInvocation::VerifyContains { .. }) {
+            if matches!(&step, ToolInvocation::VerifyContains { .. }) {
+                if let ToolInvocation::VerifyContains { path, .. } = &step {
+                    if obs.success {
+                        pending_writes.retain(|p| p != path);
+                    }
+                }
                 observations.push(obs.clone());
                 on_event(LoopStreamEvent::Verify {
                     iteration,
@@ -533,6 +555,71 @@ impl ReActLoopEngine {
         }
         Ok(result)
     }
+}
+
+fn verify_shell_before_done(observations: &[ToolObservation]) -> Result<(), String> {
+    let wrote = observations.iter().any(|o| o.tool == "fs_write" && o.success);
+    if !wrote {
+        return Ok(());
+    }
+    let verified = observations
+        .iter()
+        .any(|o| o.tool == "verify_contains" && o.success);
+    if !verified {
+        return Err("Loop blocked: done before verify_contains after fs_write".into());
+    }
+    let linted = observations
+        .iter()
+        .any(|o| o.tool == "python_lint" && o.success);
+    if !linted {
+        return Err("Loop blocked: done before python_lint after fs_write".into());
+    }
+    Ok(())
+}
+
+fn validate_mcp_arguments_in_workspace(workspace: &Path, args: &Value) -> Result<(), String> {
+    let Some(path_val) = args.get("path").and_then(|v| v.as_str()) else {
+        return Ok(());
+    };
+    resolve_workspace_path(&workspace.to_path_buf(), path_val)?;
+    Ok(())
+}
+
+fn require_verified_writes(pending_writes: &[String]) -> Result<(), String> {
+    if pending_writes.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "Loop blocked: fs_write without verify_contains for {:?}",
+        pending_writes
+    ))
+}
+
+/// Resolve a workspace-relative path and reject escapes (absolute paths, `..`, encoded segments).
+fn resolve_workspace_path(workspace: &PathBuf, rel: &str) -> Result<PathBuf, String> {
+    use aether_permissions::canonicalize_access_path;
+
+    let workspace_canon = workspace
+        .canonicalize()
+        .map_err(|e| format!("Workspace canonicalize failed: {}", e))?;
+
+    let rel = rel.trim_start_matches('\u{FEFF}');
+    if rel.starts_with('/') || rel.starts_with('\\') {
+        return Err(format!("Absolute path denied outside workspace: {}", rel));
+    }
+
+    let joined = workspace_canon.join(rel);
+    let joined_str = joined.to_string_lossy().to_string();
+    let resolved = match canonicalize_access_path(&joined_str) {
+        Ok(p) => p,
+        Err(e) => return Err(e),
+    };
+
+    if !path_is_subpath(&resolved, &workspace_canon) {
+        return Err(format!("Path escapes workspace grant: {}", rel));
+    }
+
+    Ok(resolved)
 }
 
 fn tool_name(step: &ToolInvocation) -> &str {

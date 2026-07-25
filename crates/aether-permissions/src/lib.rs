@@ -103,15 +103,38 @@ impl PermissionManager {
 /// Normalize and canonicalize a filesystem path for permission checks.
 /// Resolves `.` / `..` components without allowing traversal past the root,
 /// then uses `fs::canonicalize` when the target exists.
+/// Reject percent-encoded traversal segments before filesystem normalization.
+fn reject_encoded_traversal(path: &str) -> Result<(), String> {
+    let lower = path.to_ascii_lowercase();
+    if lower.contains("%2e%2e")
+        || lower.contains("%2f")
+        || lower.contains("%5c")
+        || lower.contains("%00")
+    {
+        return Err("Path traversal denied: encoded escape sequence not allowed".into());
+    }
+    Ok(())
+}
+
+/// Strip Unicode BOM and other leading control chars used in path confusion attacks.
+fn strip_path_confusables(path: &str) -> String {
+    path.trim_start_matches('\u{FEFF}')
+        .trim_start_matches('\u{200B}')
+        .to_string()
+}
+
 pub fn canonicalize_access_path(path: &str) -> Result<PathBuf, String> {
-    let path_obj = Path::new(path);
+    let path = strip_path_confusables(path);
+    reject_encoded_traversal(&path)?;
+
+    let path_obj = Path::new(&path);
     for component in path_obj.components() {
         if matches!(component, Component::ParentDir) {
             return Err("Path traversal denied: '..' component not allowed".into());
         }
     }
 
-    let normalized = normalize_path_components(path)?;
+    let normalized = normalize_path_components(&path)?;
     if normalized.as_os_str().is_empty() {
         return Err("Empty path after normalization".into());
     }
@@ -272,6 +295,16 @@ mod tests {
     fn test_normalize_rejects_parent_traversal() {
         assert!(normalize_path_components("/tmp/workspace/../../../etc/passwd").is_err());
         assert!(canonicalize_access_path("/tmp/../etc/passwd").is_err());
+    }
+
+    #[test]
+    fn test_rejects_encoded_traversal() {
+        assert!(canonicalize_access_path("/tmp/granted/%2e%2e/etc/passwd").is_err());
+    }
+
+    #[test]
+    fn test_strips_bom_before_traversal_check() {
+        assert!(canonicalize_access_path("/tmp/workspace/\u{FEFF}../etc/passwd").is_err());
     }
 
     #[test]
