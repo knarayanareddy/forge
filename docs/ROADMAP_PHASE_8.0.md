@@ -63,6 +63,10 @@ These inherit Phases 1–7 gates and add Phase 8.0-specific rules.
 
 **Do not start Phase 8.1+ until Phase 8.0 is pushed and independently audited.**
 
+**Narrow implementation exception:** Phase 9 planner slices 9.1–9.4 / PLAN-01 were pulled
+forward after 8.0a because the de-harnessed probe exposed a directly testable planner defect.
+This does **not** waive the 8.0b memory or 8.0c sandbox gates for any other Phase 9 surface.
+
 ---
 
 ## Architecture Delta

@@ -371,8 +371,9 @@ Cheap, high-leverage, no feature dependency. Makes Forge composable rather than 
 | Milestone | Harness | Notes |
 |-----------|---------|-------|
 | Phase 8.0a *(shipped)* | 18/18 | + LOOP-03, IPC-01 probes |
+| Phase 9 slices 9.1–9.4 | 19/19 target | + PLAN-01; implemented early as an isolated planner wedge |
 | Phase 8.0 complete | 18/18 | closed loop, sandbox, doc truth |
-| Phase 8.1–8.3 | 19/19 | + INGEST-01 |
+| Phase 8.1–8.3 | 20/20 | + INGEST-01 after PLAN-01 |
 | **Phase 9 complete** | **23/23** | + PLAN-01, SESS-01, UNDO-01, LOOP-04 |
 | **Phase 10 complete** | **27/27** | + CKPT-01, SUB-01, HOOK-01, PERM-02 |
 | **Phase 11 complete** | **31/31** | + SKILL-03, SEC-01, INJECT-01, CONS-01 |
