@@ -775,6 +775,9 @@ mod tests {
                 path: "marker.txt".into(),
                 text: "LOOP-TEST".into(),
             },
+            ToolInvocation::PythonLint {
+                source: "def ok():\n    return 1\n".into(),
+            },
             ToolInvocation::Done,
         ];
 
@@ -873,7 +876,7 @@ mod tests {
         .unwrap();
 
         let mut config = LoopConfig {
-            max_iterations: 3,
+            max_iterations: 5,
             max_tokens: 0,
             tokens_used: 0,
             session_id: "s-tel".into(),
@@ -885,10 +888,17 @@ mod tests {
                 path: "a.txt".into(),
                 content: "hi".into(),
             },
+            ToolInvocation::VerifyContains {
+                path: "a.txt".into(),
+                text: "hi".into(),
+            },
+            ToolInvocation::PythonLint {
+                source: "def ok():\n    return 1\n".into(),
+            },
             ToolInvocation::Done,
         ];
 
-        let engine = ReActLoopEngine::new(3);
+        let engine = ReActLoopEngine::new(5);
         let mut budget_snapshots = Vec::new();
         engine
             .run_structured(&conn, &mut config, plan, None, &HashMap::new(), |event| {
