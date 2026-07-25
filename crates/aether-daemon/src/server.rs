@@ -3,10 +3,17 @@ use crate::automation_webhook;
 use crate::protocol::{EventLine, RequestLine};
 use crate::task_runner::{run_task, RunTaskParams};
 use crate::DaemonState;
-use aether_permissions::AutomationGrant;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
+
+/// Returns true when the caller supplied a valid daemon auth token, or auth is disabled.
+pub fn ipc_auth_ok(provided: Option<&str>, expected: &str) -> bool {
+    if expected.is_empty() {
+        return true;
+    }
+    aether_core::verify_daemon_auth_token_expected(provided.unwrap_or(""), expected)
+}
 
 pub async fn serve(addr: String, state: Arc<DaemonState>) -> Result<(), Box<dyn std::error::Error>> {
     let scheduler_state = Arc::clone(&state);
@@ -62,18 +69,17 @@ async fn handle_client(
             }
         };
 
+        if request.method != "ping" && !ipc_auth_ok(request.params.auth_token.as_deref(), &state.auth_token) {
+            write_event(
+                &mut writer,
+                EventLine::error("Invalid or missing auth_token".into()),
+            )
+            .await?;
+            continue;
+        }
+
         match request.method.as_str() {
             "run_task" => {
-                let token = request.params.auth_token.as_deref().unwrap_or("");
-                if !aether_core::verify_daemon_auth_token_expected(token, &state.auth_token) {
-                    write_event(
-                        &mut writer,
-                        EventLine::error("Invalid or missing auth_token".into()),
-                    )
-                    .await?;
-                    continue;
-                }
-
                 if request.params.prompt.is_empty() {
                     write_event(
                         &mut writer,
@@ -177,6 +183,13 @@ async fn handle_register_automation(
     state: &Arc<DaemonState>,
     request: &RequestLine,
 ) -> Result<(), String> {
+    if request.params.grant_automation.unwrap_or(false) {
+        return Err(
+            "grant_automation via IPC is forbidden; grant AutomationGrant through the UI or an authenticated grant flow"
+                .into(),
+        );
+    }
+
     let trigger_id = request
         .params
         .trigger_id
@@ -221,10 +234,6 @@ async fn handle_register_automation(
     let conn = state.db.conn();
     AutomationScheduler::register_trigger(&conn, &trigger)?;
 
-    if request.params.grant_automation.unwrap_or(false) {
-        AutomationGrant::grant(&conn, trigger_id, session_id).map_err(|e| e.to_string())?;
-    }
-
     Ok(())
 }
 
@@ -237,4 +246,47 @@ async fn write_event(
     writer.write_all(b"\n").await?;
     writer.flush().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ipc_auth_rejects_missing_and_wrong_token() {
+        let expected = "test-token-abc";
+        assert!(!ipc_auth_ok(None, expected));
+        assert!(!ipc_auth_ok(Some(""), expected));
+        assert!(!ipc_auth_ok(Some("wrong"), expected));
+        assert!(ipc_auth_ok(Some(expected), expected));
+    }
+
+    #[test]
+    fn ipc_auth_allows_when_auth_disabled() {
+        assert!(ipc_auth_ok(None, ""));
+        assert!(ipc_auth_ok(Some("any-token"), ""));
+    }
+
+    #[test]
+    fn ipc_auth_fail_closed_when_token_configured() {
+        assert!(!ipc_auth_ok(None, "configured-token"));
+        assert!(!ipc_auth_ok(Some("wrong"), "configured-token"));
+    }
+
+    #[test]
+    fn register_automation_rejects_grant_automation_flag() {
+        let request: RequestLine = serde_json::from_str(
+            r#"{"method":"register_automation","params":{"grant_automation":true,"trigger_id":"t","session_id":"s","trigger_type":"cron"}}"#,
+        )
+        .expect("parse");
+        let state = Arc::new(DaemonState {
+            db: aether_db::Database::open_in_memory().expect("db"),
+            router: aether_core::ModelRouter::from_env().expect("router"),
+            auth_token: "tok".into(),
+        });
+        let pending = handle_register_automation(&state, &request);
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        let err = rt.block_on(pending).expect_err("must reject grant_automation");
+        assert!(err.contains("grant_automation via IPC is forbidden"));
+    }
 }

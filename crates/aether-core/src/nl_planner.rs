@@ -1,6 +1,8 @@
 //! NL → structured tool plan for LOOP-02 (Slice 6.6).
 //!
 //! Plans are validated and executed by the same `ReActLoopEngine` verify shell as LOOP-01.
+//! Production validation checks schema, allowed tools, step cap, and forbidden patterns —
+//! **not** harness gold tool order (see `validate_nl_plan_gold_trajectory` for eval-only asserts).
 
 use crate::graph_extract::strip_json_fence;
 use crate::{ModelRouter, ToolInvocation};
@@ -12,11 +14,22 @@ pub const LOOP02_EVAL_PROMPT: &str = "Write a file named loop02_marker.txt conta
 Verify loop02_marker.txt contains LOOP-02-verified. Lint this Python source: def ok():\n    return 1\n. \
 Then finish the plan.";
 
-/// Gold tool trajectory for LOOP-02 harness asserts.
+/// Gold tool trajectory for LOOP-02 harness asserts only — not enforced in production validation.
 pub const LOOP02_GOLD_TOOL_ORDER: &[&str] =
     &["fs_write", "verify_contains", "python_lint", "done"];
 
 const NL_PLAN_NUM_PREDICT: u32 = 1024;
+
+const ALLOWED_NL_TOOLS: &[&str] = &[
+    "fs_write",
+    "fs_read",
+    "verify_contains",
+    "python_lint",
+    "git_init",
+    "mcp_call",
+    "skill_execute",
+    "done",
+];
 
 #[derive(Error, Debug, PartialEq)]
 pub enum NlPlanError {
@@ -28,6 +41,10 @@ pub enum NlPlanError {
     EmptyPlan,
     #[error("Invalid tool step at index {index}: {detail}")]
     InvalidStep { index: usize, detail: String },
+    #[error("Disallowed tool `{tool}` at step {index}")]
+    DisallowedTool { index: usize, tool: String },
+    #[error("Forbidden plan pattern at step {index}: {detail}")]
+    ForbiddenPattern { index: usize, detail: String },
     #[error("Trajectory mismatch at step {index}: expected {expected}, got {actual}")]
     TrajectoryMismatch {
         index: usize,
@@ -62,7 +79,7 @@ User goal:
     )
 }
 
-/// Parse and validate planner JSON into tool invocations with gold trajectory checks.
+/// Parse and validate planner JSON into tool invocations (production path).
 pub fn validate_nl_plan(json: &str, max_iterations: usize) -> Result<Vec<ToolInvocation>, NlPlanError> {
     let value: Value =
         serde_json::from_str(json).map_err(|e| NlPlanError::Json(e.to_string()))?;
@@ -95,15 +112,12 @@ pub fn validate_nl_plan(json: &str, max_iterations: usize) -> Result<Vec<ToolInv
         })?;
         let tool = tool_name(&invocation).to_string();
 
-        if index < LOOP02_GOLD_TOOL_ORDER.len() {
-            let expected = LOOP02_GOLD_TOOL_ORDER[index];
-            if tool != expected {
-                return Err(NlPlanError::TrajectoryMismatch {
-                    index,
-                    expected: expected.into(),
-                    actual: tool,
-                });
-            }
+        if !ALLOWED_NL_TOOLS.contains(&tool.as_str()) {
+            return Err(NlPlanError::DisallowedTool { index, tool });
+        }
+
+        if let Some(detail) = forbidden_pattern_detail(&invocation) {
+            return Err(NlPlanError::ForbiddenPattern { index, detail });
         }
 
         if let Some((prev_tool, prev_key)) = seen_targets.last() {
@@ -116,18 +130,55 @@ pub fn validate_nl_plan(json: &str, max_iterations: usize) -> Result<Vec<ToolInv
         plan.push(invocation);
     }
 
+    if plan.len() == 1 && matches!(plan[0], ToolInvocation::Done) {
+        return Err(NlPlanError::ForbiddenPattern {
+            index: 0,
+            detail: "plan must include at least one action before done".into(),
+        });
+    }
+
     if plan.last().map(tool_name) != Some("done") {
-        return Err(NlPlanError::TrajectoryMismatch {
+        return Err(NlPlanError::ForbiddenPattern {
             index: plan.len().saturating_sub(1),
-            expected: "done".into(),
-            actual: plan.last().map(tool_name).unwrap_or("<missing>").into(),
+            detail: "plan must end with done".into(),
         });
     }
 
     Ok(plan)
 }
 
-/// Call Ollama via `ModelRouter`, validate JSON, and enforce trajectory + step cap.
+/// Harness-only: assert tool order matches LOOP-02 gold trajectory.
+pub fn validate_nl_plan_gold_trajectory(plan: &[ToolInvocation]) -> Result<(), NlPlanError> {
+    for (index, expected) in LOOP02_GOLD_TOOL_ORDER.iter().enumerate() {
+        let actual = plan
+            .get(index)
+            .map(tool_name)
+            .ok_or_else(|| NlPlanError::TrajectoryMismatch {
+                index,
+                expected: (*expected).into(),
+                actual: "<missing>".into(),
+            })?;
+        if actual != *expected {
+            return Err(NlPlanError::TrajectoryMismatch {
+                index,
+                expected: (*expected).into(),
+                actual: actual.into(),
+            });
+        }
+    }
+
+    if plan.len() != LOOP02_GOLD_TOOL_ORDER.len() {
+        return Err(NlPlanError::TrajectoryMismatch {
+            index: plan.len().saturating_sub(1),
+            expected: format!("{} steps", LOOP02_GOLD_TOOL_ORDER.len()),
+            actual: format!("{} steps", plan.len()),
+        });
+    }
+
+    Ok(())
+}
+
+/// Call Ollama via `ModelRouter`, validate JSON, enforce step cap + production rules.
 pub async fn run_nl_planner(
     router: &ModelRouter,
     nl_goal: &str,
@@ -141,6 +192,48 @@ pub async fn run_nl_planner(
         .content;
     let json = strip_json_fence(&raw);
     validate_nl_plan(&json, max_iterations)
+}
+
+fn forbidden_pattern_detail(step: &ToolInvocation) -> Option<String> {
+    match step {
+        ToolInvocation::FsWrite { path, content } => {
+            if path.trim().is_empty() {
+                return Some("fs_write requires non-empty path".into());
+            }
+            if content.is_empty() {
+                return Some("fs_write requires content".into());
+            }
+        }
+        ToolInvocation::FsRead { path } => {
+            if path.trim().is_empty() {
+                return Some("fs_read requires non-empty path".into());
+            }
+        }
+        ToolInvocation::VerifyContains { path, text } => {
+            if path.trim().is_empty() {
+                return Some("verify_contains requires non-empty path".into());
+            }
+            if text.is_empty() {
+                return Some("verify_contains requires non-empty text".into());
+            }
+        }
+        ToolInvocation::PythonLint { source } if source.trim().is_empty() => {
+            return Some("python_lint requires non-empty source".into());
+        }
+        ToolInvocation::GitInit { branch } if branch.trim().is_empty() => {
+            return Some("git_init requires non-empty branch".into());
+        }
+        ToolInvocation::McpCall { server, tool, .. } => {
+            if server.trim().is_empty() || tool.trim().is_empty() {
+                return Some("mcp_call requires server and tool".into());
+            }
+        }
+        ToolInvocation::SkillExecute { skill_id, .. } if skill_id.trim().is_empty() => {
+            return Some("skill_execute requires skill_id".into());
+        }
+        _ => {}
+    }
+    None
 }
 
 fn tool_name(step: &ToolInvocation) -> &str {
@@ -183,18 +276,34 @@ mod tests {
         ]}"#;
         let plan = validate_nl_plan(json, 6).unwrap();
         assert_eq!(plan.len(), 4);
+        validate_nl_plan_gold_trajectory(&plan).unwrap();
     }
 
     #[test]
-    fn validate_nl_plan_rejects_wrong_order() {
+    fn validate_nl_plan_accepts_fs_read_first_non_gold_order() {
         let json = r#"{"loop":[
-            {"action":"verify_contains","path":"a.txt","text":"x"},
-            {"action":"fs_write","path":"a.txt","content":"x"},
-            {"action":"python_lint","source":"def ok():\n    return 1\n"},
+            {"action":"fs_read","path":"notes.txt"},
             {"action":"done"}
         ]}"#;
+        let plan = validate_nl_plan(json, 6).unwrap();
+        assert_eq!(plan.len(), 2);
+        assert!(validate_nl_plan_gold_trajectory(&plan).is_err());
+    }
+
+    #[test]
+    fn validate_nl_plan_rejects_done_only_plan() {
+        let json = r#"{"loop":[{"action":"done"}]}"#;
         let err = validate_nl_plan(json, 6).unwrap_err();
-        assert!(matches!(err, NlPlanError::TrajectoryMismatch { .. }));
+        assert!(matches!(err, NlPlanError::ForbiddenPattern { .. }));
+    }
+
+    #[test]
+    fn validate_nl_plan_rejects_missing_done() {
+        let json = r#"{"loop":[
+            {"action":"fs_read","path":"notes.txt"}
+        ]}"#;
+        let err = validate_nl_plan(json, 6).unwrap_err();
+        assert!(matches!(err, NlPlanError::ForbiddenPattern { .. }));
     }
 
     #[test]
@@ -208,5 +317,15 @@ mod tests {
         ]}"#;
         let err = validate_nl_plan(json, 4).unwrap_err();
         assert!(matches!(err, NlPlanError::ExceedsMaxIterations { .. }));
+    }
+
+    #[test]
+    fn validate_nl_plan_rejects_empty_fs_write_path() {
+        let json = r#"{"loop":[
+            {"action":"fs_write","path":"","content":"x"},
+            {"action":"done"}
+        ]}"#;
+        let err = validate_nl_plan(json, 6).unwrap_err();
+        assert!(matches!(err, NlPlanError::ForbiddenPattern { .. }));
     }
 }

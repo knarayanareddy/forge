@@ -1,8 +1,8 @@
 //! LOOP-02 — NL-generated plan through `ReActLoopEngine` verify shell + trajectory eval (Slice 6.6).
 
 use aether_core::{
-    LoopConfig, ModelBackend, ModelRouter, OllamaProvider, ReActLoopEngine, LOOP02_EVAL_PROMPT,
-    LOOP02_GOLD_TOOL_ORDER,
+    validate_nl_plan_gold_trajectory, LoopConfig, ModelBackend, ModelRouter, OllamaProvider,
+    ReActLoopEngine, LOOP02_EVAL_PROMPT, LOOP02_GOLD_TOOL_ORDER,
 };
 use std::collections::HashMap;
 use std::fs;
@@ -37,6 +37,9 @@ pub async fn test_loop_02_impl(conn: &rusqlite::Connection) -> Result<(), String
     let plan = aether_core::run_nl_planner(&router, LOOP02_EVAL_PROMPT, max_iterations)
         .await
         .map_err(|e| format!("NlPlanner failed: {}", e))?;
+
+    validate_nl_plan_gold_trajectory(&plan)
+        .map_err(|e| format!("LOOP-02 gold trajectory (harness): {}", e))?;
 
     if plan.len() > max_iterations {
         return Err(format!(

@@ -25,8 +25,8 @@ pub use loop_engine::{
 };
 
 pub use nl_planner::{
-    build_nl_plan_prompt, run_nl_planner, validate_nl_plan, NlPlanError, LOOP02_EVAL_PROMPT,
-    LOOP02_GOLD_TOOL_ORDER,
+    build_nl_plan_prompt, run_nl_planner, validate_nl_plan, validate_nl_plan_gold_trajectory,
+    NlPlanError, LOOP02_EVAL_PROMPT, LOOP02_GOLD_TOOL_ORDER,
 };
 
 pub use orchestration_graph::OrchestrationGraph;

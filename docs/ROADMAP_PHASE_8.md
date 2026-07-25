@@ -1,9 +1,12 @@
 # AetherForge Roadmap — Phase 8
 
 **Baseline:** Phase 7 complete — Darwin **18/18 harness (18 hard / 0 soft)** · slice 7.10 docs/CI closure @ `91bfc01`  
+**Prerequisite wedge:** [ROADMAP_PHASE_8.0.md](./ROADMAP_PHASE_8.0.md) — honesty + closed loop **must complete before slice 8.1 below**  
 **Canonical platform:** Darwin (macOS 15+ Apple Silicon)  
 **Linux CI:** fail-closed for FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02 when `sandbox-exec` or Ollama absent  
 **Binding spec:** This document is the Phase 8 contract. Every shipped claim maps to a harness task or an explicit deferral below. **Planning only — no implementation in this document.**
+
+> **Phase 8.0 gate:** [ROADMAP_PHASE_8.0.md](./ROADMAP_PHASE_8.0.md) ("Honesty + Closed Loop") must complete **before** any slice 8.1+ below (DMG, graph v2, MLX). Slice 8.0a (IPC lockdown + NL planner de-harnessing) is the first implementation step.
 
 ---
 
@@ -58,6 +61,8 @@ Phase 8 proves that **AetherForge is shippable as a local-first product** — no
 | GATE-01 green | Slack mock grant round-trip |
 
 **Do not start Phase 8 implementation until Phase 7 is pushed to `main` and independently audited.**
+
+**Do not start Phase 8 slices 8.1+ (distribution, graph v2, MLX) until [Phase 8.0](./ROADMAP_PHASE_8.0.md) honesty + closed-loop wedge is complete and audited.**
 
 **Browser / Lightpanda preconditions (explicit deferral gate):**
 

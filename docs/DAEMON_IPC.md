@@ -17,7 +17,10 @@ The token is created on first daemon startup (`ensure_daemon_auth_token`). Clien
 {"method":"run_task","params":{"auth_token":"<token>","prompt":"Say hello","session_id":"demo-1"}}
 ```
 
-**Fail-closed:** `run_task` without a valid `auth_token` returns `{"type":"error","message":"Invalid or missing auth_token"}`.
+**Fail-closed:** Any IPC method except `ping` without a valid `auth_token` returns `{"type":"error","message":"Invalid or missing auth_token"}` when daemon auth is enabled (macOS Keychain token on startup).
+
+Protected methods: `run_task`, `register_automation`, `automation_tick`, `automation_run`.  
+`register_automation` rejects `grant_automation: true` — AutomationGrant must be granted through the UI or an explicit grant flow (see AUTO-01), not via IPC auto-grant.
 
 `ping` does not require auth (health check only).
 
@@ -43,7 +46,7 @@ Environment variables:
 
 ### Authentication (Tier A)
 
-On macOS, the daemon stores an IPC auth token in Keychain (service `AetherForge`, account `daemon-auth-token`) on startup. **`run_task` requires a valid `auth_token` param** — requests without it are rejected fail-closed.
+On macOS, the daemon stores an IPC auth token in Keychain (service `AetherForge`, account `daemon-auth-token`) on startup. **All IPC methods except `ping` require a valid `auth_token` param** — requests without it are rejected fail-closed.
 
 ```json
 {"method":"run_task","params":{"prompt":"Hello","session_id":"demo-1","auth_token":"<from-keychain>"}}

@@ -7,7 +7,7 @@ AetherForge MVP — **Phase 7 complete** on Darwin (Phases 1–6 retained).
 ```text
 cargo run -p golden-harness --bin golden-harness
 → 18/18 harness (18 hard / 0 soft) when ROUT-01 median warm TTFT ≤ 200ms,
-  GRAPH-01 recall@3 ≥ 1.0, LOOP-02 NL plan trajectory matches gold,
+  GRAPH-01 recall@3 ≥ 1.0, LOOP-02 NL plan through verify shell (gold trajectory in harness eval only),
   RED-01 blocks all frozen adversarial cases (≥12, currently 14),
   SKILL-02 routes 3/3 book_skill questions with citation fidelity ≥ 0.9,
   AUTO-01 fires a granted automation trigger → run_task → audit_log,
@@ -41,7 +41,8 @@ ROUT-01 runs first (before FS-02 sandbox load and MCP/MEM embedder swap), pre-wa
 
 See [docs/ROADMAP_PHASES_1-5.md](docs/ROADMAP_PHASES_1-5.md) for Phases 1–5 acceptance criteria.  
 See [docs/ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md) for Phase 6 binding spec.  
-See [docs/ROADMAP_PHASE_7.md](docs/ROADMAP_PHASE_7.md) for Phase 7 orchestration + gateway contract.
+See [docs/ROADMAP_PHASE_7.md](docs/ROADMAP_PHASE_7.md) for Phase 7 orchestration + gateway contract.  
+See [docs/ROADMAP_PHASE_8.0.md](docs/ROADMAP_PHASE_8.0.md) for Phase 8.0 honesty wedge (required before Phase 8 feature surface).
 
 ## Phase 7 — Orchestration + gateway (complete)
 
