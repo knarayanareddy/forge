@@ -37,6 +37,11 @@ jobs:
         run: cargo test --workspace
 
       - name: Golden harness (Linux fail-closed matrix)
+        env:
+          GIT_AUTHOR_NAME: ci
+          GIT_AUTHOR_EMAIL: ci@localhost
+          GIT_COMMITTER_NAME: ci
+          GIT_COMMITTER_EMAIL: ci@localhost
         run: |
           set +e
           cargo run -p golden-harness 2>&1 | tee harness.log
