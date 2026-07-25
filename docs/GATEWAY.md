@@ -44,8 +44,10 @@ aether_core::store_gateway_token(channel_id, token)?;
 
 `tests/golden_harness/src/gate01.rs` exercises the production grant gate without real Slack:
 
-1. POST mock Slack JSON to `handle_mock_slack_post` **without** grant → **403 deny** + audit
-2. `GatewayGrant::grant` → accept → `run_gateway_inbound` → marker + `gate_response.txt` artifact
+1. POST mock Slack JSON to `handle_mock_slack_post` **without** grant → **deny** + audit
+2. POST to localhost mock server (`accept_one_mock_request`) **without** grant → **HTTP 403**
+3. `GatewayGrant::grant` → accept → `run_gateway_inbound` → marker + `gate_response.txt` artifact
+4. POST to localhost mock server **with** grant → **HTTP 200** + response artifact
 
 No outbound HTTPS in harness; optional `profiles/sandbox_gateway.sb` deferred for production Slack egress.
 

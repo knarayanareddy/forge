@@ -22,6 +22,14 @@ pub struct Database {
     conn: Arc<Mutex<Connection>>,
 }
 
+impl Clone for Database {
+    fn clone(&self) -> Self {
+        Self {
+            conn: Arc::clone(&self.conn),
+        }
+    }
+}
+
 impl Database {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         register_sqlite_vec();

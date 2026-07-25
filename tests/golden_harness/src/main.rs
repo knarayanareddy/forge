@@ -661,8 +661,7 @@ async fn test_check01(db: &Database) -> Result<(), String> {
 }
 
 async fn test_gate01(db: &Database) -> Result<(), String> {
-    let conn = db.conn();
-    test_gate01_impl(&conn).await
+    test_gate01_impl(db).await
 }
 
 async fn test_auto01(db: &Database) -> Result<(), String> {

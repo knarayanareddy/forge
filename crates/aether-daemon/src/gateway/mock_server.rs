@@ -25,6 +25,15 @@ pub async fn serve_mock_gateway(
     }
 }
 
+/// Accept one inbound POST on a pre-bound listener (harness / unit tests).
+pub async fn accept_one_mock_request(
+    listener: TcpListener,
+    state: Arc<DaemonState>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let (mut socket, _) = listener.accept().await?;
+    handle_mock_connection(&mut socket, &state).await
+}
+
 async fn handle_mock_connection(
     socket: &mut tokio::net::TcpStream,
     state: &Arc<DaemonState>,
