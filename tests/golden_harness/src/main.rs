@@ -561,6 +561,18 @@ async fn rout_01_measure_ttft(
     Err("ROUT-01 TTFT measurement exhausted retries".into())
 }
 
+/// Drop the lowest/highest sample then take the median — dampens GHA runner spikes.
+fn rout_01_trimmed_median(mut samples: Vec<u128>) -> u128 {
+    if samples.len() >= 3 {
+        samples.sort_unstable();
+        let inner = &samples[1..samples.len() - 1];
+        inner[inner.len() / 2]
+    } else {
+        samples.sort_unstable();
+        samples[samples.len() / 2]
+    }
+}
+
 async fn rout_01_discard_warmup(endpoint: &str, model: &str, rounds: usize) -> Result<(), String> {
     aether_core::OllamaProvider::warm_chat_model_with_prompt(
         endpoint,
@@ -617,13 +629,13 @@ async fn test_rout_01() -> Result<(), String> {
     // Discard streams so the first counted sample is not penalized by connection/prompt priming.
     rout_01_discard_warmup(&endpoint, &fast_model, 5).await?;
 
-    // Default 200ms on local Darwin; CI sets AETHER_ROUT_TTFT_MS=350 for macos-15 runner overhead.
+    // Default 200ms on local Darwin; CI sets AETHER_ROUT_TTFT_MS for macos-15 runner overhead.
     let ttft_warm_ms: u128 = std::env::var("AETHER_ROUT_TTFT_MS")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(200);
     const TTFT_SAMPLES: usize = 7;
-    const MAX_ROUNDS: usize = 5;
+    const MAX_ROUNDS: usize = 3;
 
     let mut last_server_samples = vec![0u128; TTFT_SAMPLES];
     let mut last_median = 0u128;
@@ -645,12 +657,12 @@ async fn test_rout_01() -> Result<(), String> {
         }
 
         server_samples.sort_unstable();
-        let median = server_samples[TTFT_SAMPLES / 2];
+        let median = rout_01_trimmed_median(server_samples.clone());
         last_server_samples = server_samples.clone();
         last_median = median;
 
         eprintln!(
-            "round {} median warm TTFT {}ms (threshold {}ms, keep_alive 30m, server {:?}, client {:?})",
+            "round {} trimmed-median warm TTFT {}ms (threshold {}ms, keep_alive 30m, server {:?}, client {:?})",
             round + 1,
             median,
             ttft_warm_ms,
