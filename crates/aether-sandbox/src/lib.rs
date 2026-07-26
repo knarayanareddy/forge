@@ -257,6 +257,11 @@ impl ProductionSandbox {
         command.env("GIT_AUTHOR_EMAIL", "aetherforge@localhost");
         command.env("GIT_COMMITTER_NAME", "AetherForge");
         command.env("GIT_COMMITTER_EMAIL", "aetherforge@localhost");
+        // The profile denies all reads under /etc, and Seatbelt returns EPERM (not ENOENT) for a
+        // denied read. Git treats EPERM on /etc/gitconfig as fatal rather than "no system config,
+        // continue" — so without this, any sandboxed git invocation fails on Darwin regardless of
+        // repository state. This skips the read entirely instead of loosening the /etc deny.
+        command.env("GIT_CONFIG_NOSYSTEM", "1");
         Ok(command)
     }
 
@@ -415,5 +420,19 @@ mod tests {
         let profile = ProductionSandbox::resolve_profile().unwrap();
         assert!(profile.is_absolute());
         assert!(profile.ends_with("profiles/sandbox_tool.sb"));
+    }
+
+    #[test]
+    fn git_config_nosystem_is_set_to_avoid_eperm_on_etc() {
+        // Seatbelt denies /etc reads with EPERM, not ENOENT; git treats EPERM on
+        // /etc/gitconfig as fatal. GIT_CONFIG_NOSYSTEM must always be present so git never
+        // attempts that read inside the sandbox.
+        let temp = tempfile::tempdir().unwrap();
+        let output = ProductionSandbox::command("/usr/bin/env", std::iter::empty::<&str>(), temp.path())
+            .unwrap()
+            .output()
+            .unwrap();
+        let environment = String::from_utf8_lossy(&output.stdout);
+        assert!(environment.contains("GIT_CONFIG_NOSYSTEM=1"));
     }
 }
