@@ -141,13 +141,33 @@ impl ProductionSandbox {
             return Err(SandboxError::MissingProfile(path.display().to_string()));
         }
 
-        let development = PathBuf::from("profiles/sandbox_tool.sb");
-        if development.is_file() {
-            return development.canonicalize().map_err(SandboxError::Io);
+        if let Ok(cwd) = std::env::current_dir() {
+            for ancestor in cwd.ancestors() {
+                let development = ancestor.join("profiles/sandbox_tool.sb");
+                if development.is_file() {
+                    return development.canonicalize().map_err(SandboxError::Io);
+                }
+            }
+        }
+
+        // Cargo tests run with package-specific working directories. This candidate is used only
+        // when the source checkout still exists; packaged apps resolve through Resources below.
+        let manifest_development =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../profiles/sandbox_tool.sb");
+        if manifest_development.is_file() {
+            return manifest_development
+                .canonicalize()
+                .map_err(SandboxError::Io);
         }
 
         if let Ok(exe) = std::env::current_exe() {
             if let Some(exe_dir) = exe.parent() {
+                for ancestor in exe_dir.ancestors() {
+                    let development = ancestor.join("profiles/sandbox_tool.sb");
+                    if development.is_file() {
+                        return development.canonicalize().map_err(SandboxError::Io);
+                    }
+                }
                 let bundled = exe_dir.join("../Resources/profiles/sandbox_tool.sb");
                 if bundled.is_file() {
                     return bundled.canonicalize().map_err(SandboxError::Io);
