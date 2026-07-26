@@ -9,6 +9,7 @@ use aether_core::{
 };
 use aether_db::Database;
 use aether_mcp::McpAllowlist;
+use aether_sandbox::ProductionSandbox;
 use aether_skills::SkillLoader;
 use futures::StreamExt;
 use std::collections::HashMap;
@@ -441,7 +442,12 @@ pub fn run_gateway_inbound(
     match result {
         Ok(run) if run.done => {
             let response_path = workspace.join("gate_response.txt");
-            std::fs::write(&response_path, normalized_prompt).map_err(|e| e.to_string())?;
+            ProductionSandbox::write_file(
+                &workspace,
+                &response_path,
+                normalized_prompt.as_bytes(),
+            )
+            .map_err(|e| e.to_string())?;
             Ok(())
         }
         Ok(_) => Err("gateway loop did not reach done".into()),
