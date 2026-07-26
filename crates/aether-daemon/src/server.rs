@@ -3,6 +3,7 @@ use crate::automation_webhook;
 use crate::protocol::{EventLine, RequestLine};
 use crate::task_runner::{run_task, RunTaskParams};
 use crate::DaemonState;
+use aether_permissions::{PermissionDecision, PermissionManager};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
@@ -104,6 +105,18 @@ async fn handle_client(
             "ping" => {
                 write_event(&mut writer, EventLine::pong()).await?;
             }
+            "grant_workspace" => match handle_grant_workspace(&state, &request) {
+                Ok(path) => {
+                    write_event(&mut writer, EventLine::workspace_granted(&path)).await?;
+                }
+                Err(e) => {
+                    write_event(
+                        &mut writer,
+                        EventLine::error(format!("grant_workspace failed: {}", e)),
+                    )
+                    .await?;
+                }
+            },
             "register_automation" => {
                 if let Err(e) = handle_register_automation(&state, &request).await {
                     write_event(
@@ -156,6 +169,62 @@ async fn handle_client(
     }
 
     Ok(())
+}
+
+fn handle_grant_workspace(
+    state: &Arc<DaemonState>,
+    request: &RequestLine,
+) -> Result<String, String> {
+    let session_id = request
+        .params
+        .session_id
+        .as_deref()
+        .filter(|id| !id.trim().is_empty())
+        .ok_or("missing session_id")?;
+    let requested = request
+        .params
+        .workspace_path
+        .as_deref()
+        .filter(|path| !path.trim().is_empty())
+        .ok_or("missing workspace_path")?;
+    let workspace = std::path::Path::new(requested)
+        .canonicalize()
+        .map_err(|e| format!("workspace canonicalization failed: {e}"))?;
+    if !workspace.is_dir() {
+        return Err("workspace_path must be an existing directory".into());
+    }
+    let workspace = workspace.to_string_lossy().to_string();
+    let conn = state.db.conn();
+    conn.execute(
+        "INSERT OR IGNORE INTO sessions (id, title, status)
+         VALUES (?1, 'Workspace Session', 'active')",
+        rusqlite::params![session_id],
+    )
+    .map_err(|e| e.to_string())?;
+    for capability in ["read", "write"] {
+        conn.execute(
+            "INSERT OR IGNORE INTO capability_grants
+             (session_id, resource_path, permission_type) VALUES (?1, ?2, ?3)",
+            rusqlite::params![session_id, workspace, capability],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    PermissionManager::audit_decision(
+        &conn,
+        session_id,
+        "grant_workspace",
+        &serde_json::json!({
+            "workspace_path": workspace,
+            "capabilities": ["read", "write"],
+            "source": "authenticated_ui"
+        })
+        .to_string(),
+        &PermissionDecision::Approved,
+        Some(0),
+        None,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(workspace)
 }
 
 async fn handle_automation_run(
@@ -288,5 +357,53 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().expect("runtime");
         let err = rt.block_on(pending).expect_err("must reject grant_automation");
         assert!(err.contains("grant_automation via IPC is forbidden"));
+    }
+
+    #[test]
+    fn workspace_grant_is_explicit_audited_and_idempotent() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let request_json = serde_json::json!({
+            "method": "grant_workspace",
+            "params": {
+                "session_id": "workspace-grant-test",
+                "workspace_path": workspace.path(),
+            }
+        });
+        let request: RequestLine =
+            serde_json::from_value(request_json).expect("grant request parse");
+        let state = Arc::new(DaemonState {
+            db: aether_db::Database::open_in_memory().expect("db"),
+            router: aether_core::ModelRouter::from_env().expect("router"),
+            auth_token: "tok".into(),
+        });
+
+        let canonical = handle_grant_workspace(&state, &request).expect("grant");
+        handle_grant_workspace(&state, &request).expect("idempotent grant");
+        assert_eq!(
+            canonical,
+            workspace.path().canonicalize().unwrap().to_string_lossy()
+        );
+
+        let conn = state.db.conn();
+        let grants: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM capability_grants
+                 WHERE session_id = 'workspace-grant-test'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(grants, 2, "read + write only, without duplicates");
+        let audits: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM audit_log
+                 WHERE session_id = 'workspace-grant-test'
+                   AND tool_name = 'grant_workspace'
+                   AND decision = 'approved'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(audits, 2);
     }
 }

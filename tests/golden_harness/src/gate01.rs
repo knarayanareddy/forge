@@ -107,6 +107,12 @@ pub async fn test_gate01_impl(db: &Database) -> Result<(), String> {
             channel_type.as_str(),
         )
         .map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT INTO capability_grants (session_id, resource_path, permission_type)
+             VALUES (?1, ?2, 'write')",
+            rusqlite::params![fixture.session_id, &workspace_str],
+        )
+        .map_err(|e| e.to_string())?;
 
         let accepted = aether_daemon::gateway::mock_server::handle_mock_slack_post(
             &conn,
