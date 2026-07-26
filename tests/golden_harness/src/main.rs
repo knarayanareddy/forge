@@ -16,6 +16,9 @@ use loop02::test_loop_02_impl;
 mod plan01;
 use plan01::test_plan01_impl;
 
+mod sess01;
+use sess01::test_sess01_impl;
+
 mod auto01;
 use auto01::test_auto01_impl;
 
@@ -57,7 +60,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 21] = [
+const TASKS: [TaskSpec; 22] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -77,6 +80,7 @@ const TASKS: [TaskSpec; 21] = [
     TaskSpec { name: "LOOP-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "LOOP-02", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "PLAN-01", hard_on_darwin: true, fail_closed_off_darwin: true },
+    TaskSpec { name: "SESS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "AUTO-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CHECK-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "GATE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -240,6 +244,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "LOOP-01" => test_loop_01(db).await.map(|_| true),
         "LOOP-02" => test_loop_02(db).await.map(|_| true),
         "PLAN-01" => test_plan01().await.map(|_| true),
+        "SESS-01" => test_sess01_impl(db).map(|_| true),
         "AUTO-01" => test_auto01(db).await.map(|_| true),
         "CHECK-01" => test_check01(db).await.map(|_| true),
         "GATE-01" => test_gate01(db).await.map(|_| true),
