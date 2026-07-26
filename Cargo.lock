@@ -9,6 +9,7 @@ dependencies = [
  "aether-db",
  "aether-mcp",
  "aether-permissions",
+ "aether-sandbox",
  "aether-skills",
  "async-stream",
  "futures",
@@ -32,6 +33,7 @@ dependencies = [
  "aether-db",
  "aether-mcp",
  "aether-permissions",
+ "aether-sandbox",
  "aether-skills",
  "futures",
  "rusqlite",
@@ -66,6 +68,7 @@ name = "aether-mcp"
 version = "0.1.0"
 dependencies = [
  "aether-permissions",
+ "aether-sandbox",
  "hex",
  "rusqlite",
  "serde",
@@ -93,6 +96,7 @@ dependencies = [
 name = "aether-sandbox"
 version = "0.1.0"
 dependencies = [
+ "tempfile",
  "thiserror",
  "tokio",
 ]
@@ -102,6 +106,7 @@ name = "aether-skills"
 version = "0.1.0"
 dependencies = [
  "aether-permissions",
+ "aether-sandbox",
  "rusqlite",
  "serde",
  "thiserror",

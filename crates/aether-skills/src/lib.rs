@@ -6,6 +6,7 @@ pub use disclosure::{
 };
 
 use aether_permissions::{PermissionDecision, PermissionManager};
+use aether_sandbox::ProductionSandbox;
 use rusqlite::Connection;
 use std::collections::HashMap;
 use std::fs;
@@ -117,12 +118,11 @@ impl SkillExecutor {
         workspace: &Path,
         variables: &HashMap<String, String>,
     ) -> Result<(), SkillError> {
-        let workspace_str = workspace.to_string_lossy().to_string();
-
         for step in &skill.steps {
             match step {
                 SkillStep::ReadFile { path } => {
-                    let full_path = workspace.join(path);
+                    let full_path = ProductionSandbox::validate_target(workspace, Path::new(path))
+                        .map_err(|e| SkillError::Execution(e.to_string()))?;
                     let full_str = full_path.to_string_lossy().to_string();
                     let decision = PermissionManager::check_file_access(conn, session_id, &full_str, "read")
                         .map_err(|e| SkillError::Db(e))?;
@@ -132,7 +132,8 @@ impl SkillExecutor {
                             full_str
                         )));
                     }
-                    fs::read_to_string(&full_path).map_err(|e| SkillError::Io(e))?;
+                    ProductionSandbox::read_to_string(workspace, &full_path)
+                        .map_err(|e| SkillError::Execution(e.to_string()))?;
                     PermissionManager::audit_decision(
                         conn,
                         session_id,
@@ -145,25 +146,21 @@ impl SkillExecutor {
                     .map_err(SkillError::Db)?;
                 }
                 SkillStep::AppendFile { path, template } => {
-                    let full_path = workspace.join(path);
+                    let full_path = ProductionSandbox::validate_target(workspace, Path::new(path))
+                        .map_err(|e| SkillError::Execution(e.to_string()))?;
                     let full_str = full_path.to_string_lossy().to_string();
-                    let decision = PermissionManager::check_file_access(conn, session_id, &workspace_str, "write")
+                    let decision = PermissionManager::check_file_access(conn, session_id, &full_str, "write")
                         .map_err(SkillError::Db)?;
                     if decision != PermissionDecision::Approved {
                         return Err(SkillError::PermissionDenied(format!(
-                            "Write denied for workspace {} without grant",
-                            workspace_str
+                            "Write denied for {} without grant",
+                            full_str
                         )));
                     }
 
                     let rendered = render_template(template, variables);
-                    use std::io::Write;
-                    let mut file = fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(&full_path)
-                        .map_err(SkillError::Io)?;
-                    file.write_all(rendered.as_bytes()).map_err(SkillError::Io)?;
+                    ProductionSandbox::append_file(workspace, &full_path, rendered.as_bytes())
+                        .map_err(|e| SkillError::Execution(e.to_string()))?;
 
                     PermissionManager::audit_decision(
                         conn,

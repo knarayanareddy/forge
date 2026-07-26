@@ -8,3 +8,4 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "2.0"
 aether-permissions = { path = "../aether-permissions" }
+aether-sandbox = { path = "../aether-sandbox" }

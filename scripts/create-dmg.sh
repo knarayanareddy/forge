@@ -27,6 +27,7 @@ swift build -c release
 echo "==> Staging .app bundle"
 rm -rf "$STAGING"
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
+mkdir -p "$APP_BUNDLE/Contents/Resources/profiles"
 
 BIN="$ROOT/.build/release/AetherForgeApp"
 DAEMON="$ROOT/target/release/aether-daemon"
@@ -42,6 +43,7 @@ fi
 
 cp "$BIN" "$APP_BUNDLE/Contents/MacOS/${APP_NAME}"
 cp "$DAEMON" "$APP_BUNDLE/Contents/MacOS/aether-daemon"
+cp "$ROOT/profiles/sandbox_tool.sb" "$APP_BUNDLE/Contents/Resources/profiles/sandbox_tool.sb"
 chmod +x "$APP_BUNDLE/Contents/MacOS/"*
 
 cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST

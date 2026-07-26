@@ -31,6 +31,9 @@ use recovery::CrashRecoveryTest;
 mod fs02;
 use fs02::test_fs_02_impl;
 
+mod sb01;
+use sb01::test_sb01_impl;
+
 mod mcp01;
 use mcp01::test_mcp_01_impl;
 
@@ -54,11 +57,12 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 20] = [
+const TASKS: [TaskSpec; 21] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "FS-02", hard_on_darwin: true, fail_closed_off_darwin: true },
+    TaskSpec { name: "SB-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "GIT-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CODE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "MCP-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -210,6 +214,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
     let outcome = match name {
         "FS-01" => test_fs_01(db).await.map(|_| true),
         "FS-02" => test_fs_02().await.map(|_| true),
+        "SB-01" => test_sb01_impl(db).map(|_| true),
         "GIT-01" => test_git_01(db).await.map(|_| true),
         "CODE-01" => test_code_01().await.map(|_| true),
         "MCP-01" => test_mcp_01(db).await.map(|_| true),

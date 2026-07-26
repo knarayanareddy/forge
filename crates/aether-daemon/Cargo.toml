@@ -29,6 +29,7 @@ aether-db = { path = "../aether-db" }
 aether-permissions = { path = "../aether-permissions" }
 aether-mcp = { path = "../aether-mcp" }
 aether-skills = { path = "../aether-skills" }
+aether-sandbox = { path = "../aether-sandbox" }
 
 [dev-dependencies]
 tempfile = "3.10"

@@ -1,12 +1,12 @@
 use crate::{GitOps, LoopError, PythonLinter};
 use aether_mcp::{invoke_with_grant, McpAllowlist};
 use aether_permissions::{path_is_subpath, PermissionDecision, PermissionManager};
+use aether_sandbox::ProductionSandbox;
 use aether_skills::{SkillDefinition, SkillExecutor};
 use rusqlite::Connection;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Default token cap for daemon loop tasks (`0` = unlimited).
@@ -201,7 +201,8 @@ impl ToolRegistry {
                 if decision != PermissionDecision::Approved {
                     return Err(format!("Write denied for target path {}", full_str));
                 }
-                fs::write(&full, content).map_err(|e| e.to_string())?;
+                ProductionSandbox::write_file(&config.workspace, &full, content.as_bytes())
+                    .map_err(|e| e.to_string())?;
                 Ok(observation(
                     iteration,
                     "fs_write",
@@ -222,7 +223,8 @@ impl ToolRegistry {
                 if decision != PermissionDecision::Approved {
                     return Err(format!("Read denied for {}", full_str));
                 }
-                let content = fs::read_to_string(&full).map_err(|e| e.to_string())?;
+                let content = ProductionSandbox::read_to_string(&config.workspace, &full)
+                    .map_err(|e| e.to_string())?;
                 Ok(observation(
                     iteration,
                     "fs_read",
@@ -231,7 +233,7 @@ impl ToolRegistry {
                 ))
             }
             ToolInvocation::PythonLint { source } => {
-                match PythonLinter::check_syntax(source) {
+                match PythonLinter::check_syntax_in_workspace(source, &config.workspace) {
                     Ok(issues) if issues.is_empty() => Ok(observation(
                         iteration,
                         "python_lint",
@@ -329,7 +331,8 @@ impl ToolRegistry {
             }
             ToolInvocation::VerifyContains { path, text } => {
                 let full = resolve_workspace_path(&config.workspace, path)?;
-                let content = fs::read_to_string(&full).map_err(|e| e.to_string())?;
+                let content = ProductionSandbox::read_to_string(&config.workspace, &full)
+                    .map_err(|e| e.to_string())?;
                 let ok = content.contains(text);
                 Ok(observation(
                     iteration,

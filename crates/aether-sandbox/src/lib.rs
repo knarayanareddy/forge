@@ -1,6 +1,8 @@
 use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::ffi::OsStr;
+use std::io::{BufRead, BufReader, Write};
+use std::path::{Component, Path, PathBuf};
+use std::process::{Command, Stdio};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -13,6 +15,10 @@ pub enum SandboxError {
     Execution(String),
     #[error("sandbox-exec required: {0}")]
     MissingSandboxExec(String),
+    #[error("sandbox profile missing: {0}")]
+    MissingProfile(String),
+    #[error("sandbox target escapes workspace: {0}")]
+    InvalidPath(String),
 }
 
 pub struct SandboxRunner {
@@ -72,6 +78,199 @@ impl SandboxRunner {
     }
 }
 
+/// Production tool sandbox shared by core filesystem, git, lint, skill, and MCP paths.
+///
+/// On Darwin every command is wrapped by Seatbelt and fails closed when the executable/profile
+/// is unavailable. Other platforms retain OS-native execution for CI portability, but still use
+/// the same path validation and scrubbed child environment.
+pub struct ProductionSandbox;
+
+impl ProductionSandbox {
+    pub fn resolve_profile() -> Result<PathBuf, SandboxError> {
+        if let Some(path) = std::env::var_os("AETHER_SANDBOX_PROFILE") {
+            let path = PathBuf::from(path);
+            if path.is_file() {
+                return path.canonicalize().map_err(SandboxError::Io);
+            }
+            return Err(SandboxError::MissingProfile(path.display().to_string()));
+        }
+
+        let development = PathBuf::from("profiles/sandbox_tool.sb");
+        if development.is_file() {
+            return development.canonicalize().map_err(SandboxError::Io);
+        }
+
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(exe_dir) = exe.parent() {
+                let bundled = exe_dir.join("../Resources/profiles/sandbox_tool.sb");
+                if bundled.is_file() {
+                    return bundled.canonicalize().map_err(SandboxError::Io);
+                }
+            }
+        }
+        Err(SandboxError::MissingProfile(
+            "set AETHER_SANDBOX_PROFILE or bundle Contents/Resources/profiles/sandbox_tool.sb"
+                .into(),
+        ))
+    }
+
+    pub fn validate_target(workspace: &Path, target: &Path) -> Result<PathBuf, SandboxError> {
+        if target
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+        {
+            return Err(SandboxError::InvalidPath(target.display().to_string()));
+        }
+
+        let workspace = workspace.canonicalize()?;
+        let candidate = if target.is_absolute() {
+            target.to_path_buf()
+        } else {
+            workspace.join(target)
+        };
+        let resolved = if candidate.exists() {
+            candidate.canonicalize()?
+        } else {
+            let parent = candidate.parent().ok_or_else(|| {
+                SandboxError::InvalidPath(candidate.display().to_string())
+            })?;
+            parent.canonicalize()?.join(
+                candidate
+                    .file_name()
+                    .ok_or_else(|| SandboxError::InvalidPath(candidate.display().to_string()))?,
+            )
+        };
+        if !resolved.starts_with(&workspace) {
+            return Err(SandboxError::InvalidPath(resolved.display().to_string()));
+        }
+        Ok(resolved)
+    }
+
+    pub fn command<I, S>(
+        binary: &str,
+        args: I,
+        workspace: &Path,
+    ) -> Result<Command, SandboxError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        let workspace = workspace.canonicalize()?;
+        let temp = workspace.join(".aether-tmp");
+        std::fs::create_dir_all(&temp)?;
+
+        #[cfg(target_os = "macos")]
+        let mut command = {
+            let profile = Self::resolve_profile()?;
+            if !Path::new("/usr/bin/sandbox-exec").is_file() {
+                return Err(SandboxError::MissingSandboxExec(
+                    "/usr/bin/sandbox-exec required on macOS".into(),
+                ));
+            }
+            let mut command = Command::new("/usr/bin/sandbox-exec");
+            command
+                .arg("-f")
+                .arg(profile)
+                .arg("-D")
+                .arg(format!("WORKSPACE_PATH={}", workspace.display()))
+                .arg(binary);
+            command
+        };
+
+        #[cfg(not(target_os = "macos"))]
+        let mut command = Command::new(binary);
+
+        command.args(args);
+        command.env_clear();
+        command.env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin");
+        command.env("HOME", &workspace);
+        command.env("TMPDIR", &temp);
+        command.env("TZ", "UTC");
+        command.env("GIT_AUTHOR_NAME", "AetherForge");
+        command.env("GIT_AUTHOR_EMAIL", "aetherforge@localhost");
+        command.env("GIT_COMMITTER_NAME", "AetherForge");
+        command.env("GIT_COMMITTER_EMAIL", "aetherforge@localhost");
+        Ok(command)
+    }
+
+    pub fn read_to_string(workspace: &Path, target: &Path) -> Result<String, SandboxError> {
+        let target = Self::validate_target(workspace, target)?;
+        let output = Self::command("/bin/cat", [&target], workspace)?
+            .output()
+            .map_err(|e| SandboxError::Execution(e.to_string()))?;
+        if !output.status.success() {
+            return Err(SandboxError::Violation(
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ));
+        }
+        String::from_utf8(output.stdout)
+            .map_err(|e| SandboxError::Execution(format!("non-UTF8 file: {e}")))
+    }
+
+    pub fn write_file(
+        workspace: &Path,
+        target: &Path,
+        content: &[u8],
+    ) -> Result<(), SandboxError> {
+        Self::write_with_tee(workspace, target, content, false)
+    }
+
+    pub fn append_file(
+        workspace: &Path,
+        target: &Path,
+        content: &[u8],
+    ) -> Result<(), SandboxError> {
+        Self::write_with_tee(workspace, target, content, true)
+    }
+
+    fn write_with_tee(
+        workspace: &Path,
+        target: &Path,
+        content: &[u8],
+        append: bool,
+    ) -> Result<(), SandboxError> {
+        let target = Self::validate_target(workspace, target)?;
+        let mut args = Vec::new();
+        if append {
+            args.push(OsStr::new("-a"));
+        }
+        args.push(target.as_os_str());
+        let mut command = Self::command("/usr/bin/tee", args, workspace)?;
+        command.stdin(Stdio::piped()).stdout(Stdio::null());
+        let mut child = command
+            .spawn()
+            .map_err(|e| SandboxError::Execution(e.to_string()))?;
+        child
+            .stdin
+            .take()
+            .ok_or_else(|| SandboxError::Execution("tee stdin unavailable".into()))?
+            .write_all(content)?;
+        let output = child
+            .wait_with_output()
+            .map_err(|e| SandboxError::Execution(e.to_string()))?;
+        if !output.status.success() {
+            return Err(SandboxError::Violation(
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn create_dir_all(workspace: &Path, target: &Path) -> Result<(), SandboxError> {
+        let target = Self::validate_target(workspace, target)?;
+        let output = Self::command("/bin/mkdir", [OsStr::new("-p"), target.as_os_str()], workspace)?
+            .output()
+            .map_err(|e| SandboxError::Execution(e.to_string()))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(SandboxError::Violation(
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ))
+        }
+    }
+}
+
 pub struct StreamParser;
 
 impl StreamParser {
@@ -93,5 +292,54 @@ impl StreamParser {
         }
 
         Ok((total_lines, error_count))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn production_file_helpers_stay_inside_workspace() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("note.txt");
+        ProductionSandbox::write_file(temp.path(), &file, b"one").unwrap();
+        ProductionSandbox::append_file(temp.path(), &file, b"-two").unwrap();
+        assert_eq!(
+            ProductionSandbox::read_to_string(temp.path(), &file).unwrap(),
+            "one-two"
+        );
+    }
+
+    #[test]
+    fn production_file_helpers_reject_parent_and_symlink_escape() {
+        let temp = tempfile::tempdir().unwrap();
+        assert!(ProductionSandbox::validate_target(temp.path(), Path::new("../escape")).is_err());
+
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink("/etc/passwd", temp.path().join("link")).unwrap();
+            assert!(
+                ProductionSandbox::validate_target(temp.path(), &temp.path().join("link"))
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn production_command_scrubs_parent_secrets() {
+        let temp = tempfile::tempdir().unwrap();
+        std::env::set_var("AETHER_SANDBOX_UNIT_SECRET", "do-not-inherit");
+        let result = ProductionSandbox::command(
+            "/usr/bin/env",
+            std::iter::empty::<&str>(),
+            temp.path(),
+        )
+        .and_then(|mut command| command.output().map_err(SandboxError::Io));
+        std::env::remove_var("AETHER_SANDBOX_UNIT_SECRET");
+        let output = result.unwrap();
+        let environment = String::from_utf8_lossy(&output.stdout);
+        assert!(!environment.contains("AETHER_SANDBOX_UNIT_SECRET"));
+        assert!(!environment.contains("do-not-inherit"));
     }
 }
