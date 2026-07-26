@@ -357,61 +357,68 @@ pub async fn ingest_turn_with_graph_extract(
         fetch_ollama_embedding(&embed_endpoint, &embed_model, &batch.normalized_text)
     );
 
-    let payload = match extract_result {
-        Ok(payload) => payload,
+    // Graph extraction is an enhancement, not a prerequisite for semantic memory. Under the
+    // default LogAndContinue policy, malformed extraction falls back to FTS/vector-only recall.
+    let (node_count, edge_count, node_ids) = match extract_result {
+        Ok(payload) => {
+            let namespaced = SessionIngest::namespace_payload(session_id, turn_index, payload);
+            let candidate_node_ids: Vec<String> =
+                namespaced.nodes.iter().map(|node| node.id.clone()).collect();
+            match SessionIngest::insert_graph_payload(db, session_id, turn_index, namespaced) {
+                Ok((node_count, edge_count)) => {
+                    (node_count, edge_count, candidate_node_ids)
+                }
+                Err(e) => {
+                    let conn = db.conn();
+                    ingest.handle_failure(&conn, session_id, turn_index, &e.to_string())?;
+                    (0, 0, Vec::new())
+                }
+            }
+        }
         Err(e) => {
             let conn = db.conn();
-            let _ = ingest.handle_failure(&conn, session_id, turn_index, &e.to_string());
-            return Err(IngestError::Failed(e.to_string()));
+            ingest.handle_failure(&conn, session_id, turn_index, &e.to_string())?;
+            (0, 0, Vec::new())
         }
     };
 
-    let namespaced = SessionIngest::namespace_payload(session_id, turn_index, payload);
-    let node_ids: Vec<String> = namespaced.nodes.iter().map(|node| node.id.clone()).collect();
-    match SessionIngest::insert_graph_payload(db, session_id, turn_index, namespaced) {
-        Ok((node_count, edge_count)) => {
-            let embedding = match embedding_result {
-                Ok(embedding) => embedding,
-                Err(e) => {
-                    let error = IngestError::Failed(format!("turn embedding failed: {e}"));
-                    let conn = db.conn();
-                    let _ =
-                        ingest.handle_failure(&conn, session_id, turn_index, &error.to_string());
-                    return Err(error);
-                }
-            };
-            let chunk_id = match persist_turn_memory(
-                db,
-                session_id,
-                turn_index,
-                &batch.normalized_text,
-                &embedding,
-                &node_ids,
-            ) {
-                Ok(chunk_id) => chunk_id,
-                Err(e) => {
-                    let conn = db.conn();
-                    let _ = ingest.handle_failure(&conn, session_id, turn_index, &e.to_string());
-                    return Err(e);
-                }
-            };
-            tracing::info!(
-                session_id = %session_id,
-                turn_index = turn_index,
-                node_count = node_count,
-                edge_count = edge_count,
-                chunk_id = %chunk_id,
-                linked_node_count = node_ids.len(),
-                "graph + semantic-memory ingest complete"
-            );
-            Ok(batch)
+    let embedding = match embedding_result {
+        Ok(embedding) => embedding,
+        Err(e) => {
+            let error = IngestError::Failed(format!("turn embedding failed: {e}"));
+            let conn = db.conn();
+            ingest.handle_failure(&conn, session_id, turn_index, &error.to_string())?;
+            // LogAndContinue: conversation + graph rows remain available, but semantic retrieval
+            // cannot be closed without an embedding.
+            return Ok(batch);
         }
+    };
+
+    let chunk_id = match persist_turn_memory(
+        db,
+        session_id,
+        turn_index,
+        &batch.normalized_text,
+        &embedding,
+        &node_ids,
+    ) {
+        Ok(chunk_id) => chunk_id,
         Err(e) => {
             let conn = db.conn();
-            let _ = ingest.handle_failure(&conn, session_id, turn_index, &e.to_string());
-            Err(e)
+            ingest.handle_failure(&conn, session_id, turn_index, &e.to_string())?;
+            return Ok(batch);
         }
-    }
+    };
+    tracing::info!(
+        session_id = %session_id,
+        turn_index = turn_index,
+        node_count = node_count,
+        edge_count = edge_count,
+        chunk_id = %chunk_id,
+        linked_node_count = node_ids.len(),
+        "graph + semantic-memory ingest complete"
+    );
+    Ok(batch)
 }
 
 /// Post-turn hook invoked by daemon after stream/loop completion.
