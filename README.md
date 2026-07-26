@@ -6,7 +6,7 @@ AetherForge MVP — Phase 8.0 honesty/closed-loop wedge at final closure gate.
 
 ```text
 cargo run -p golden-harness --bin golden-harness
-→ 21/21 harness target (last verified main baseline: 20/20) when ROUT-01 median warm TTFT ≤ 200ms,
+→ 22/22 harness target (last verified main baseline: 20/20) when ROUT-01 median warm TTFT ≤ 200ms,
   GRAPH-01 recall@3 ≥ 1.0, LOOP-02 NL plan through verify shell (gold trajectory in harness eval only),
   RED-01 blocks all frozen adversarial cases (≥12, currently 14),
   SKILL-02 routes 3/3 book_skill questions with citation fidelity ≥ 0.9,
@@ -15,16 +15,18 @@ cargo run -p golden-harness --bin golden-harness
   GATE-01 denies inbound without GatewayGrant then round-trips with grant,
   PLAN-01 routes ≥9/10 diverse NL goals with required tools and no forbidden tools,
   MEM-02 proves daemon turn → semantic chunk → graph link → isolated next-turn recall,
-  and SB-01 proves production tool sandboxing, environment scrubbing, and network denial
+  SB-01 proves production tool sandboxing, environment scrubbing, and network denial,
+  and SESS-01 proves the JSONL session log records every plan/tool/observe/verify/error event
+  and reconstructs the executed trajectory without re-running inference
 ```
 
 | Platform | Expected score | Hard / soft |
 |----------|----------------|-------------|
-| **Darwin** (Ollama + `sandbox-exec`) | **21/21 target** | Last verified main baseline: 20/20; SB-01 pending canonical verification |
-| **Linux CI** (full matrix) | **14/21** | 14 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01 **FAIL-CLOSED** |
-| **Linux Ollama-independent** | **14/14** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, AUTO-01, CHECK-01, GATE-01 |
+| **Darwin** (Ollama + `sandbox-exec`) | **22/22 target** | Last verified main baseline: 20/20; SB-01 + SESS-01 pending canonical verification |
+| **Linux CI** (full matrix) | **15/22** | 15 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01 **FAIL-CLOSED** |
+| **Linux Ollama-independent** | **15/15** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, AUTO-01, CHECK-01, GATE-01 |
 
-Tasks (21): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **AUTO-01**, **CHECK-01**, **GATE-01**
+Tasks (22): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **SESS-01**, **AUTO-01**, **CHECK-01**, **GATE-01**
 
 ROUT-01 runs first, warms the chat model, drains five discard streams, then records **seven**
 server-side warm TTFT samples (`load_duration + prompt_eval_duration`). It drops the lowest and
@@ -47,7 +49,7 @@ product-performance claim.
 | **6 — Graph v1 + eval** | Bi-temporal graph, ingest extract, GRAPH-01/LOOP-02/RED-01/SKILL-02, consolidate offline | **Done** |
 | **7 — Orchestration** | Automation scheduler (AUTO-01), maker-checker (CHECK-01), gateway (GATE-01) | **Done — 18/18 harness** |
 | **8.0 — Honesty + closed loop** | IPC lockdown, NL de-harness, memory (MEM-02), production sandbox (SB-01) | **8.0a–8.0c implemented; docs/canonical SB-01 gate remain** |
-| **9 — Trust & Time** | Planner schema, bounded repair, semantic routing (PLAN-01) | **Slices 9.1–9.4 merged; Darwin 19/19 verified** |
+| **9 — Trust & Time** | Planner schema/repair (PLAN-01), JSONL session log (SESS-01) | **Slices 9.1–9.6 implemented; 9.1–9.4 Darwin 19/19 verified; SESS-01 pending Darwin verification** |
 
 See [docs/ROADMAP_PHASES_1-5.md](docs/ROADMAP_PHASES_1-5.md) for Phases 1–5 acceptance criteria.  
 See [docs/ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md) for Phase 6 binding spec.  
@@ -189,11 +191,11 @@ FFI (`aether_ffi_daemon_ipc`, `aether_daemon_default_port`) provides default hos
 - **RED-01:** ≥12 frozen adversarial cases (14 shipped); 0% forbidden-action escape
 - **SKILL-02:** book-to-skill progressive disclosure — [docs/RATEL_TOOL_INDEX.md](docs/RATEL_TOOL_INDEX.md)
 - **Consolidate offline:** `./scripts/consolidate_memory.sh` → `review_pending` until human apply
-- **CI:** `.github/workflows/ci.yml` — Linux full matrix gate **≥14/21** · Darwin PR **build + unit tests + Swift only** · push/nightly Darwin **21/21 target** ([docs/LINUX_CI.md](docs/LINUX_CI.md))
+- **CI:** `.github/workflows/ci.yml` — Linux full matrix gate **≥15/22** · Darwin PR **build + unit tests + Swift only** · push/nightly Darwin **22/22 target** ([docs/LINUX_CI.md](docs/LINUX_CI.md))
 
 Install guide: [docs/INSTALL.md](docs/INSTALL.md)
 
 ## Architecture target vs product readiness
 
 - **Spec engineering target:** 8.5+ (see v1.2.3 / v1.2.4 docs; Phase 6 memory architecture via [ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md))
-- **Last verified main baseline:** **20/20 on Darwin** — Phase 7 capabilities plus schema-constrained planner repair (PLAN-01), closed daemon semantic-memory recall (MEM-02), and authenticated IPC lockdown. **21/21** is pending SB-01 post-merge verification.
+- **Last verified main baseline:** **20/20 on Darwin** — Phase 7 capabilities plus schema-constrained planner repair (PLAN-01), closed daemon semantic-memory recall (MEM-02), and authenticated IPC lockdown. **22/22** is pending post-merge Darwin verification of SB-01 (production sandbox) and SESS-01 (session log).

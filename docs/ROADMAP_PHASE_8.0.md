@@ -188,7 +188,10 @@ Full suite during 8.0: **18/18 retained** (regression lock). New probes may land
 - [x] **8.0b:** Daemon post-turn chunk→embed→link→retrieve wired into streamed `run_task`; graph failure degrades to FTS/vector memory
 - [x] **8.0c:** Seatbelt on production FS/git/lint/MCP/skill/gateway execution paths; child environment scrubbed; profile bundled
 - [x] **8.0d:** ROUT seven-sample trimmed median, local 200ms target, and CI 550ms allowance documented in README + LINUX_CI.md
-- [ ] Harness: **21/21** regression lock maintained on Darwin after SB-01 merge
+- [ ] Harness: the 21 Phase 8.0 tasks (through SB-01) remain PASS on Darwin. `golden-harness` is a
+      single binary that also now runs SESS-01 (Phase 9 slice 9.5-9.6, added after this checklist
+      was written); the practical gate is the full current-count Darwin run reporting all-green —
+      see [ROADMAP_PHASES_9-13.md](./ROADMAP_PHASES_9-13.md) for the authoritative running total.
 - [x] Independent audit checklist below passes
 - [ ] Commits pushed to `main`
 
@@ -242,8 +245,9 @@ missing constrained decoding, and no repair path (3/5 ordinary goals failed). Ph
 | PLAN-01 merged | 19/19 | 19 | Schema-constrained planner + repair |
 | Phase 8.0b merged | 20/20 | 20 | +MEM-02 |
 | Phase 8.0c implementation | 21/21 target | 21 | +SB-01; Linux live verified 18/21 |
-| Phase 8.0 complete | 21/21 | 21 | Docs/canonical SB-01 verification remain |
-| Phase 8.1+ | 22–25 | 22–25 | Per ROADMAP_PHASE_8 |
+| Phase 8.0d + git sandbox fix | 22/22 target | 22 | +SESS-01 (Phase 9 slice 9.5-9.6); Linux live verified 19/22; fixed `GIT_CONFIG_NOSYSTEM` EPERM found by first post-merge Darwin run |
+| Phase 8.0 complete | 22/22 | 22 | Canonical Darwin verification pending |
+| Phase 8.1+ | 23–26 | 23–26 | Per ROADMAP_PHASE_8 |
 
 ---
 

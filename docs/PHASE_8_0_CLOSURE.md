@@ -1,7 +1,6 @@
 # Phase 8.0 Closure Evidence
 
-**Status:** Implementation complete; closure pending explicit-workspace-grant merge and Darwin
-21/21 verification.
+**Status:** Implementation complete; closure pending post-merge Darwin **22/22** verification.
 
 This is an evidence log, not a substitute for the binding checklist in
 [ROADMAP_PHASE_8.0.md](./ROADMAP_PHASE_8.0.md).
@@ -19,6 +18,8 @@ This is an evidence log, not a substitute for the binding checklist in
 | 8.0c | Child environment is scrubbed and network denied | SB-01 |
 | 8.0d | ROUT measurement and thresholds are documented honestly | README + LINUX_CI |
 | Closure fix | Tool execution never creates workspace grants | daemon unit test + live IPC proof |
+| Closure fix | Sandboxed git never fails on Seatbelt's `/etc` deny | `GIT_CONFIG_NOSYSTEM=1` unit test + Darwin CI |
+| Phase 9 slice 9.5-9.6 | Every daemon execution path logs a complete, order-preserving JSONL transcript | SESS-01 |
 
 ## Live explicit-grant proof
 
@@ -37,15 +38,21 @@ The database contained exactly `read` and `write` grants plus an approved
 ## Regression evidence
 
 - Main before SB-01: Darwin **20/20**, Linux default **14/20**.
-- Current branch on Linux with Ollama + MCP: **18/21**; only Darwin-only FS-02/SB-01 and
-  OS-gated LOOP-02 fail closed.
-- Workspace unit tests: green.
+- PR #7 (explicit workspace grants + Darwin sandbox remediation): Linux + Darwin-fast + Swift
+  build green (Actions run `30206906211`); merged to `main`.
+- **First post-merge Darwin full-harness run on `main` (run `30209078971`) failed at 19/21** —
+  see "Second Darwin finding" below. This is recorded here rather than only in a private log,
+  consistent with this project's anti-theater discipline: a merged PR is not "closed" until its
+  own canonical-platform gate has actually run green.
+- Fix applied on this branch (`cursor/phase9-session-log-1259`); re-verified locally: Linux live
+  harness with Ollama + MCP **19/22** (FS-02, SB-01, and OS-gated LOOP-02 fail closed, as
+  expected — SESS-01 and all previously-green tasks pass).
+- Workspace unit tests: green (35 daemon tests, up from 29, after the SESS-01/session-log
+  additions).
 - `aether-sandbox` cross-check for `aarch64-apple-darwin`: green.
 - MCP allowlist scan: green.
-- PR #7 Linux + Darwin-fast + Swift build: green after profile-discovery remediation
-  (Actions run `30206906211`).
 
-## Darwin findings and remediation
+## First Darwin finding and remediation (SB-01 xcrun/profile issues)
 
 The first SB-01 Darwin run correctly failed rather than bypassing Seatbelt:
 
@@ -55,14 +62,37 @@ The first SB-01 Darwin run correctly failed rather than bypassing Seatbelt:
 
 Remediation resolves developer tools with trusted `xcrun --find` before entering Seatbelt, invokes
 the real binary under the profile, permits only `/dev/null` outside the workspace, and makes Python
-infrastructure failures explicit rather than returning a false `syntax OK`.
+infrastructure failures explicit rather than returning a false `syntax OK`. Verified by a
+subsequent Darwin-fast run after fixing sandbox-profile discovery for Cargo's package-scoped test
+working directories (`aarch64-apple-darwin` unit tests were failing to find the profile at all).
+
+## Second Darwin finding and remediation (git EPERM on `/etc/gitconfig`)
+
+With the first fix in place, git could finally execute inside the sandbox — and immediately hit a
+second, previously-masked failure on the canonical Darwin runner:
+
+```
+Git command failed: git init failed: fatal: unable to access '/etc/gitconfig': Operation not permitted
+```
+
+`profiles/sandbox_tool.sb` denies all reads under `/etc`. Seatbelt returns **EPERM**, not
+**ENOENT**, for a denied read. A missing config file (`ENOENT`) is normal and git ignores it; a
+permission-denied error on that same path (`EPERM`) is fatal, so **every** sandboxed git
+invocation — including `GIT-01` and `SB-01`'s own `git_init` step — failed on Darwin regardless of
+repository state, once the sandbox was actually reached.
+
+**Fix:** set `GIT_CONFIG_NOSYSTEM=1` unconditionally in `ProductionSandbox::command`. This tells
+git to skip the system config file entirely rather than loosening the `/etc` deny for every
+sandboxed tool. A unit test asserts the variable is present in every sandboxed child's environment.
 
 ## Remaining closure gates
 
-- [ ] Explicit workspace grant fix merged to `main`.
-- [ ] Post-merge Darwin full harness reports **21/21 hard**.
+- [x] Explicit workspace grant fix merged to `main` (PR #7).
+- [x] Darwin sandbox xcrun/profile-discovery fixes merged and Darwin-fast verified.
+- [ ] Git `/etc/gitconfig` EPERM fix merged to `main`.
+- [ ] Post-merge Darwin full harness reports **22/22 hard** (21 Phase-8.0 tasks + SESS-01).
 
-Phase 8.1+ may begin only after both boxes are checked in this file and the binding roadmap.
+Phase 8.1+ may begin only after every box above is checked.
 
 ## Known residuals (not hidden)
 
@@ -74,4 +104,10 @@ Phase 8.1+ may begin only after both boxes are checked in this file and the bind
   session-prefixed filtering. A schema migration should add `session_id`.
 - Streamed completion still has an existing 16-token generation cap; Phase 8.1 budget work must
   separate ROUT benchmark settings from user-chat generation settings.
-
+- `SessionLogWriter::append_turn` re-reads the whole session log to compute the next `turn_index`/
+  `seq` — O(session length) per call. Acceptable at MVP scale; a persistent counter or index file
+  is the natural follow-up once sessions grow large (Phase 10, checkpoints/fork/replay all build
+  on this log).
+- The daemon holds its SQLite mutex for the duration of a structured loop run, including the
+  session-log file write at the end. This was already true before session logging existed; it is
+  not made worse by this change, but it is not fixed either.
