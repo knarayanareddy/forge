@@ -81,15 +81,15 @@ pub fn test_sb01_impl(db: &Database) -> Result<(), String> {
 
     // Parent secrets must never enter a tool child.
     std::env::set_var("AETHER_SB01_SECRET", "must-not-reach-child");
-    let env_output = ProductionSandbox::command(
-        "/usr/bin/env",
-        std::iter::empty::<&str>(),
-        &workspace_path,
-    )
-    .map_err(|e| e.to_string())?
-    .output()
-    .map_err(|e| e.to_string())?;
+    let env_result = ProductionSandbox::command(
+            "/usr/bin/env",
+            std::iter::empty::<&str>(),
+            &workspace_path,
+        )
+        .map_err(|e| e.to_string())
+        .and_then(|mut command| command.output().map_err(|e| e.to_string()));
     std::env::remove_var("AETHER_SB01_SECRET");
+    let env_output = env_result?;
     let child_env = String::from_utf8_lossy(&env_output.stdout);
     if child_env.contains("must-not-reach-child") || child_env.contains("AETHER_SB01_SECRET") {
         return Err("sandbox child inherited parent secret environment".into());
