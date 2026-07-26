@@ -325,4 +325,21 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn production_command_scrubs_parent_secrets() {
+        let temp = tempfile::tempdir().unwrap();
+        std::env::set_var("AETHER_SANDBOX_UNIT_SECRET", "do-not-inherit");
+        let result = ProductionSandbox::command(
+            "/usr/bin/env",
+            std::iter::empty::<&str>(),
+            temp.path(),
+        )
+        .and_then(|mut command| command.output().map_err(SandboxError::Io));
+        std::env::remove_var("AETHER_SANDBOX_UNIT_SECRET");
+        let output = result.unwrap();
+        let environment = String::from_utf8_lossy(&output.stdout);
+        assert!(!environment.contains("AETHER_SANDBOX_UNIT_SECRET"));
+        assert!(!environment.contains("do-not-inherit"));
+    }
 }
