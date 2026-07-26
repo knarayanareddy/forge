@@ -90,21 +90,21 @@ impl ProductionSandbox {
         if let Some(path) = std::env::var_os("AETHER_SANDBOX_PROFILE") {
             let path = PathBuf::from(path);
             if path.is_file() {
-                return Ok(path);
+                return path.canonicalize().map_err(SandboxError::Io);
             }
             return Err(SandboxError::MissingProfile(path.display().to_string()));
         }
 
         let development = PathBuf::from("profiles/sandbox_tool.sb");
         if development.is_file() {
-            return Ok(development);
+            return development.canonicalize().map_err(SandboxError::Io);
         }
 
         if let Ok(exe) = std::env::current_exe() {
             if let Some(exe_dir) = exe.parent() {
                 let bundled = exe_dir.join("../Resources/profiles/sandbox_tool.sb");
                 if bundled.is_file() {
-                    return Ok(bundled);
+                    return bundled.canonicalize().map_err(SandboxError::Io);
                 }
             }
         }
