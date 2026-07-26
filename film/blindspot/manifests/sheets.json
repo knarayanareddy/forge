@@ -1,0 +1,74 @@
+{
+  "_comment": "Reference sheets. Generated once as images, saved as named fal Assets, then @-tagged in every video prompt so identity is locked without re-uploading. Each asset has exactly one job, spelled out - no ambiguity about who or what is being referenced.",
+
+  "sheets": [
+    {
+      "tag": "@hedgerow",
+      "role": "LOCATION - Specimens 001 and 004",
+      "prompt": "Photoreal reference plate: English hedgerow in Somerset, late autumn. Hawthorn and bramble, wet brown leaf litter, standing water in the ruts, overcast sky, thin ground fog. No structures, no paths, no fences, no human presence of any kind. Long telephoto compression, shallow depth of field, naturalistic desaturated colour, ambient light only, flat overcast light.",
+      "aspect_ratio": "16:9"
+    },
+    {
+      "tag": "@moth",
+      "role": "SPECIMEN 001 - defines APPEARANCE ONLY, not visibility",
+      "prompt": "Photoreal reference plate: a small, entirely ordinary grey-brown noctuid moth at rest on wet bark. Forewing approximately 18mm, mottled bark-pattern camouflage, worn wing edges. Nothing unusual, notable or beautiful about it whatsoever - a common and unremarkable moth. Naturalistic colour, ambient overcast light, macro reference clarity.",
+      "aspect_ratio": "1:1",
+      "note": "CRITICAL: this asset tells the model what the moth looks like, NOT that it should be visible. COMPOSITION LOCK 001 governs visibility in every shot - never centred, never in focus, never whole."
+    },
+    {
+      "tag": "@whale",
+      "role": "SPECIMEN 002 - identity key",
+      "prompt": "Photoreal reference plate: North Atlantic right whale at the surface, black skin, broad smooth back, no dorsal fin. CALLOSITY PATTERN, which must be identical in every use: one large continuous white patch above the upper lip; two smaller isolated white islands behind the blowholes; one white crescent over the right eye. No other markings anywhere. Long lens, cold overcast light, seen from the animal's left flank, dorsal side toward camera.",
+      "aspect_ratio": "16:9",
+      "note": "Callosity patterns are how cetacean researchers actually identify individual right whales. The mechanism that keeps our clips consistent is the same evidence a real scientist would cite to claim these are one animal."
+    },
+    {
+      "tag": "@n_atlantic",
+      "role": "LOCATION - Specimen 002, first ocean",
+      "prompt": "Photoreal reference plate: heavy grey North Atlantic sea, force 4, overcast, cold flat light, wind-blown spray off the wave tops, no land anywhere in frame, no vessels, no birds. Long lens from sea level, naturalistic desaturated colour.",
+      "aspect_ratio": "16:9"
+    },
+    {
+      "tag": "@s_pacific",
+      "role": "LOCATION - Specimen 002, second ocean",
+      "prompt": "Photoreal reference plate: South Pacific off Kaikoura, clearer blue-green water, low golden morning sun, faint snow-capped mountain range on the far horizon, calm swell, no vessels, no birds. Long lens from sea level, naturalistic colour.",
+      "aspect_ratio": "16:9"
+    },
+    {
+      "tag": "@thrush",
+      "role": "SPECIMEN 003",
+      "prompt": "Photoreal reference plate: ordinary song thrush, warm brown back, cream breast with dark arrowhead spots, unremarkable. Perched, beak open mid-song, throat distended. Long lens, shallow focus, overcast ambient light.",
+      "aspect_ratio": "1:1"
+    },
+    {
+      "tag": "@branch",
+      "role": "LOCATION detail - Specimen 003, continuity anchor across four hundred years",
+      "prompt": "Photoreal reference plate: a single hawthorn branch against soft unreadable bokeh, with a distinctive Y-fork and a broken snapped-off stub on the left limb of the fork. Wet bark, a few leaves. Long telephoto compression, very shallow depth of field, overcast ambient light.",
+      "aspect_ratio": "16:9",
+      "note": "This exact branch and fork appear in both the 1890 plate and the modern plate. Generate ONCE and reuse the same still for both - the 1890 version is the same image aged entirely in post."
+    }
+  ],
+
+  "boards": [
+    {
+      "id": "board_001",
+      "role": "PLANNING ONLY - never attached to a video generation",
+      "prompt": "Nine-panel black and white film storyboard sheet, rough graphite sketches, numbered panels 1-9: empty hedgerow plates, a slow pan finding nothing, an out-of-focus form passing through extreme foreground, a rack focus onto an empty twig, a cropped wing at the extreme frame edge. Director's storyboard, no colour, no text besides panel numbers."
+    },
+    {
+      "id": "board_002",
+      "role": "PLANNING ONLY",
+      "prompt": "Nine-panel black and white film storyboard sheet, rough graphite sketches: whale back surfacing left to right in heavy sea, close detail of head markings, the same surfacing in a calmer brighter ocean, the same head markings, empty horizon. Consistent left-to-right motion arrows in every panel. Director's storyboard, no colour."
+    },
+    {
+      "id": "board_003",
+      "role": "PLANNING ONLY",
+      "prompt": "Nine-panel black and white film storyboard sheet, rough graphite sketches: identical framing of a bird on a forked hawthorn branch repeated across panels, one panel marked as a period photograph, one as modern, an empty branch at dusk. Director's storyboard, no colour."
+    },
+    {
+      "id": "board_004",
+      "role": "PLANNING ONLY",
+      "prompt": "Nine-panel black and white film storyboard sheet, rough graphite sketches: empty hedgerow at last light, identical static framing repeated across all nine panels with nothing in any of them. Director's storyboard, no colour."
+    }
+  ]
+}

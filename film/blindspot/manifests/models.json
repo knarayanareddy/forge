@@ -1,0 +1,62 @@
+{
+  "_comment": "fal endpoints. `verified: true` means the endpoint id was confirmed against fal's published docs; `verified: false` means it follows fal's naming pattern but should be checked on the model's page before a paid run. Every endpoint is overridable with --endpoint so nothing here is load-bearing.",
+
+  "api": {
+    "queue_base": "https://queue.fal.run",
+    "sync_base": "https://fal.run",
+    "poll_interval_s": 3,
+    "poll_timeout_s": 1200
+  },
+
+  "image": {
+    "draft": { "endpoint": "fal-ai/flux/schnell", "verified": true },
+    "hero": { "endpoint": "fal-ai/flux/dev", "verified": true }
+  },
+
+  "video": {
+    "draft": {
+      "endpoint": "fal-ai/ltxv-2/text-to-video/fast",
+      "verified": true,
+      "supports_negative": true,
+      "native_audio": false,
+      "note": "Iteration model. Get framing and motion right here before spending on hero."
+    },
+    "hero": {
+      "endpoint": "fal-ai/kling-video/v3/pro/text-to-video",
+      "verified": true,
+      "supports_negative": true,
+      "native_audio": true,
+      "duration_values": ["3", "4", "5", "6", "7", "8", "9", "10"],
+      "note": "Has native audio. Disable it - we discard model audio. See blocks.json audio_policy."
+    },
+    "hero_alt": {
+      "endpoint": "bytedance/seedance-2.0/text-to-video",
+      "verified": true,
+      "supports_negative": false,
+      "native_audio": false
+    },
+    "i2v": {
+      "endpoint": "fal-ai/kling-video/v3/pro/image-to-video",
+      "verified": false,
+      "supports_negative": true,
+      "note": "Used for every shot with a `conditioning` block - last-frame continuity and the shared 1890/modern still. CONFIRM this endpoint id before a paid run."
+    }
+  },
+
+  "audio": {
+    "tts": {
+      "endpoint": "fal-ai/qwen-3-tts/text-to-speech/1.7b",
+      "verified": true,
+      "note": "Check the voice enum on the model page for a neutral British male voice. Do NOT use a voice clone of an identifiable broadcaster - see narration.json voice.forbidden."
+    },
+    "tts_alt": {
+      "endpoint": "fal-ai/kling-video/v1/tts",
+      "verified": true
+    },
+    "sfx": {
+      "endpoint": "fal-ai/elevenlabs/sound-effects",
+      "verified": false,
+      "note": "Used for the four ambience beds. CONFIRM the endpoint id. If unavailable, library ambience or ffmpeg-synthesised wind is an acceptable substitute - the beds sit at -24 to -28dB and are not doing dramatic work."
+    }
+  }
+}
