@@ -13,6 +13,9 @@ use loop01::test_loop_01_impl;
 mod loop02;
 use loop02::test_loop_02_impl;
 
+mod plan01;
+use plan01::test_plan01_impl;
+
 mod auto01;
 use auto01::test_auto01_impl;
 
@@ -48,7 +51,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 18] = [
+const TASKS: [TaskSpec; 19] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -65,6 +68,7 @@ const TASKS: [TaskSpec; 18] = [
     TaskSpec { name: "RES-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "LOOP-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "LOOP-02", hard_on_darwin: true, fail_closed_off_darwin: true },
+    TaskSpec { name: "PLAN-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "AUTO-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CHECK-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "GATE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -108,6 +112,11 @@ async fn main() {
     match graph01::graph01_fixture_ready() {
         Ok(n) => println!("GRAPH-01 fixtures: {} gold queries loaded", n),
         Err(e) => eprintln!("Warning: GRAPH-01 fixture check failed: {}", e),
+    }
+
+    match plan01::plan01_fixture_ready() {
+        Ok(n) => println!("PLAN-01 fixtures: {} diverse goals loaded", n),
+        Err(e) => eprintln!("Warning: PLAN-01 fixture check failed: {}", e),
     }
 
     let db = Database::open_in_memory().expect("In-memory DB init failed");
@@ -175,7 +184,7 @@ async fn main() {
         println!("Darwin scoreboard: {}/{} harness ({} hard / {} soft)", passed, total, hard_pass, soft_pass);
     } else {
         println!(
-            "Non-Darwin note: FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02 expected fail-closed when sandbox-exec/Ollama absent"
+            "Non-Darwin note: FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01 expected fail-closed when sandbox-exec/Ollama absent"
         );
     }
 }
@@ -220,6 +229,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "RES-01" => test_res_01().await.map(|_| true),
         "LOOP-01" => test_loop_01(db).await.map(|_| true),
         "LOOP-02" => test_loop_02(db).await.map(|_| true),
+        "PLAN-01" => test_plan01().await.map(|_| true),
         "AUTO-01" => test_auto01(db).await.map(|_| true),
         "CHECK-01" => test_check01(db).await.map(|_| true),
         "GATE-01" => test_gate01(db).await.map(|_| true),
@@ -691,6 +701,10 @@ async fn test_rout_01() -> Result<(), String> {
 async fn test_loop_02(db: &Database) -> Result<(), String> {
     let conn = db.conn();
     test_loop_02_impl(&conn).await
+}
+
+async fn test_plan01() -> Result<(), String> {
+    test_plan01_impl().await
 }
 
 async fn test_check01(db: &Database) -> Result<(), String> {

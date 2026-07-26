@@ -57,6 +57,8 @@ pub enum ToolInvocation {
         source: String,
     },
     GitInit {
+        /// Defaults to `main` when a small local planner omits the branch.
+        #[serde(default = "default_git_branch")]
         branch: String,
     },
     McpCall {
@@ -75,6 +77,10 @@ pub enum ToolInvocation {
         text: String,
     },
     Done,
+}
+
+fn default_git_branch() -> String {
+    "main".to_string()
 }
 
 #[derive(Debug, Clone)]

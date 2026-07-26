@@ -63,6 +63,10 @@ These inherit Phases 1–7 gates and add Phase 8.0-specific rules.
 
 **Do not start Phase 8.1+ until Phase 8.0 is pushed and independently audited.**
 
+**Narrow implementation exception:** Phase 9 planner slices 9.1–9.4 / PLAN-01 were pulled
+forward after 8.0a because the de-harnessed probe exposed a directly testable planner defect.
+This does **not** waive the 8.0b memory or 8.0c sandbox gates for any other Phase 9 surface.
+
 ---
 
 ## Architecture Delta
@@ -217,6 +221,12 @@ Phase 8.0 **must complete** before:
 | 8.8–8.12 GATE-02 / MLX / DMG | 8.0a IPC + 8.0c sandbox |
 
 See [ROADMAP_PHASE_8.md](./ROADMAP_PHASE_8.md) for distribution, graph v2, and MLX scope after 8.0 audit.
+
+## Relationship to Phases 9–13
+
+[ROADMAP_PHASES_9-13.md](./ROADMAP_PHASES_9-13.md) is the master product roadmap after this wedge. It also **re-scopes Phase 8.1+**: distribution moves to a parallel track, graph v2 defers to Phase 11, and direct MLX downgrades to optional (Ollama is now MLX-backed on Apple Silicon).
+
+**Post-8.0a probe evidence feeding Phase 9:** removing the gold trajectory fixed the eval-lock but revealed a real capability gap — 3 of 5 ordinary NL goals still fail, now on prompt bias (`build_nl_plan_prompt` still teaches the gold shape), missing constrained decoding (`git_init` without `branch`), and no repair/replan on validation error. Phase 9 slices 9.1–9.4 (PLAN-01) own that fix.
 
 ---
 
