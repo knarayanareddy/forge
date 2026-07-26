@@ -189,7 +189,7 @@ Full suite during 8.0: **18/18 retained** (regression lock). New probes may land
 - [x] **8.0c:** Seatbelt on production FS/git/lint/MCP/skill/gateway execution paths; child environment scrubbed; profile bundled
 - [x] **8.0d:** ROUT seven-sample trimmed median, local 200ms target, and CI 550ms allowance documented in README + LINUX_CI.md
 - [ ] Harness: **21/21** regression lock maintained on Darwin after SB-01 merge
-- [ ] Independent audit checklist below passes
+- [x] Independent audit checklist below passes
 - [ ] Commits pushed to `main`
 
 ---

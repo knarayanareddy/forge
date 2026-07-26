@@ -42,6 +42,8 @@ The database contained exactly `read` and `write` grants plus an approved
 - Workspace unit tests: green.
 - `aether-sandbox` cross-check for `aarch64-apple-darwin`: green.
 - MCP allowlist scan: green.
+- PR #7 Linux + Darwin-fast + Swift build: green after profile-discovery remediation
+  (Actions run `30206906211`).
 
 ## Darwin findings and remediation
 
