@@ -409,4 +409,11 @@ mod tests {
         assert!(!environment.contains("AETHER_SANDBOX_UNIT_SECRET"));
         assert!(!environment.contains("do-not-inherit"));
     }
+
+    #[test]
+    fn development_profile_resolves_outside_workspace_root() {
+        let profile = ProductionSandbox::resolve_profile().unwrap();
+        assert!(profile.is_absolute());
+        assert!(profile.ends_with("profiles/sandbox_tool.sb"));
+    }
 }
