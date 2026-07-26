@@ -203,8 +203,13 @@ fn handle_grant_workspace(
     .map_err(|e| e.to_string())?;
     for capability in ["read", "write"] {
         conn.execute(
-            "INSERT OR IGNORE INTO capability_grants
-             (session_id, resource_path, permission_type) VALUES (?1, ?2, ?3)",
+            "INSERT INTO capability_grants (session_id, resource_path, permission_type)
+             SELECT ?1, ?2, ?3
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM capability_grants
+                 WHERE session_id = ?1 AND resource_path = ?2 AND permission_type = ?3
+                   AND is_stale = 0
+             )",
             rusqlite::params![session_id, workspace, capability],
         )
         .map_err(|e| e.to_string())?;
