@@ -4,7 +4,8 @@
 //! validates, and inserts wiki-zone graph rows. Failures are audit-logged — never silently skipped.
 
 use aether_core::{
-    payload_to_graph_inserts, run_graph_extract, GraphExtractPayload, ModelRouter,
+    fetch_ollama_embedding, payload_to_graph_inserts, run_graph_extract, GraphExtractPayload,
+    ModelRouter,
 };
 use aether_db::Database;
 use aether_permissions::{PermissionDecision, PermissionManager};
@@ -20,6 +21,9 @@ pub const DEFAULT_MAX_ENTITIES_PER_TURN: usize = 32;
 
 /// Conservative chars-per-token estimate for batch sizing (no tokenizer dependency).
 pub const ESTIMATED_CHARS_PER_TOKEN: usize = 4;
+
+/// Semantic-memory model used by the daemon closed loop.
+pub const DEFAULT_EMBED_MODEL: &str = "all-minilm";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AsyncFailurePolicy {
@@ -227,7 +231,7 @@ impl SessionIngest {
         turn_index: u32,
         payload: GraphExtractPayload,
     ) -> Result<(usize, usize), IngestError> {
-        let source_uri = format!("memory://turn/{turn_index}");
+        let source_uri = format!("memory://{session_id}/turn/{turn_index}");
         let (nodes, edges) = payload_to_graph_inserts(&payload, &source_uri)
             .map_err(|e| IngestError::Failed(e.to_string()))?;
 
@@ -242,6 +246,44 @@ impl SessionIngest {
 
         Ok((nodes.len(), edges.len()))
     }
+}
+
+/// Stable identifiers for one semantic-memory chunk per normalized session turn.
+pub fn turn_memory_ids(session_id: &str, turn_index: u32) -> (String, String) {
+    (
+        format!("{session_id}::t{turn_index}::turn"),
+        format!("memory://{session_id}/turn/{turn_index}"),
+    )
+}
+
+/// Persist an already-embedded turn and link it to every entity extracted from that turn.
+///
+/// Kept separate from HTTP embedding so unit/harness tests exercise the production DB path
+/// deterministically. `insert_memory_chunk` atomically stores text + vector; links are idempotent.
+pub fn persist_turn_memory(
+    db: &Database,
+    session_id: &str,
+    turn_index: u32,
+    normalized_text: &str,
+    embedding: &[f32],
+    linked_node_ids: &[String],
+) -> Result<String, IngestError> {
+    let (chunk_id, source_uri) = turn_memory_ids(session_id, turn_index);
+    db.insert_memory_chunk(&chunk_id, &source_uri, normalized_text, embedding)
+        .map_err(|e| IngestError::Failed(format!("semantic memory insert: {e}")))?;
+    for node_id in linked_node_ids {
+        db.link_graph_chunk(&chunk_id, node_id, 1.0)
+            .map_err(|e| IngestError::GraphInsert(format!("chunk link {node_id}: {e}")))?;
+    }
+    Ok(chunk_id)
+}
+
+fn embed_config_from_env() -> (String, String) {
+    (
+        std::env::var("AETHER_OLLAMA_ENDPOINT")
+            .unwrap_or_else(|_| "http://localhost:11434".into()),
+        std::env::var("AETHER_EMBED_MODEL").unwrap_or_else(|_| DEFAULT_EMBED_MODEL.into()),
+    )
 }
 
 impl IngestHook for SessionIngest {
@@ -307,36 +349,76 @@ pub async fn ingest_turn_with_graph_extract(
         }
     };
 
-    let extract_result =
-        run_graph_extract(router, &batch.normalized_text, batch.max_entities).await;
+    // Both operations are remote inference and independent. Running them together keeps the
+    // post-turn hook bounded without holding the database mutex across HTTP.
+    let (embed_endpoint, embed_model) = embed_config_from_env();
+    let (extract_result, embedding_result) = tokio::join!(
+        run_graph_extract(router, &batch.normalized_text, batch.max_entities),
+        fetch_ollama_embedding(&embed_endpoint, &embed_model, &batch.normalized_text)
+    );
 
-    let payload = match extract_result {
-        Ok(payload) => payload,
+    // Graph extraction is an enhancement, not a prerequisite for semantic memory. Under the
+    // default LogAndContinue policy, malformed extraction falls back to FTS/vector-only recall.
+    let (node_count, edge_count, node_ids) = match extract_result {
+        Ok(payload) => {
+            let namespaced = SessionIngest::namespace_payload(session_id, turn_index, payload);
+            let candidate_node_ids: Vec<String> =
+                namespaced.nodes.iter().map(|node| node.id.clone()).collect();
+            match SessionIngest::insert_graph_payload(db, session_id, turn_index, namespaced) {
+                Ok((node_count, edge_count)) => {
+                    (node_count, edge_count, candidate_node_ids)
+                }
+                Err(e) => {
+                    let conn = db.conn();
+                    ingest.handle_failure(&conn, session_id, turn_index, &e.to_string())?;
+                    (0, 0, Vec::new())
+                }
+            }
+        }
         Err(e) => {
             let conn = db.conn();
-            let _ = ingest.handle_failure(&conn, session_id, turn_index, &e.to_string());
-            return Err(IngestError::Failed(e.to_string()));
+            ingest.handle_failure(&conn, session_id, turn_index, &e.to_string())?;
+            (0, 0, Vec::new())
         }
     };
 
-    let namespaced = SessionIngest::namespace_payload(session_id, turn_index, payload);
-    match SessionIngest::insert_graph_payload(db, session_id, turn_index, namespaced) {
-        Ok((node_count, edge_count)) => {
-            tracing::info!(
-                session_id = %session_id,
-                turn_index = turn_index,
-                node_count = node_count,
-                edge_count = edge_count,
-                "graph_extract ingest complete"
-            );
-            Ok(batch)
+    let embedding = match embedding_result {
+        Ok(embedding) => embedding,
+        Err(e) => {
+            let error = IngestError::Failed(format!("turn embedding failed: {e}"));
+            let conn = db.conn();
+            ingest.handle_failure(&conn, session_id, turn_index, &error.to_string())?;
+            // LogAndContinue: conversation + graph rows remain available, but semantic retrieval
+            // cannot be closed without an embedding.
+            return Ok(batch);
         }
+    };
+
+    let chunk_id = match persist_turn_memory(
+        db,
+        session_id,
+        turn_index,
+        &batch.normalized_text,
+        &embedding,
+        &node_ids,
+    ) {
+        Ok(chunk_id) => chunk_id,
         Err(e) => {
             let conn = db.conn();
-            let _ = ingest.handle_failure(&conn, session_id, turn_index, &e.to_string());
-            Err(e)
+            ingest.handle_failure(&conn, session_id, turn_index, &e.to_string())?;
+            return Ok(batch);
         }
-    }
+    };
+    tracing::info!(
+        session_id = %session_id,
+        turn_index = turn_index,
+        node_count = node_count,
+        edge_count = edge_count,
+        chunk_id = %chunk_id,
+        linked_node_count = node_ids.len(),
+        "graph + semantic-memory ingest complete"
+    );
+    Ok(batch)
 }
 
 /// Post-turn hook invoked by daemon after stream/loop completion.
@@ -525,6 +607,56 @@ mod tests {
 
         let stored = db.get_graph_node("sess-graph::t1::node-forge").unwrap();
         assert!(stored.is_some());
+    }
+
+    #[test]
+    fn persists_semantic_turn_and_links_namespaced_nodes_without_ollama() {
+        let db = Database::open_in_memory().unwrap();
+        {
+            let conn = db.conn();
+            conn.execute(
+                "INSERT INTO sessions (id, title, status) VALUES ('sess-memory', 'M', 'active')",
+                [],
+            )
+            .unwrap();
+        }
+
+        let payload = validate_graph_extract(VALID_PAYLOAD).unwrap();
+        let namespaced = SessionIngest::namespace_payload("sess-memory", 3, payload);
+        let node_ids: Vec<String> =
+            namespaced.nodes.iter().map(|node| node.id.clone()).collect();
+        SessionIngest::insert_graph_payload(&db, "sess-memory", 3, namespaced).unwrap();
+
+        let embedding = vec![0.25f32; 384];
+        let chunk_id = persist_turn_memory(
+            &db,
+            "sess-memory",
+            3,
+            "User: Zephyr-7 is the release codename. Assistant: Noted.",
+            &embedding,
+            &node_ids,
+        )
+        .unwrap();
+        assert_eq!(chunk_id, "sess-memory::t3::turn");
+
+        let conn = db.conn();
+        let stored: (String, String) = conn
+            .query_row(
+                "SELECT source_uri, chunk_text FROM semantic_memory WHERE chunk_id = ?1",
+                rusqlite::params![chunk_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(stored.0, "memory://sess-memory/turn/3");
+        assert!(stored.1.contains("Zephyr-7"));
+        let links: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM graph_chunk_links WHERE chunk_id = ?1",
+                rusqlite::params!["sess-memory::t3::turn"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(links, 1);
     }
 
     #[test]

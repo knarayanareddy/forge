@@ -1,6 +1,6 @@
 # AetherForge Roadmap — Phase 8.0 (Honesty + Closed Loop)
 
-**Baseline:** Phase 7 complete — Darwin **18/18 harness (18 hard / 0 soft)** · CI green darwin-full @ `ec5f750`  
+**Baseline:** Phase 7 complete; PLAN-01 merged — Darwin **19/19 harness (19 hard / 0 soft)** · CI green on main
 **Canonical platform:** Darwin (macOS 15+ Apple Silicon)  
 **Binding spec:** This document is the **mandatory wedge** before any [Phase 8.1+](./ROADMAP_PHASE_8.md) feature surface (DMG, graph v2, MLX).  
 **External critique response:** Code-grounded audit (2026-07-25) — *"stop baking harness trajectories into production paths and close the daemon trust boundary"* before claiming shippable product.
@@ -100,7 +100,7 @@ tool execution                          tool execution
 | Slice | Scope | Ship signal | Harness impact |
 |-------|-------|-------------|----------------|
 | **8.0a** | IPC lockdown + NL planner de-harnessing | Auth on all IPC except `ping`; production NL accepts non-gold order; `grant_automation` forbidden via IPC | LOOP-03 probe (unit); IPC integration tests; LOOP-02 retains gold trajectory in harness |
-| **8.0b** | Memory closed loop in daemon | `run_task` assembles context from hybrid retrieval after post-turn ingest links chunks | Optional **MEM-02** / extend MEM-01 — TBD |
+| **8.0b** | Memory closed loop in daemon | `run_task` assembles bounded, session-isolated context after post-turn embed + graph links | **MEM-02** — implemented |
 | **8.0c** | Seatbelt on all tool execution paths | Production `ToolRegistry` paths use `sandbox-exec` profile; not harness-only | Extend FS-02 or **SB-01** — TBD |
 | **8.0d** | CI/README honesty | ROUT thresholds documented; README scoreboard matches CI env | None (docs gate) |
 
@@ -185,7 +185,7 @@ Full suite during 8.0: **18/18 retained** (regression lock). New probes may land
 ## Definition of Done (Phase 8.0)
 
 - [x] **8.0a:** Production `validate_nl_plan` free of gold trajectory; IPC auth on all methods except `ping`; `grant_automation` forbidden via IPC
-- [ ] **8.0b:** Daemon post-turn chunk→embed→link→retrieve wired into `run_task`
+- [x] **8.0b:** Daemon post-turn chunk→embed→link→retrieve wired into streamed `run_task`; graph failure degrades to FTS/vector memory
 - [ ] **8.0c:** Seatbelt on production tool execution paths
 - [ ] **8.0d:** ROUT CI vs local thresholds documented in README + LINUX_CI.md
 - [ ] Harness: **18/18** regression lock maintained
@@ -201,7 +201,7 @@ Full suite during 8.0: **18/18 retained** (regression lock). New probes may land
 - [ ] LOOP-03 probe passes (non-gold plan accepted)
 - [ ] Unauthenticated `register_automation` / `automation_tick` / `automation_run` denied
 - [ ] `grant_automation: true` on IPC returns explicit error
-- [ ] Post-turn ingest links chunks and retrieval feeds next turn (8.0b)
+- [x] Post-turn ingest links chunks and retrieval feeds next turn (MEM-02)
 - [ ] Production tool paths use Seatbelt profile (8.0c)
 - [ ] README documents ROUT local vs CI thresholds (8.0d)
 - [ ] Phase 1–7 tasks still PASS (18/18)
@@ -236,9 +236,11 @@ See [ROADMAP_PHASE_8.md](./ROADMAP_PHASE_8.md) for distribution, graph v2, and M
 |-----------|---------|------|-------|
 | Phase 7 complete | 18/18 | 18 | AUTO-01, CHECK-01, GATE-01 |
 | Phase 8.0a shipped | 18/18 | 18 | +LOOP-03/IPC-01 probes (not in scoreboard yet) |
-| Phase 8.0 complete | 18/18 | 18 | Closed loop + sandbox + docs |
-| Phase 8.1+ | 19–22 | 19–22 | Per ROADMAP_PHASE_8 |
+| PLAN-01 merged | 19/19 | 19 | Schema-constrained planner + repair |
+| Phase 8.0b implementation | 20/20 target | 20 | +MEM-02; Linux live verified 18/20 |
+| Phase 8.0 complete | 20/20 | 20 | Sandbox + docs remain |
+| Phase 8.1+ | 21–24 | 21–24 | Per ROADMAP_PHASE_8 |
 
 ---
 
-*Phase 8.0 binding spec · response to external code-grounded critique · 2026-07-25 · slice 8.0a implemented*
+*Phase 8.0 binding spec · response to external code-grounded critique · 2026-07-26 · slices 8.0a–8.0b implemented*

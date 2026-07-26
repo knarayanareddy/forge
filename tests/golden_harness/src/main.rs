@@ -34,6 +34,9 @@ use fs02::test_fs_02_impl;
 mod mcp01;
 use mcp01::test_mcp_01_impl;
 
+mod mem02;
+use mem02::test_mem02_impl;
+
 mod skill01;
 use skill01::test_skill_01_impl;
 
@@ -51,7 +54,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 19] = [
+const TASKS: [TaskSpec; 20] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -60,6 +63,7 @@ const TASKS: [TaskSpec; 19] = [
     TaskSpec { name: "CODE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "MCP-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "MEM-01", hard_on_darwin: true, fail_closed_off_darwin: true },
+    TaskSpec { name: "MEM-02", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "GRAPH-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "SKILL-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "SKILL-02", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -215,6 +219,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
             }
             test_mem_01(db).await.map(|_| true)
         }
+        "MEM-02" => test_mem02_impl(db).map(|_| true),
         "GRAPH-01" => {
             if is_darwin() {
                 ensure_ollama_embed_ready().await?;

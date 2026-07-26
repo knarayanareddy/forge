@@ -371,14 +371,15 @@ Cheap, high-leverage, no feature dependency. Makes Forge composable rather than 
 | Milestone | Harness | Notes |
 |-----------|---------|-------|
 | Phase 8.0a *(shipped)* | 18/18 | + LOOP-03, IPC-01 probes |
-| Phase 9 slices 9.1–9.4 | 19/19 target | + PLAN-01; implemented early as an isolated planner wedge |
-| Phase 8.0 complete | 18/18 | closed loop, sandbox, doc truth |
-| Phase 8.1–8.3 | 20/20 | + INGEST-01 after PLAN-01 |
-| **Phase 9 complete** | **23/23** | + PLAN-01, SESS-01, UNDO-01, LOOP-04 |
-| **Phase 10 complete** | **27/27** | + CKPT-01, SUB-01, HOOK-01, PERM-02 |
-| **Phase 11 complete** | **31/31** | + SKILL-03, SEC-01, INJECT-01, CONS-01 |
-| **Phase 12 complete** | **34/34** | + SLEEP-01, RELY-01, FORENSIC-01 |
-| **Phase 13 complete** | **35/35** | + APPLE-01 |
+| Phase 9 slices 9.1–9.4 *(merged)* | 19/19 | + PLAN-01 |
+| Phase 8.0b implementation | 20/20 target | + MEM-02 closed daemon memory loop |
+| Phase 8.0 complete | 20/20 | sandbox + doc truth remain |
+| Phase 8.1–8.3 | 21/21 | + INGEST-01 after MEM-02 |
+| **Phase 9 complete** | **24/24** | + SESS-01, UNDO-01, LOOP-04 |
+| **Phase 10 complete** | **28/28** | + CKPT-01, SUB-01, HOOK-01, PERM-02 |
+| **Phase 11 complete** | **32/32** | + SKILL-03, SEC-01, INJECT-01, CONS-01 |
+| **Phase 12 complete** | **35/35** | + SLEEP-01, RELY-01, FORENSIC-01 |
+| **Phase 13 complete** | **36/36** | + APPLE-01 |
 
 Probes (`COST-01`, `CACHE-01`, `FORK-01`, `COMPACT-01`, `MCP-02`, `HEAD-01`, `MEM-03`, `POLICY-01`, `ENERGY-01`, `OFFLINE-01`, `CAL-01`, `ACP-01`, `MCPS-01`, `OTEL-01`, `VOICE-01`, `VISION-01`) stay off the scoreboard until their invariant is enforced in production crate code — same promotion rule as LOOP-03/IPC-01 in Phase 8.0.
 
