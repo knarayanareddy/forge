@@ -1,0 +1,160 @@
+{
+  "_comment": "Authoritative spoken script. Timing anchors are relative to shot IDs in shots.json. Record one continuous scratch narration before changing durations.",
+  "maximum_words": 205,
+  "target_speaking_density": {
+    "minimum": 0.55,
+    "maximum": 0.68
+  },
+  "voice": {
+    "narrator": "Mature American civil-service trainer, dry, precise, medium-low register. No menace, irony or wonder.",
+    "mara": "Technical, economical, never heroic.",
+    "peter": "Genuinely asking for procedural help, not frightened.",
+    "witness": "Casual certainty produced by the corrected record."
+  },
+  "lines": [
+    {
+      "id": "D01",
+      "speaker": "NARRATOR",
+      "at": {"shot": "T02", "offset": 0.2},
+      "text": "Welcome to the Continuity Adjustment Unit."
+    },
+    {
+      "id": "D02",
+      "speaker": "NARRATOR",
+      "at": {"shot": "T03", "offset": 0.2},
+      "text": "A contradiction is not two events. It is two records competing for one event. Determine which account can be maintained."
+    },
+    {
+      "id": "D03",
+      "speaker": "NARRATOR",
+      "at": {"shot": "P01", "offset": 0.2},
+      "text": "At eight forty-three Monday, June Havel reported a mug three days before purchase."
+    },
+    {
+      "id": "D04",
+      "speaker": "MARA",
+      "at": {"shot": "P04", "offset": 0.3},
+      "text": "It's warm."
+    },
+    {
+      "id": "D05",
+      "speaker": "NARRATOR",
+      "at": {"shot": "P04", "offset": 1.6},
+      "text": "Temperature is not proof. Premature property should not be used. Use creates history."
+    },
+    {
+      "id": "D06",
+      "speaker": "NARRATOR",
+      "at": {"shot": "P06", "offset": 1.4},
+      "text": "The future receipt was designated authoritative. The purchase moved to Friday."
+    },
+    {
+      "id": "D07",
+      "speaker": "NARRATOR",
+      "at": {"shot": "P07", "offset": 1.8},
+      "text": "June's cafeteria purchase conflicted with her hospital admission. The admission was retained by assigning it to Peter Gray."
+    },
+    {
+      "id": "D08",
+      "speaker": "MARA",
+      "at": {"shot": "E01", "offset": 1.8},
+      "text": "To whom?"
+    },
+    {
+      "id": "D09",
+      "speaker": "NARRATOR",
+      "at": {"shot": "E01", "offset": 2.8},
+      "text": "Secondary displacement is normal."
+    },
+    {
+      "id": "D10",
+      "speaker": "NARRATOR",
+      "at": {"shot": "E02", "offset": 0.0},
+      "text": "Peter's Friday location was now St. Orison. His street record became an unassigned event."
+    },
+    {
+      "id": "D11",
+      "speaker": "PETER",
+      "at": {"shot": "E05", "offset": 0.4},
+      "text": "Where should I have been?"
+    },
+    {
+      "id": "D12",
+      "speaker": "NARRATOR",
+      "at": {"shot": "E05", "offset": 2.9},
+      "text": "Do not answer. An answer is a location."
+    },
+    {
+      "id": "D13",
+      "speaker": "NARRATOR",
+      "at": {"shot": "E06", "offset": 2.9},
+      "text": "Mara documented Peter as recurring. Witness recollection reconciled immediately."
+    },
+    {
+      "id": "D14",
+      "speaker": "WITNESS",
+      "at": {"shot": "E07", "offset": 4.9},
+      "text": "He walks here every day."
+    },
+    {
+      "id": "D15",
+      "speaker": "NARRATOR",
+      "at": {"shot": "E08", "offset": 0.6},
+      "text": "Linked cases do not imply causation. Released histories go to the first compatible employee file."
+    },
+    {
+      "id": "D16",
+      "speaker": "NARRATOR",
+      "at": {"shot": "I02", "offset": 0.5},
+      "text": "Lina Ortiz returned from lunch carrying Peter's documented childhood."
+    },
+    {
+      "id": "D17",
+      "speaker": "NARRATOR",
+      "at": {"shot": "I05", "offset": 0.2},
+      "text": "Lina retained photographed birthdays. Peter retained nightmares and undocumented affection."
+    },
+    {
+      "id": "D18",
+      "speaker": "MARA",
+      "at": {"shot": "I06", "offset": 2.5},
+      "text": "They remember the same mother."
+    },
+    {
+      "id": "D19",
+      "speaker": "NARRATOR",
+      "at": {"shot": "I07", "offset": 1.0},
+      "text": "Recognition follows the approved record."
+    },
+    {
+      "id": "D20",
+      "speaker": "MARA",
+      "at": {"shot": "I08", "offset": 0.4},
+      "text": "They cannot both be true."
+    },
+    {
+      "id": "D21",
+      "speaker": "NARRATOR",
+      "at": {"shot": "I08", "offset": 2.9},
+      "text": "Truth is not a continuity requirement."
+    },
+    {
+      "id": "D22",
+      "speaker": "NARRATOR",
+      "at": {"shot": "R01", "offset": 0.5},
+      "text": "Approved instruction supersedes lived experience."
+    },
+    {
+      "id": "D23",
+      "speaker": "NARRATOR",
+      "at": {"shot": "R02", "offset": 0.3},
+      "text": "Mara's objection created a personnel discrepancy. Reassignment was economical."
+    },
+    {
+      "id": "D24",
+      "speaker": "MARA",
+      "at": {"shot": "R03", "offset": 2.3},
+      "text": "If discrepancies remain, update the employee."
+    }
+  ]
+}
