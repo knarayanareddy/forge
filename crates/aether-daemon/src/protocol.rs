@@ -194,6 +194,12 @@ impl EventLine {
         e
     }
 
+    pub fn workspace_granted(path: &str) -> Self {
+        let mut e = Self::base("workspace_granted");
+        e.action = Some(path.to_string());
+        e
+    }
+
     pub fn automation_tick(count: usize) -> Self {
         let mut e = Self::base("automation_tick");
         e.tick_count = Some(count);

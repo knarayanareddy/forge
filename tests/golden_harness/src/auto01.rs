@@ -38,6 +38,12 @@ pub async fn test_auto01_impl(conn: &rusqlite::Connection) -> Result<(), String>
     let tmp = tempdir().map_err(|e| e.to_string())?;
     let workspace = tmp.path().to_path_buf();
     let workspace_str = workspace.to_string_lossy().to_string();
+    conn.execute(
+        "INSERT INTO capability_grants (session_id, resource_path, permission_type)
+         VALUES (?1, ?2, 'write')",
+        rusqlite::params![fixture.session_id, &workspace_str],
+    )
+    .map_err(|e| e.to_string())?;
 
     let task_prompt = serde_json::json!({ "loop": fixture.loop_plan }).to_string();
 

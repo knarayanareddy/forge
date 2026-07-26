@@ -86,6 +86,52 @@ impl SandboxRunner {
 pub struct ProductionSandbox;
 
 impl ProductionSandbox {
+    #[cfg(target_os = "macos")]
+    fn resolve_macos_executable(binary: &str) -> Result<PathBuf, SandboxError> {
+        let path = Path::new(binary);
+        if path.is_absolute() {
+            // /usr/bin/git and /usr/bin/python3 are xcrun shims. Resolve their real developer
+            // binaries before entering Seatbelt so xcrun does not need an external cache.
+            if binary != "/usr/bin/git" && binary != "/usr/bin/python3" {
+                return Ok(path.to_path_buf());
+            }
+        }
+
+        let name = path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .unwrap_or(binary);
+        if matches!(name, "git" | "python3") {
+            let output = Command::new("/usr/bin/xcrun")
+                .args(["--find", name])
+                .output()
+                .map_err(|e| SandboxError::Execution(format!("xcrun --find {name}: {e}")))?;
+            if output.status.success() {
+                let resolved = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !resolved.is_empty() && Path::new(&resolved).is_file() {
+                    return Ok(PathBuf::from(resolved));
+                }
+            }
+            return Err(SandboxError::Execution(format!(
+                "xcrun could not resolve {name}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+
+        if path.is_absolute() {
+            return Ok(path.to_path_buf());
+        }
+        for root in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"] {
+            let candidate = Path::new(root).join(binary);
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
+        }
+        Err(SandboxError::Execution(format!(
+            "tool executable not found in fixed path: {binary}"
+        )))
+    }
+
     pub fn resolve_profile() -> Result<PathBuf, SandboxError> {
         if let Some(path) = std::env::var_os("AETHER_SANDBOX_PROFILE") {
             let path = PathBuf::from(path);
@@ -95,13 +141,33 @@ impl ProductionSandbox {
             return Err(SandboxError::MissingProfile(path.display().to_string()));
         }
 
-        let development = PathBuf::from("profiles/sandbox_tool.sb");
-        if development.is_file() {
-            return development.canonicalize().map_err(SandboxError::Io);
+        if let Ok(cwd) = std::env::current_dir() {
+            for ancestor in cwd.ancestors() {
+                let development = ancestor.join("profiles/sandbox_tool.sb");
+                if development.is_file() {
+                    return development.canonicalize().map_err(SandboxError::Io);
+                }
+            }
+        }
+
+        // Cargo tests run with package-specific working directories. This candidate is used only
+        // when the source checkout still exists; packaged apps resolve through Resources below.
+        let manifest_development =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../profiles/sandbox_tool.sb");
+        if manifest_development.is_file() {
+            return manifest_development
+                .canonicalize()
+                .map_err(SandboxError::Io);
         }
 
         if let Ok(exe) = std::env::current_exe() {
             if let Some(exe_dir) = exe.parent() {
+                for ancestor in exe_dir.ancestors() {
+                    let development = ancestor.join("profiles/sandbox_tool.sb");
+                    if development.is_file() {
+                        return development.canonicalize().map_err(SandboxError::Io);
+                    }
+                }
                 let bundled = exe_dir.join("../Resources/profiles/sandbox_tool.sb");
                 if bundled.is_file() {
                     return bundled.canonicalize().map_err(SandboxError::Io);
@@ -162,6 +228,7 @@ impl ProductionSandbox {
         #[cfg(target_os = "macos")]
         let mut command = {
             let profile = Self::resolve_profile()?;
+            let binary = Self::resolve_macos_executable(binary)?;
             if !Path::new("/usr/bin/sandbox-exec").is_file() {
                 return Err(SandboxError::MissingSandboxExec(
                     "/usr/bin/sandbox-exec required on macOS".into(),
@@ -341,5 +408,12 @@ mod tests {
         let environment = String::from_utf8_lossy(&output.stdout);
         assert!(!environment.contains("AETHER_SANDBOX_UNIT_SECRET"));
         assert!(!environment.contains("do-not-inherit"));
+    }
+
+    #[test]
+    fn development_profile_resolves_outside_workspace_root() {
+        let profile = ProductionSandbox::resolve_profile().unwrap();
+        assert!(profile.is_absolute());
+        assert!(profile.ends_with("profiles/sandbox_tool.sb"));
     }
 }

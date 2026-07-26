@@ -54,6 +54,12 @@ final class AppModel {
 
         do {
             try await DaemonProcessManager.shared.ensureRunningAndReady()
+            if let workspacePath, !workspacePath.isEmpty {
+                try await client.grantWorkspace(
+                    sessionId: sessionId,
+                    workspacePath: workspacePath
+                )
+            }
         } catch {
             lastError = error.localizedDescription
             lastResponseSummary = error.localizedDescription

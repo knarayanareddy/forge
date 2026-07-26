@@ -92,6 +92,28 @@ final class DaemonClient: @unchecked Sendable {
         }
     }
 
+    /// Explicit grant flow after the user selects a workspace folder.
+    func grantWorkspace(
+        sessionId: String,
+        workspacePath: String,
+        timeoutSeconds: TimeInterval = 5
+    ) async throws {
+        var params = authParams()
+        params["session_id"] = sessionId
+        params["workspace_path"] = workspacePath
+        let events = try await collectEvents(
+            method: "grant_workspace",
+            params: params,
+            timeoutSeconds: timeoutSeconds
+        )
+        if let error = events.first(where: { $0.type == "error" }) {
+            throw DaemonClientError.invalidEvent(error.message ?? "workspace grant failed")
+        }
+        guard events.contains(where: { $0.type == "workspace_granted" }) else {
+            throw DaemonClientError.invalidEvent("workspace grant was not acknowledged")
+        }
+    }
+
     /// Streams daemon events incrementally as JSON-lines arrive over TCP.
     func runTask(
         prompt: String,

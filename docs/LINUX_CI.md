@@ -71,6 +71,21 @@ Steps on every job:
 
 Linux jobs **must not** skip fail-closed tasks silently — harness prints `FAIL-CLOSED` for FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, and PLAN-01 when prerequisites are absent.
 
+## ROUT-01 threshold honesty
+
+ROUT-01 measures Ollama's server-side warm TTFT, not end-to-end UI latency:
+
+1. warm the selected model and drain five discard streams;
+2. record seven samples;
+3. discard the lowest and highest;
+4. take the median of the remaining five;
+5. retry at most three rounds with re-warming.
+
+The default local Darwin threshold is **200ms**. The GitHub-hosted `macos-15` full-harness job sets
+`AETHER_ROUT_TTFT_MS=550` because shared VM scheduling and virtualization add substantial variance.
+The 550ms value is a **CI stability allowance**, not the product target, and must never be quoted
+as local model performance. Linux without Ollama remains explicit `FAIL-CLOSED`.
+
 ## BYOK on Linux
 
 Setting `AETHER_BYOK_PROVIDER` on non-macOS causes daemon startup to **fail closed** (Keychain unavailable). Do not set BYOK env vars in Linux CI.

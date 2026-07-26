@@ -9,6 +9,7 @@ use aether_core::{
 };
 use aether_db::Database;
 use aether_mcp::McpAllowlist;
+use aether_permissions::{PermissionDecision, PermissionManager};
 use aether_sandbox::ProductionSandbox;
 use aether_skills::SkillLoader;
 use futures::StreamExt;
@@ -180,7 +181,7 @@ async fn run_loop_task(
     let engine = ReActLoopEngine::new(max_iterations);
     let (result, events) = {
         let conn = state.db.conn();
-        ensure_session_and_grants(&conn, &session_id, &config.workspace)?;
+        ensure_session_and_workspace_grant(&conn, &session_id, &config.workspace)?;
         let mut events = Vec::new();
         let result = if let Some(goal) = checker_goal.as_ref() {
             let plan = if plan.is_empty() {
@@ -359,7 +360,7 @@ pub fn run_automation_trigger(
     trigger: &AutomationTrigger,
 ) -> Result<(), String> {
     let workspace = resolve_workspace(trigger.workspace_path.as_deref())?;
-    ensure_session_and_grants(
+    ensure_session_and_workspace_grant(
         conn,
         &trigger.session_id,
         &workspace,
@@ -408,7 +409,7 @@ pub fn run_gateway_inbound(
     normalized_prompt: &str,
 ) -> Result<(), String> {
     let workspace = resolve_workspace(channel.workspace_path.as_deref())?;
-    ensure_session_and_grants(conn, &channel.session_id, &workspace)?;
+    ensure_session_and_workspace_grant(conn, &channel.session_id, &workspace)?;
 
     let plan = if let Some(plan) = ReActLoopEngine::parse_plan_from_prompt(&channel.task_prompt) {
         plan
@@ -481,7 +482,7 @@ fn resolve_workspace(workspace: Option<&str>) -> Result<PathBuf, String> {
         .map_err(|_| "Loop plan requires workspace_path param or AETHER_WORKSPACE env".into())
 }
 
-fn ensure_session_and_grants(
+fn ensure_session_and_workspace_grant(
     conn: &rusqlite::Connection,
     session_id: &str,
     workspace: &PathBuf,
@@ -493,12 +494,14 @@ fn ensure_session_and_grants(
     .map_err(|e| e.to_string())?;
 
     let ws = workspace.to_string_lossy().to_string();
-    conn.execute(
-        "INSERT OR IGNORE INTO capability_grants (session_id, resource_path, permission_type) VALUES (?1, ?2, 'write')",
-        rusqlite::params![session_id, ws],
-    )
-    .map_err(|e| e.to_string())?;
-
+    let decision = PermissionManager::check_file_access(conn, session_id, &ws, "write")
+        .map_err(|e| e.to_string())?;
+    if decision != PermissionDecision::Approved {
+        return Err(format!(
+            "Workspace write grant required for {}; select the folder in AetherForge before running tools",
+            ws
+        ));
+    }
     Ok(())
 }
 
@@ -624,5 +627,47 @@ mod tests {
             enrich_prompt_with_memory("plain request", &[]),
             "plain request"
         );
+    }
+
+    #[test]
+    fn structured_execution_requires_preexisting_workspace_grant() {
+        let db = Database::open_in_memory().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        {
+            let conn = db.conn();
+            let denied = ensure_session_and_workspace_grant(
+                &conn,
+                "explicit-grant-test",
+                &workspace.path().to_path_buf(),
+            )
+            .unwrap_err();
+            assert!(denied.contains("Workspace write grant required"));
+
+            let grant_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM capability_grants
+                     WHERE session_id = 'explicit-grant-test'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(grant_count, 0, "execution must never create its own grant");
+
+            conn.execute(
+                "INSERT INTO capability_grants
+                 (session_id, resource_path, permission_type) VALUES (?1, ?2, 'write')",
+                rusqlite::params![
+                    "explicit-grant-test",
+                    workspace.path().to_string_lossy().to_string()
+                ],
+            )
+            .unwrap();
+            ensure_session_and_workspace_grant(
+                &conn,
+                "explicit-grant-test",
+                &workspace.path().to_path_buf(),
+            )
+            .unwrap();
+        }
     }
 }

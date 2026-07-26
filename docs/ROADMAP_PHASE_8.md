@@ -1,10 +1,13 @@
 # AetherForge Roadmap — Phase 8
 
-**Baseline:** Phase 7 complete — Darwin **18/18 harness (18 hard / 0 soft)** · slice 7.10 docs/CI closure @ `91bfc01`  
+**Historical planning baseline:** Phase 7 complete — Darwin **18/18 harness (18 hard / 0 soft)**
 **Prerequisite wedge:** [ROADMAP_PHASE_8.0.md](./ROADMAP_PHASE_8.0.md) — honesty + closed loop **must complete before slice 8.1 below**  
 **Canonical platform:** Darwin (macOS 15+ Apple Silicon)  
 **Linux CI:** fail-closed for FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02 when `sandbox-exec` or Ollama absent  
-**Binding spec:** This document is the Phase 8 contract. Every shipped claim maps to a harness task or an explicit deferral below. **Planning only — no implementation in this document.**
+**Status:** Historical Phase 8 proposal. The current binding order and score projections are in
+[ROADMAP_PHASES_9-13.md](./ROADMAP_PHASES_9-13.md). Distribution moved to parallel Track D,
+graph depth moved to Phase 11, and direct MLX became optional because Ollama now uses MLX on Apple
+Silicon. Numeric projections below are historical unless restated in the master roadmap.
 
 > **Phase 8.0 gate:** [ROADMAP_PHASE_8.0.md](./ROADMAP_PHASE_8.0.md) ("Honesty + Closed Loop") must complete **before** any slice 8.1+ below (DMG, graph v2, MLX). Slice 8.0a (IPC lockdown + NL planner de-harnessing) is the first implementation step.
 
@@ -16,10 +19,14 @@ Phase 8 closes the **distribution**, **memory depth**, and **local inference** g
 
 **Five bullets for stakeholders:**
 
-1. **Signed distribution wedge** — `codesign --deep`, Apple notarization, Homebrew cask, Sparkle auto-updater; CI verifies artifact signatures before README claims "installable."
-2. **Graph v2 is recall-first** — hop depth >1, Leiden community detection, hierarchical summaries, decay/recency weighting; optional Kuzu backend behind feature flag; no force-directed UI theater.
-3. **Direct MLX runtime** — hf-hub model downloader, `llama-cpp-2` GGUF path, `mlx-rs` sidecar for Apple Silicon, model registry TOML, mlx-vlm vision hook, quantization picker in SwiftUI.
-4. **Harness grows 18 → 21–22 (all hard)** — INGEST-01 (live Ollama extract eval), GRAPH-02 (multi-hop recall@k delta), GATE-02 (Telegram/Discord production adapter round-trip), MLX-01 (local inference without Ollama); BUDG-01 optional for default token cap enforcement.
+1. **Distribution moved to Track D** — sign nested helpers inside-out (never `codesign --deep`),
+   notarize and staple app + DMG, then add Sparkle EdDSA updates.
+2. **Graph depth moved to Phase 11** — bounded traversal requires a measured recall delta;
+   Leiden/community summaries are no longer the default local-inference design.
+3. **Direct MLX is optional** — model registry and HF download remain useful; Ollama's MLX-backed
+   Apple Silicon runtime is the default integration.
+4. **Current harness sequencing** — Phase 8.0 closes at 21 tasks; future tasks are added only per
+   the master roadmap's ≤5-per-phase discipline.
 5. **Explicit deferrals** — Lightpanda/browser MCP (preconditions documented), fleet orchestration at scale, LLM-as-judge without calibration, OmniRoute, graph viz UI, shadow/A/B prod.
 
 ---
