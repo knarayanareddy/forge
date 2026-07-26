@@ -6,23 +6,24 @@ AetherForge MVP — **Phase 7 complete** on Darwin; Phase 9 planner slice in pro
 
 ```text
 cargo run -p golden-harness --bin golden-harness
-→ 19/19 harness target (last verified main baseline: 18/18) when ROUT-01 median warm TTFT ≤ 200ms,
+→ 20/20 harness target (last verified main baseline: 19/19) when ROUT-01 median warm TTFT ≤ 200ms,
   GRAPH-01 recall@3 ≥ 1.0, LOOP-02 NL plan through verify shell (gold trajectory in harness eval only),
   RED-01 blocks all frozen adversarial cases (≥12, currently 14),
   SKILL-02 routes 3/3 book_skill questions with citation fidelity ≥ 0.9,
   AUTO-01 fires a granted automation trigger → run_task → audit_log,
   CHECK-01 rejects ≥8 frozen bad plans with 0 unverified writes,
   GATE-01 denies inbound without GatewayGrant then round-trips with grant,
-  and PLAN-01 routes ≥9/10 diverse NL goals with required tools and no forbidden tools
+  PLAN-01 routes ≥9/10 diverse NL goals with required tools and no forbidden tools,
+  and MEM-02 proves daemon turn → semantic chunk → graph link → isolated next-turn recall
 ```
 
 | Platform | Expected score | Hard / soft |
 |----------|----------------|-------------|
-| **Darwin** (Ollama + `sandbox-exec`) | **19/19 target** | PLAN-01 pending canonical Darwin verification |
-| **Linux CI** (full matrix) | **13/19** | 13 hard · FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01 **FAIL-CLOSED** without Ollama/sandbox |
+| **Darwin** (Ollama + `sandbox-exec`) | **20/20 target** | MEM-02 pending canonical Darwin verification |
+| **Linux CI** (full matrix) | **14/20** | 14 hard · FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01 **FAIL-CLOSED** without Ollama/sandbox |
 | **Linux Ollama-independent** | **11/11** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, SKILL-01, RED-01, AUTO-01, CHECK-01, GATE-01 |
 
-Tasks (19): ROUT-01, FS-01, FS-02, GIT-01, CODE-01, MCP-01, MEM-01, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **AUTO-01**, **CHECK-01**, **GATE-01**
+Tasks (20): ROUT-01, FS-01, FS-02, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **AUTO-01**, **CHECK-01**, **GATE-01**
 
 ROUT-01 runs first (before FS-02 sandbox load and MCP/MEM embedder swap), pre-warms the chat model at harness start, drains five warmup streams (`keep_alive: 30m`, `num_ctx: 512`), then asserts the **median** of three Ollama server-side warm TTFT samples (`load_duration + prompt_eval_duration`) is ≤ 200ms.
 
@@ -39,7 +40,8 @@ ROUT-01 runs first (before FS-02 sandbox load and MCP/MEM embedder swap), pre-wa
 | **5 — Polish** | Keychain BYOK, hybrid memory RRF, DMG/notarize scripts, Linux CI | **Done** |
 | **6 — Graph v1 + eval** | Bi-temporal graph, ingest extract, GRAPH-01/LOOP-02/RED-01/SKILL-02, consolidate offline | **Done** |
 | **7 — Orchestration** | Automation scheduler (AUTO-01), maker-checker (CHECK-01), gateway (GATE-01) | **Done — 18/18 harness** |
-| **9 — Trust & Time** | Planner schema, bounded repair, semantic routing (PLAN-01) | **Slices 9.1–9.4 implemented; Darwin 19/19 pending** |
+| **8.0 — Honesty + closed loop** | IPC lockdown, NL de-harness, daemon semantic memory (MEM-02) | **8.0a–8.0b implemented; sandbox/docs remain** |
+| **9 — Trust & Time** | Planner schema, bounded repair, semantic routing (PLAN-01) | **Slices 9.1–9.4 merged; Darwin 19/19 verified** |
 
 See [docs/ROADMAP_PHASES_1-5.md](docs/ROADMAP_PHASES_1-5.md) for Phases 1–5 acceptance criteria.  
 See [docs/ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md) for Phase 6 binding spec.  
