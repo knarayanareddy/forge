@@ -18,6 +18,7 @@ aether-db = { path = "../aether-db" }
 aether-mcp = { path = "../aether-mcp" }
 aether-permissions = { path = "../aether-permissions" }
 aether-skills = { path = "../aether-skills" }
+aether-sandbox = { path = "../aether-sandbox" }
 keyring = "3.6"
 sha2 = "0.10"
 

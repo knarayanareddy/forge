@@ -1,10 +1,12 @@
 use crate::{McpAllowlist, McpError, McpServerConfig};
 use aether_permissions::{PermissionDecision, PermissionManager};
+use aether_sandbox::ProductionSandbox;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::io::{BufRead, BufReader, Write};
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::Instant;
 
@@ -37,10 +39,45 @@ impl McpClient {
         Self::spawn_config(&config, extra_args)
     }
 
+    /// Production spawn: verified MCP server wrapped by the workspace Seatbelt profile.
+    pub fn spawn_verified_in_workspace(
+        allowlist: &McpAllowlist,
+        server_name: &str,
+        extra_args: &[String],
+        workspace: &Path,
+    ) -> Result<Self, McpError> {
+        let config = allowlist.verify_and_get(server_name)?;
+        Self::spawn_config_in_workspace(&config, extra_args, workspace)
+    }
+
     pub fn spawn_config(config: &McpServerConfig, extra_args: &[String]) -> Result<Self, McpError> {
         let mut cmd = Command::new(&config.command);
         cmd.args(&config.args);
         cmd.args(extra_args);
+        Self::spawn_command(config, cmd)
+    }
+
+    fn spawn_config_in_workspace(
+        config: &McpServerConfig,
+        extra_args: &[String],
+        workspace: &Path,
+    ) -> Result<Self, McpError> {
+        let args: Vec<&str> = config
+            .args
+            .iter()
+            .chain(extra_args.iter())
+            .map(String::as_str)
+            .collect();
+        let cmd = ProductionSandbox::command(&config.command, args, workspace).map_err(|e| {
+            McpError::SecurityViolation(format!(
+                "Failed to prepare sandbox for MCP server '{}': {}",
+                config.name, e
+            ))
+        })?;
+        Self::spawn_command(config, cmd)
+    }
+
+    fn spawn_command(config: &McpServerConfig, mut cmd: Command) -> Result<Self, McpError> {
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::null());
@@ -253,7 +290,12 @@ pub fn invoke_with_grant(
         )));
     }
 
-    let mut client = McpClient::spawn_verified(allowlist, server_name, extra_spawn_args)?;
+    let mut client = McpClient::spawn_verified_in_workspace(
+        allowlist,
+        server_name,
+        extra_spawn_args,
+        Path::new(workspace_path),
+    )?;
     let tools_audit = client.list_tools()?;
 
     let config = allowlist.verify_and_get(server_name)?;

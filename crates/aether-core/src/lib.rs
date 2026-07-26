@@ -35,13 +35,13 @@ pub use orchestration_graph::OrchestrationGraph;
 pub use verifier_node::{MakerCheckerGoal, VerifierNode};
 
 use aether_permissions::{PermissionDecision, PermissionManager};
+use aether_sandbox::ProductionSandbox;
 use async_stream::try_stream;
 use futures_util::{Stream, StreamExt};
 use std::pin::Pin;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::process::Command;
 use std::time::Instant;
 use thiserror::Error;
 
@@ -979,12 +979,18 @@ impl GitOps {
             )));
         }
 
-        std::fs::create_dir_all(&workspace).map_err(|e| GitError::Command(e.to_string()))?;
+        if !workspace.is_dir() {
+            return Err(GitError::Command(format!(
+                "Git workspace must already exist: {}",
+                workspace.display()
+            )));
+        }
 
         run_git(&workspace, &["init"])?;
 
         let readme = workspace.join("README.md");
-        std::fs::write(&readme, "# AetherForge GIT-01\n").map_err(|e| GitError::Command(e.to_string()))?;
+        ProductionSandbox::write_file(&workspace, &readme, b"# AetherForge GIT-01\n")
+            .map_err(|e| GitError::Command(e.to_string()))?;
 
         run_git(&workspace, &["add", "README.md"])?;
         run_git(&workspace, &["commit", "-m", "Initial commit"])?;
@@ -1008,9 +1014,10 @@ impl GitOps {
 }
 
 fn run_git(cwd: &Path, args: &[&str]) -> Result<(), GitError> {
-    let output = Command::new("git")
+    let mut command = ProductionSandbox::command("git", args, cwd)
+        .map_err(|e| GitError::Command(e.to_string()))?;
+    let output = command
         .current_dir(cwd)
-        .args(args)
         .output()
         .map_err(|e| GitError::Command(e.to_string()))?;
 
@@ -1026,9 +1033,10 @@ fn run_git(cwd: &Path, args: &[&str]) -> Result<(), GitError> {
 }
 
 fn run_git_output(cwd: &Path, args: &[&str]) -> Result<String, GitError> {
-    let output = Command::new("git")
+    let mut command = ProductionSandbox::command("git", args, cwd)
+        .map_err(|e| GitError::Command(e.to_string()))?;
+    let output = command
         .current_dir(cwd)
-        .args(args)
         .output()
         .map_err(|e| GitError::Command(e.to_string()))?;
 
@@ -1062,11 +1070,27 @@ pub struct PythonLinter;
 
 impl PythonLinter {
     pub fn check_syntax(source: &str) -> Result<Vec<SyntaxIssue>, LintError> {
-        let tmp = tempfile::NamedTempFile::new()?;
-        std::fs::write(tmp.path(), source)?;
+        let workspace = tempfile::tempdir()?;
+        Self::check_syntax_in_workspace(source, workspace.path())
+    }
 
-        let output = Command::new("python3")
-            .args(["-m", "py_compile", tmp.path().to_str().unwrap_or("snippet.py")])
+    pub fn check_syntax_in_workspace(
+        source: &str,
+        workspace: &Path,
+    ) -> Result<Vec<SyntaxIssue>, LintError> {
+        let temp_dir = workspace.join(".aether-tmp");
+        ProductionSandbox::create_dir_all(workspace, &temp_dir)
+            .map_err(|e| LintError::Command(e.to_string()))?;
+        let tmp = tempfile::Builder::new()
+            .prefix("lint-")
+            .suffix(".py")
+            .tempfile_in(&temp_dir)?;
+        ProductionSandbox::write_file(workspace, tmp.path(), source.as_bytes())
+            .map_err(|e| LintError::Command(e.to_string()))?;
+
+        let args = ["-m", "py_compile", tmp.path().to_str().unwrap_or("snippet.py")];
+        let output = ProductionSandbox::command("python3", args, workspace)
+            .map_err(|e| LintError::Command(e.to_string()))?
             .output()
             .map_err(|e| LintError::Command(e.to_string()))?;
 
