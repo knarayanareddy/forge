@@ -35,6 +35,9 @@ jobs:
       - name: Scan MCP allowlist (static gate)
         run: chmod +x scripts/scan-mcp-allowlist.sh && ./scripts/scan-mcp-allowlist.sh
 
+      - name: Check scoreboard and threshold docs
+        run: bash scripts/check-doc-scoreboard.sh
+
       - name: Build workspace
         run: cargo build --workspace
 
@@ -78,6 +81,9 @@ jobs:
       - name: Scan MCP allowlist (static gate)
         run: chmod +x scripts/scan-mcp-allowlist.sh && ./scripts/scan-mcp-allowlist.sh
 
+      - name: Check scoreboard and threshold docs
+        run: bash scripts/check-doc-scoreboard.sh
+
       - name: Build workspace
         run: cargo build --workspace
 
@@ -108,6 +114,9 @@ jobs:
 
       - name: Scan MCP allowlist (static gate)
         run: chmod +x scripts/scan-mcp-allowlist.sh && ./scripts/scan-mcp-allowlist.sh
+
+      - name: Check scoreboard and threshold docs
+        run: bash scripts/check-doc-scoreboard.sh
 
       - name: Install Ollama models
         run: |

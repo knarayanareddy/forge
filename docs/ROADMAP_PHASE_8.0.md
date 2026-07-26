@@ -173,12 +173,12 @@ Full suite during 8.0: **18/18 retained** (regression lock). New probes may land
 
 | Metric | Target | Measurement |
 |--------|--------|-------------|
-| **Regression lock** | 18/18 Phase 1–7 PASS | `cargo run -p golden-harness` |
+| **Regression lock** | All 21 tasks PASS on Darwin | `cargo run -p golden-harness` |
 | **LOOP-03 probe** | fs_read plan accepted by production validator | `cargo test -p aether-core nl_planner` |
 | **IPC-01 probe** | 0 unauthenticated automation IPC success | `cargo test -p aether-daemon ipc_` |
 | **8.0b closed loop** | retrieve affects next-turn context | Integration test + audit |
 | **8.0c sandbox** | fs_write/MCP paths through Seatbelt | FS-02 pattern extended |
-| **Shippable slices** | **4/4 Phase 8.0 slices** merge without breaking 18/18 | Per-slice PR |
+| **Shippable slices** | **4/4 Phase 8.0 slices** merge without breaking prior tasks | Per-slice PR |
 
 ---
 
@@ -187,8 +187,8 @@ Full suite during 8.0: **18/18 retained** (regression lock). New probes may land
 - [x] **8.0a:** Production `validate_nl_plan` free of gold trajectory; IPC auth on all methods except `ping`; `grant_automation` forbidden via IPC
 - [x] **8.0b:** Daemon post-turn chunk→embed→link→retrieve wired into streamed `run_task`; graph failure degrades to FTS/vector memory
 - [x] **8.0c:** Seatbelt on production FS/git/lint/MCP/skill/gateway execution paths; child environment scrubbed; profile bundled
-- [ ] **8.0d:** ROUT CI vs local thresholds documented in README + LINUX_CI.md
-- [ ] Harness: **18/18** regression lock maintained
+- [x] **8.0d:** ROUT seven-sample trimmed median, local 200ms target, and CI 550ms allowance documented in README + LINUX_CI.md
+- [ ] Harness: **21/21** regression lock maintained on Darwin after SB-01 merge
 - [ ] Independent audit checklist below passes
 - [ ] Commits pushed to `main`
 
@@ -196,16 +196,17 @@ Full suite during 8.0: **18/18 retained** (regression lock). New probes may land
 
 ## Independent Audit Checklist (Phase 8.0 — pre-Phase-8.1)
 
-- [ ] `nl_planner.rs` production path has no `LOOP02_GOLD_TOOL_ORDER` check
-- [ ] LOOP-02 harness still asserts gold trajectory (harness-only)
-- [ ] LOOP-03 probe passes (non-gold plan accepted)
-- [ ] Unauthenticated `register_automation` / `automation_tick` / `automation_run` denied
-- [ ] `grant_automation: true` on IPC returns explicit error
+- [x] `nl_planner.rs` production path has no `LOOP02_GOLD_TOOL_ORDER` check
+- [x] LOOP-02 harness still asserts gold trajectory (harness-only)
+- [x] LOOP-03 probe passes (non-gold plan accepted)
+- [x] Unauthenticated `register_automation` / `automation_tick` / `automation_run` denied
+- [x] `grant_automation: true` on IPC returns explicit error
+- [x] Structured execution creates no capability grants; authenticated `grant_workspace` is explicit, idempotent, and audited
 - [x] Post-turn ingest links chunks and retrieval feeds next turn (MEM-02)
 - [x] Production tool paths use Seatbelt profile; SB-01 covers loop, network deny, environment scrub, and workspace escape
-- [ ] README documents ROUT local vs CI thresholds (8.0d)
-- [ ] Phase 1–7 tasks still PASS (18/18)
-- [ ] ROADMAP_PHASE_8.md references 8.0 prerequisite
+- [x] README documents ROUT local vs CI thresholds (8.0d)
+- [x] Phase 1–7 regression tasks still PASS within the verified 20/20 main baseline
+- [x] ROADMAP_PHASE_8.md references 8.0 prerequisite and is marked historical where re-scoped
 
 ---
 
@@ -226,7 +227,9 @@ See [ROADMAP_PHASE_8.md](./ROADMAP_PHASE_8.md) for distribution, graph v2, and M
 
 [ROADMAP_PHASES_9-13.md](./ROADMAP_PHASES_9-13.md) is the master product roadmap after this wedge. It also **re-scopes Phase 8.1+**: distribution moves to a parallel track, graph v2 defers to Phase 11, and direct MLX downgrades to optional (Ollama is now MLX-backed on Apple Silicon).
 
-**Post-8.0a probe evidence feeding Phase 9:** removing the gold trajectory fixed the eval-lock but revealed a real capability gap — 3 of 5 ordinary NL goals still fail, now on prompt bias (`build_nl_plan_prompt` still teaches the gold shape), missing constrained decoding (`git_init` without `branch`), and no repair/replan on validation error. Phase 9 slices 9.1–9.4 (PLAN-01) own that fix.
+**Post-8.0a probe evidence feeding Phase 9:** removing the gold trajectory exposed prompt bias,
+missing constrained decoding, and no repair path (3/5 ordinary goals failed). Phase 9 slices
+9.1–9.4 subsequently resolved this with per-action schemas, bounded repair, and PLAN-01.
 
 ---
 

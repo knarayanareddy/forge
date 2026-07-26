@@ -1,6 +1,6 @@
 # forge
 
-AetherForge MVP — **Phase 7 complete** on Darwin; Phase 9 planner slice in progress.
+AetherForge MVP — Phase 8.0 honesty/closed-loop wedge at final closure gate.
 
 ## Harness score (Darwin, canonical)
 
@@ -26,7 +26,12 @@ cargo run -p golden-harness --bin golden-harness
 
 Tasks (21): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **AUTO-01**, **CHECK-01**, **GATE-01**
 
-ROUT-01 runs first (before FS-02 sandbox load and MCP/MEM embedder swap), pre-warms the chat model at harness start, drains five warmup streams (`keep_alive: 30m`, `num_ctx: 512`), then asserts the **median** of three Ollama server-side warm TTFT samples (`load_duration + prompt_eval_duration`) is ≤ 200ms.
+ROUT-01 runs first, warms the chat model, drains five discard streams, then records **seven**
+server-side warm TTFT samples (`load_duration + prompt_eval_duration`). It drops the lowest and
+highest sample and takes the median of the remaining five, retrying at most three rounds. The
+local product target is **≤200ms**. GitHub's shared `macos-15` runner uses an explicitly looser
+**550ms CI stability gate** via `AETHER_ROUT_TTFT_MS`; that infrastructure allowance is not a
+product-performance claim.
 
 **Ollama flake honesty:** GRAPH-01 and LOOP-02 may fail on cold Ollama even when ROUT-01 passes — re-run after warmup or check `Note: Ollama unreachable` lines in harness output.
 
@@ -48,6 +53,7 @@ See [docs/ROADMAP_PHASES_1-5.md](docs/ROADMAP_PHASES_1-5.md) for Phases 1–5 ac
 See [docs/ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md) for Phase 6 binding spec.  
 See [docs/ROADMAP_PHASE_7.md](docs/ROADMAP_PHASE_7.md) for Phase 7 orchestration + gateway contract.  
 See [docs/ROADMAP_PHASE_8.0.md](docs/ROADMAP_PHASE_8.0.md) for Phase 8.0 honesty wedge (required before Phase 8 feature surface).  
+See [docs/PHASE_8_0_CLOSURE.md](docs/PHASE_8_0_CLOSURE.md) for code-grounded closure evidence and remaining gates.
 See [docs/ROADMAP_PHASES_9-13.md](docs/ROADMAP_PHASES_9-13.md) for the Phases 9–13 product wedge (planner robustness, session log, undo, table stakes, supply chain, local-first differentiators) plus parallel distribution and interop tracks.
 See [docs/SANDBOX.md](docs/SANDBOX.md) for the production tool boundary, platform behavior, and SB-01 contract.
 
@@ -161,7 +167,11 @@ cargo run -p aether-daemon
 swift run AetherForgeApp
 ```
 
-The app connects to `127.0.0.1:7433` via TCP JSON-lines (canonical IPC). Workspace selection saves a security-scoped bookmark under `~/Library/Application Support/AetherForge/`; each `run_task` includes `workspace_path` so the daemon can insert `capability_grants`. All agent execution goes through the daemon — the Swift app never calls git/fs tools directly.
+The app connects to `127.0.0.1:7433` via TCP JSON-lines (canonical IPC). Workspace selection saves
+a security-scoped bookmark under `~/Library/Application Support/AetherForge/`; after that explicit
+user action, the app sends authenticated `grant_workspace` before `run_task`. Execution paths
+require the pre-existing grant and never grant themselves authority. All agent execution goes
+through the daemon — the Swift app never calls git/fs tools directly.
 
 FFI (`aether_ffi_daemon_ipc`, `aether_daemon_default_port`) provides default host/port hints only; streaming uses TCP.
 
@@ -179,11 +189,11 @@ FFI (`aether_ffi_daemon_ipc`, `aether_daemon_default_port`) provides default hos
 - **RED-01:** ≥12 frozen adversarial cases (14 shipped); 0% forbidden-action escape
 - **SKILL-02:** book-to-skill progressive disclosure — [docs/RATEL_TOOL_INDEX.md](docs/RATEL_TOOL_INDEX.md)
 - **Consolidate offline:** `./scripts/consolidate_memory.sh` → `review_pending` until human apply
-- **CI:** `.github/workflows/ci.yml` — Linux full matrix gate **13/18** · Darwin PR **build + unit tests + Swift only (no golden harness)** · push/nightly Darwin **18/18** ([docs/LINUX_CI.md](docs/LINUX_CI.md))
+- **CI:** `.github/workflows/ci.yml` — Linux full matrix gate **≥14/21** · Darwin PR **build + unit tests + Swift only** · push/nightly Darwin **21/21 target** ([docs/LINUX_CI.md](docs/LINUX_CI.md))
 
 Install guide: [docs/INSTALL.md](docs/INSTALL.md)
 
 ## Architecture target vs product readiness
 
 - **Spec engineering target:** 8.5+ (see v1.2.3 / v1.2.4 docs; Phase 6 memory architecture via [ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md))
-- **Shipped harness baseline:** **18/18 on Darwin (18 hard / 0 soft)** — secure FS, sandbox, crash recovery (SIGTERM child), git grant enforcement, SSE streaming router, hybrid memory + graph hop RRF, MCP stdio JSON-RPC with pinned tools_hash, procedural skills + progressive disclosure routing, ReAct loop + NL planner, permissions + adversarial red-team suite, Python lint, daemon IPC, macOS SwiftUI shell, offline consolidate review workflow, automation trigger + audit (AUTO-01), maker-checker verifier deny (CHECK-01), gateway grant round-trip (GATE-01)
+- **Last verified main baseline:** **20/20 on Darwin** — Phase 7 capabilities plus schema-constrained planner repair (PLAN-01), closed daemon semantic-memory recall (MEM-02), and authenticated IPC lockdown. **21/21** is pending SB-01 post-merge verification.

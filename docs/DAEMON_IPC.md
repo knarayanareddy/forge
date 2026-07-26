@@ -19,7 +19,7 @@ The token is created on first daemon startup (`ensure_daemon_auth_token`). Clien
 
 **Fail-closed:** Any IPC method except `ping` without a valid `auth_token` returns `{"type":"error","message":"Invalid or missing auth_token"}` when daemon auth is enabled (macOS Keychain token on startup).
 
-Protected methods: `run_task`, `register_automation`, `automation_tick`, `automation_run`.  
+Protected methods: `grant_workspace`, `run_task`, `register_automation`, `automation_tick`, `automation_run`.
 `register_automation` rejects `grant_automation: true` — AutomationGrant must be granted through the UI or an explicit grant flow (see AUTO-01), not via IPC auto-grant.
 
 `ping` does not require auth (health check only).
@@ -64,6 +64,31 @@ security find-generic-password -s AetherForge -a daemon-auth-token -w 2>/dev/nul
 ## Protocol
 
 One JSON object per line (JSON-lines). Client sends requests; server streams events.
+
+### Request: `grant_workspace`
+
+The Swift app sends this only after the user chooses a folder through the native picker. Tool
+execution never creates its own capability grants.
+
+```json
+{
+  "method": "grant_workspace",
+  "params": {
+    "auth_token": "<from-keychain>",
+    "session_id": "demo-1",
+    "workspace_path": "/Users/me/Projects/example"
+  }
+}
+```
+
+The daemon canonicalizes an existing directory, idempotently grants `read` + `write`, audit-logs
+the decision, and replies:
+
+```json
+{"type":"workspace_granted","action":"/Users/me/Projects/example"}
+```
+
+Structured `run_task`, automation, and gateway execution fail closed when this grant is absent.
 
 ### Request: `run_task`
 
