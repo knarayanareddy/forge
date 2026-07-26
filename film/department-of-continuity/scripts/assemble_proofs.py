@@ -84,22 +84,38 @@ def stamp_animation(thu: pathlib.Path, fri: pathlib.Path, stamp: pathlib.Path, d
     b = Image.open(fri).convert("RGBA").resize((1920, 1080))
     s = Image.open(stamp).convert("RGBA")
     s = s.resize((520, 160), Image.Resampling.LANCZOS)
+    def paste_stamp(frame: Image.Image, stamp_im: Image.Image, x: int, y: int) -> None:
+        # alpha_composite rejects negative offsets; crop when stamp enters from above.
+        sx, sy = 0, 0
+        if x < 0:
+            sx = -x
+            x = 0
+        if y < 0:
+            sy = -y
+            y = 0
+        if sx >= stamp_im.width or sy >= stamp_im.height:
+            return
+        cropped = stamp_im.crop((sx, sy, stamp_im.width, stamp_im.height))
+        if cropped.width == 0 or cropped.height == 0:
+            return
+        if x >= frame.width or y >= frame.height:
+            return
+        cropped = cropped.crop((0, 0, min(cropped.width, frame.width - x), min(cropped.height, frame.height - y)))
+        frame.alpha_composite(cropped, (x, y))
+
     for i in range(n):
         if i < stamp_hit:
             frame = a.copy()
-            # stamp descends
             t = i / max(stamp_hit - 1, 1)
             y = int(-200 + t * (420 + 200))
             alpha = int(40 + 180 * t)
-            stamp_i = s.copy()
-            stamp_i.putalpha(ImageEnhance_alpha(stamp_i, alpha))
-            frame.alpha_composite(stamp_i, (1180, y))
+            paste_stamp(frame, fade_rgba(s, alpha), 1180, y)
         elif i < stamp_hit + 6:
             frame = a.copy()
-            frame.alpha_composite(s, (1180, 420))
+            paste_stamp(frame, s, 1180, 420)
         else:
             frame = b.copy()
-            frame.alpha_composite(s, (1180, 420))
+            paste_stamp(frame, s, 1180, 420)
         frame.convert("RGB").save(frames_dir / f"f{i:04d}.jpg", quality=92)
     run(
         [
@@ -111,7 +127,7 @@ def stamp_animation(thu: pathlib.Path, fri: pathlib.Path, stamp: pathlib.Path, d
     return dest
 
 
-def ImageEnhance_alpha(im: Image.Image, alpha: int) -> Image.Image:
+def fade_rgba(im: Image.Image, alpha: int) -> Image.Image:
     r, g, b, a = im.split()
     a = a.point(lambda p: min(p, alpha))
     return Image.merge("RGBA", (r, g, b, a))
