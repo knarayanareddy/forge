@@ -86,6 +86,52 @@ impl SandboxRunner {
 pub struct ProductionSandbox;
 
 impl ProductionSandbox {
+    #[cfg(target_os = "macos")]
+    fn resolve_macos_executable(binary: &str) -> Result<PathBuf, SandboxError> {
+        let path = Path::new(binary);
+        if path.is_absolute() {
+            // /usr/bin/git and /usr/bin/python3 are xcrun shims. Resolve their real developer
+            // binaries before entering Seatbelt so xcrun does not need an external cache.
+            if binary != "/usr/bin/git" && binary != "/usr/bin/python3" {
+                return Ok(path.to_path_buf());
+            }
+        }
+
+        let name = path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .unwrap_or(binary);
+        if matches!(name, "git" | "python3") {
+            let output = Command::new("/usr/bin/xcrun")
+                .args(["--find", name])
+                .output()
+                .map_err(|e| SandboxError::Execution(format!("xcrun --find {name}: {e}")))?;
+            if output.status.success() {
+                let resolved = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !resolved.is_empty() && Path::new(&resolved).is_file() {
+                    return Ok(PathBuf::from(resolved));
+                }
+            }
+            return Err(SandboxError::Execution(format!(
+                "xcrun could not resolve {name}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+
+        if path.is_absolute() {
+            return Ok(path.to_path_buf());
+        }
+        for root in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"] {
+            let candidate = Path::new(root).join(binary);
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
+        }
+        Err(SandboxError::Execution(format!(
+            "tool executable not found in fixed path: {binary}"
+        )))
+    }
+
     pub fn resolve_profile() -> Result<PathBuf, SandboxError> {
         if let Some(path) = std::env::var_os("AETHER_SANDBOX_PROFILE") {
             let path = PathBuf::from(path);
@@ -162,6 +208,7 @@ impl ProductionSandbox {
         #[cfg(target_os = "macos")]
         let mut command = {
             let profile = Self::resolve_profile()?;
+            let binary = Self::resolve_macos_executable(binary)?;
             if !Path::new("/usr/bin/sandbox-exec").is_file() {
                 return Err(SandboxError::MissingSandboxExec(
                     "/usr/bin/sandbox-exec required on macOS".into(),

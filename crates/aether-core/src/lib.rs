@@ -1099,7 +1099,14 @@ impl PythonLinter {
         }
 
         let stderr = String::from_utf8_lossy(&output.stderr);
-        Ok(parse_python_syntax_errors(&stderr))
+        let issues = parse_python_syntax_errors(&stderr);
+        if issues.is_empty() {
+            return Err(LintError::Command(format!(
+                "python lint infrastructure failed: {}",
+                stderr.trim()
+            )));
+        }
+        Ok(issues)
     }
 }
 
