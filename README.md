@@ -1,6 +1,6 @@
 # forge
 
-AetherForge MVP — Phase 8.0 honesty/closed-loop wedge at final closure gate.
+AetherForge MVP — **Phase 8.0 closed** (Darwin 22/22 verified). Phase 9 in progress.
 
 ## Harness score (Darwin, canonical)
 
@@ -22,7 +22,7 @@ cargo run -p golden-harness --bin golden-harness
 
 | Platform | Expected score | Hard / soft |
 |----------|----------------|-------------|
-| **Darwin** (Ollama + `sandbox-exec`) | **22/22 target** | Last verified main baseline: 20/20; SB-01 + SESS-01 pending canonical verification |
+| **Darwin** (Ollama + `sandbox-exec`) | **22/22 verified** | Canonical Darwin harness green on `main` @ `432ace9` (run `30565128737`) |
 | **Linux CI** (full matrix) | **15/22** | 15 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01 **FAIL-CLOSED** |
 | **Linux Ollama-independent** | **15/15** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, AUTO-01, CHECK-01, GATE-01 |
 
@@ -49,12 +49,12 @@ product-performance claim.
 | **6 — Graph v1 + eval** | Bi-temporal graph, ingest extract, GRAPH-01/LOOP-02/RED-01/SKILL-02, consolidate offline | **Done** |
 | **7 — Orchestration** | Automation scheduler (AUTO-01), maker-checker (CHECK-01), gateway (GATE-01) | **Done — 18/18 harness** |
 | **8.0 — Honesty + closed loop** | IPC lockdown, NL de-harness, memory (MEM-02), production sandbox (SB-01) | **8.0a–8.0c implemented; docs/canonical SB-01 gate remain** |
-| **9 — Trust & Time** | Planner schema/repair (PLAN-01), JSONL session log (SESS-01) | **Slices 9.1–9.6 implemented; 9.1–9.4 Darwin 19/19 verified; SESS-01 pending Darwin verification** |
+| **9 — Trust & Time** | Planner schema/repair (PLAN-01), JSONL session log (SESS-01) | **Slices 9.1–9.6 implemented; Darwin 22/22 verified** |
 
 See [docs/ROADMAP_PHASES_1-5.md](docs/ROADMAP_PHASES_1-5.md) for Phases 1–5 acceptance criteria.  
 See [docs/ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md) for Phase 6 binding spec.  
 See [docs/ROADMAP_PHASE_7.md](docs/ROADMAP_PHASE_7.md) for Phase 7 orchestration + gateway contract.  
-See [docs/ROADMAP_PHASE_8.0.md](docs/ROADMAP_PHASE_8.0.md) for Phase 8.0 honesty wedge (required before Phase 8 feature surface).  
+See [docs/ROADMAP_PHASE_8.0.md](docs/ROADMAP_PHASE_8.0.md) for the Phase 8.0 honesty wedge (**closed** — Darwin 22/22 verified) and [docs/PHASE_8_0_CLOSURE.md](docs/PHASE_8_0_CLOSURE.md) for the closure evidence.
 See [docs/PHASE_8_0_CLOSURE.md](docs/PHASE_8_0_CLOSURE.md) for code-grounded closure evidence and remaining gates.
 See [docs/ROADMAP_PHASES_9-13.md](docs/ROADMAP_PHASES_9-13.md) for the Phases 9–13 product wedge (planner robustness, session log, undo, table stakes, supply chain, local-first differentiators) plus parallel distribution and interop tracks.
 See [docs/SANDBOX.md](docs/SANDBOX.md) for the production tool boundary, platform behavior, and SB-01 contract.
@@ -198,4 +198,4 @@ Install guide: [docs/INSTALL.md](docs/INSTALL.md)
 ## Architecture target vs product readiness
 
 - **Spec engineering target:** 8.5+ (see v1.2.3 / v1.2.4 docs; Phase 6 memory architecture via [ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md))
-- **Last verified main baseline:** **20/20 on Darwin** — Phase 7 capabilities plus schema-constrained planner repair (PLAN-01), closed daemon semantic-memory recall (MEM-02), and authenticated IPC lockdown. **22/22** is pending post-merge Darwin verification of SB-01 (production sandbox) and SESS-01 (session log).
+- **Last verified main baseline:** **22/22 on Darwin** (run `30565128737`) — Phase 7 capabilities plus schema-constrained planner repair (PLAN-01), closed daemon semantic-memory recall (MEM-02), authenticated IPC lockdown, production tool sandboxing (SB-01), and the JSONL session log (SESS-01).

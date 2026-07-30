@@ -1,9 +1,11 @@
 # AetherForge Roadmap — Phases 9–13 (Product Wedge)
 
-**Baseline:** Phase 8.0a shipped @ `81264b6` — Darwin **18/18 (18 hard / 0 soft)** · IPC lockdown + NL de-harnessing verified
+**Baseline:** Phase 8.0 **closed** — Darwin **22/22 (22 hard / 0 soft)** on `main` @ `432ace9`, run
+[`30565128737`](https://github.com/knarayanareddy/forge/actions/runs/30565128737). See
+[PHASE_8_0_CLOSURE.md](./PHASE_8_0_CLOSURE.md).
 **Canonical platform:** Darwin (macOS 15+ Apple Silicon)
 **Binding spec:** Master roadmap. Each phase gets its own binding `ROADMAP_PHASE_N.md` **when it starts** — this document fixes scope, order, dependencies, and harness contracts.
-**Prerequisite gate:** [Phase 8.0](./ROADMAP_PHASE_8.0.md) slices 8.0b–8.0d must close before Phase 9 implementation.
+**Prerequisite gate:** [Phase 8.0](./ROADMAP_PHASE_8.0.md) slices 8.0b–8.0d — **cleared**. Phase 9 slices 9.7+ may proceed.
 
 ---
 
@@ -374,8 +376,8 @@ Cheap, high-leverage, no feature dependency. Makes Forge composable rather than 
 | Phase 9 slices 9.1–9.4 *(merged)* | 19/19 | + PLAN-01 |
 | Phase 8.0b *(merged)* | 20/20 | + MEM-02 closed daemon memory loop |
 | Phase 8.0c *(merged)* | 21/21 | + SB-01 production tool sandbox |
-| Phase 9 slices 9.5–9.6 implementation | 22/22 target | + SESS-01 session log; also fixed a `GIT_CONFIG_NOSYSTEM` Seatbelt/git regression the first post-merge Darwin run of Phase 8.0c surfaced |
-| Phase 8.0 complete | 22/22 | canonical Darwin verification pending |
+| Phase 9 slices 9.5–9.6 *(merged)* | 22/22 | + SESS-01 session log; also fixed a `GIT_CONFIG_NOSYSTEM` Seatbelt/git regression the first post-merge Darwin run of Phase 8.0c surfaced |
+| **Phase 8.0 complete** | **22/22** | **Canonical Darwin verified** — run `30565128737` on `main` @ `432ace9` |
 | Phase 8.1–8.3 | 23/23 | + INGEST-01 |
 | **Phase 9 complete** | **25/25** | + UNDO-01, LOOP-04 |
 | **Phase 10 complete** | **29/29** | + CKPT-01, SUB-01, HOOK-01, PERM-02 |

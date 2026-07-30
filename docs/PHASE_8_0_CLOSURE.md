@@ -1,6 +1,8 @@
 # Phase 8.0 Closure Evidence
 
-**Status:** Implementation complete; closure pending post-merge Darwin **22/22** verification.
+**Status:** **CLOSED.** Post-merge Darwin full harness reports **22/22 (22 hard / 0 soft)** on
+`main` @ `432ace9` (Actions run
+[`30565128737`](https://github.com/knarayanareddy/forge/actions/runs/30565128737)).
 
 This is an evidence log, not a substitute for the binding checklist in
 [ROADMAP_PHASE_8.0.md](./ROADMAP_PHASE_8.0.md).
@@ -44,13 +46,21 @@ The database contained exactly `read` and `write` grants plus an approved
   see "Second Darwin finding" below. This is recorded here rather than only in a private log,
   consistent with this project's anti-theater discipline: a merged PR is not "closed" until its
   own canonical-platform gate has actually run green.
-- Fix applied on this branch (`cursor/phase9-session-log-1259`); re-verified locally: Linux live
-  harness with Ollama + MCP **19/22** (FS-02, SB-01, and OS-gated LOOP-02 fail closed, as
+- Fix applied on `cursor/phase9-session-log-1259` (PR #8); re-verified locally before merge: Linux
+  live harness with Ollama + MCP **19/22** (FS-02, SB-01, and OS-gated LOOP-02 fail closed, as
   expected — SESS-01 and all previously-green tasks pass).
 - Workspace unit tests: green (35 daemon tests, up from 29, after the SESS-01/session-log
   additions).
 - `aether-sandbox` cross-check for `aarch64-apple-darwin`: green.
 - MCP allowlist scan: green.
+- PR #8 merged to `main` @ `432ace9`. **Post-merge Darwin full harness: 22/22 (22 hard / 0
+  soft)** — `GIT-01` and `SB-01`'s embedded `git_init` step both pass; no ROUT-01 flake on this
+  run. This is the first canonical-platform confirmation that Phase 8.0 (through SB-01) plus
+  Phase 9 slice 9.5-9.6 (SESS-01) are simultaneously green on Darwin.
+- For context: the two nightly runs that executed while PR #8 was still open (`30436009622`,
+  `30526216491`) both failed on the same pre-fix `main` commit (`49bfe86`) with the identical
+  `/etc/gitconfig` EPERM error, independently corroborating the diagnosis before the fix was even
+  merged.
 
 ## First Darwin finding and remediation (SB-01 xcrun/profile issues)
 
@@ -85,14 +95,15 @@ repository state, once the sandbox was actually reached.
 git to skip the system config file entirely rather than loosening the `/etc` deny for every
 sandboxed tool. A unit test asserts the variable is present in every sandboxed child's environment.
 
-## Remaining closure gates
+## Closure gates — all satisfied
 
 - [x] Explicit workspace grant fix merged to `main` (PR #7).
 - [x] Darwin sandbox xcrun/profile-discovery fixes merged and Darwin-fast verified.
-- [ ] Git `/etc/gitconfig` EPERM fix merged to `main`.
-- [ ] Post-merge Darwin full harness reports **22/22 hard** (21 Phase-8.0 tasks + SESS-01).
+- [x] Git `/etc/gitconfig` EPERM fix merged to `main` (PR #8).
+- [x] Post-merge Darwin full harness reports **22/22 hard** (21 Phase-8.0 tasks + SESS-01) —
+      run [`30565128737`](https://github.com/knarayanareddy/forge/actions/runs/30565128737).
 
-Phase 8.1+ may begin only after every box above is checked.
+Phase 8.1+ (and Phase 9 slices 9.7+) may now proceed.
 
 ## Known residuals (not hidden)
 
