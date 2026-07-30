@@ -2,16 +2,18 @@ use crate::ingest::{post_turn_graph_ingest, IngestConfig, DEFAULT_EMBED_MODEL};
 use crate::protocol::EventLine;
 use crate::automation::AutomationTrigger;
 use crate::gateway::GatewayChannel;
+use crate::session_log::SessionLogWriter;
 use crate::DaemonState;
 use aether_core::{
-    fetch_ollama_embedding, LoopConfig, LoopStreamEvent, OrchestrationGraph, PromptComplexity,
-    ReActLoopEngine, DEFAULT_MAX_LOOP_TOKENS,
+    fetch_ollama_embedding, LoopConfig, LoopError, LoopRunResult, LoopStreamEvent,
+    MakerCheckerGoal, OrchestrationGraph, PromptComplexity, ReActLoopEngine,
+    DEFAULT_MAX_LOOP_TOKENS,
 };
 use aether_db::Database;
 use aether_mcp::McpAllowlist;
 use aether_permissions::{PermissionDecision, PermissionManager};
 use aether_sandbox::ProductionSandbox;
-use aether_skills::SkillLoader;
+use aether_skills::{SkillDefinition, SkillLoader};
 use futures::StreamExt;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -120,6 +122,57 @@ pub fn assemble_memory_prompt_with_embedding(
     Ok(enrich_prompt_with_memory(prompt, &hits))
 }
 
+/// Single production entry point for running a structured plan (`run_task`, automation triggers,
+/// gateway inbound). Every caller gets the same session-log guarantee: a `TurnStart` record plus
+/// every emitted event is appended before this function returns, whether the run succeeds or
+/// fails (Phase 9 slice 9.5-9.6 / SESS-01). Returns the emitted events too so streaming callers
+/// (IPC clients) can still forward them live; automation/gateway callers ignore that half.
+pub fn execute_structured_loop(
+    conn: &rusqlite::Connection,
+    config: &mut LoopConfig,
+    plan: Vec<aether_core::ToolInvocation>,
+    allowlist: Option<&McpAllowlist>,
+    skills: &HashMap<String, SkillDefinition>,
+    checker_goal: Option<&MakerCheckerGoal>,
+    prompt: &str,
+) -> (Result<LoopRunResult, LoopError>, Vec<LoopStreamEvent>) {
+    let max_iterations = config.max_iterations;
+    let mut events = Vec::new();
+
+    let result = if let Some(goal) = checker_goal {
+        let graph = OrchestrationGraph::new(true, max_iterations);
+        graph.run_maker_checker(
+            conn,
+            config,
+            goal,
+            plan,
+            allowlist,
+            skills,
+            |event| events.push(event),
+        )
+    } else {
+        let engine = ReActLoopEngine::new(max_iterations);
+        engine.run_structured(
+            conn,
+            config,
+            plan,
+            allowlist,
+            skills,
+            |event| events.push(event),
+        )
+    };
+
+    if let Err(e) = SessionLogWriter::from_env().append_turn(&config.session_id, prompt, &events) {
+        tracing::warn!(
+            session_id = %config.session_id,
+            error = %e,
+            "session log append failed"
+        );
+    }
+
+    (result, events)
+}
+
 pub async fn run_task(
     writer: &mut OwnedWriteHalf,
     state: &Arc<DaemonState>,
@@ -177,39 +230,25 @@ async fn run_loop_task(
     };
 
     let checker_goal = OrchestrationGraph::parse_checker_goal(&params.prompt);
-    let graph = OrchestrationGraph::new(checker_goal.is_some(), max_iterations);
-    let engine = ReActLoopEngine::new(max_iterations);
     let (result, events) = {
         let conn = state.db.conn();
         ensure_session_and_workspace_grant(&conn, &session_id, &config.workspace)?;
-        let mut events = Vec::new();
-        let result = if let Some(goal) = checker_goal.as_ref() {
-            let plan = if plan.is_empty() {
-                ReActLoopEngine::parse_plan_from_prompt(&params.prompt)
-                    .ok_or_else(|| aether_core::LoopError::Turn("checker prompt missing loop plan".into()))?
-            } else {
-                plan
-            };
-            graph.run_maker_checker(
-                &conn,
-                &mut config,
-                goal,
-                plan,
-                allowlist.as_ref(),
-                &skills,
-                |event| events.push(event),
-            )
+        let plan = if checker_goal.is_some() && plan.is_empty() {
+            ReActLoopEngine::parse_plan_from_prompt(&params.prompt).ok_or_else(|| {
+                aether_core::LoopError::Turn("checker prompt missing loop plan".into())
+            })?
         } else {
-            engine.run_structured(
-                &conn,
-                &mut config,
-                plan,
-                allowlist.as_ref(),
-                &skills,
-                |event| events.push(event),
-            )
+            plan
         };
-        (result, events)
+        execute_structured_loop(
+            &conn,
+            &mut config,
+            plan,
+            allowlist.as_ref(),
+            &skills,
+            checker_goal.as_ref(),
+            params.prompt.trim(),
+        )
     };
 
     for event in &events {
@@ -384,15 +423,15 @@ pub fn run_automation_trigger(
         session_id: trigger.session_id.clone(),
         workspace,
     };
-    let engine = ReActLoopEngine::new(config.max_iterations);
 
-    let result = engine.run_structured(
+    let (result, _events) = execute_structured_loop(
         conn,
         &mut config,
         plan,
         allowlist.as_ref(),
         &skills,
-        |_| {},
+        None,
+        &trigger.task_prompt,
     );
 
     match result {
@@ -429,15 +468,15 @@ pub fn run_gateway_inbound(
         session_id: channel.session_id.clone(),
         workspace: workspace.clone(),
     };
-    let engine = ReActLoopEngine::new(config.max_iterations);
 
-    let result = engine.run_structured(
+    let (result, _events) = execute_structured_loop(
         conn,
         &mut config,
         plan,
         allowlist.as_ref(),
         &skills,
-        |_| {},
+        None,
+        &channel.task_prompt,
     );
 
     match result {

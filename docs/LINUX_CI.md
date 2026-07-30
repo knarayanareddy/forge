@@ -4,7 +4,7 @@ AetherForge treats **Darwin (macOS 15+)** as the canonical platform. Linux CI va
 
 **Related:** [ROADMAP_PHASE_6.md](./ROADMAP_PHASE_6.md) · [ROADMAP_PHASE_7.md](./ROADMAP_PHASE_7.md) · [GRAPH_V1.md](./GRAPH_V1.md) · [PHASE_6_SLICE_CHECKLIST.md](./PHASE_6_SLICE_CHECKLIST.md)
 
-## Harness matrix (21 tasks)
+## Harness matrix (22 tasks)
 
 | Task | Tier | Linux CI | Reason |
 |------|------|----------|--------|
@@ -26,6 +26,7 @@ AetherForge treats **Darwin (macOS 15+)** as the canonical platform. Linux CI va
 | LOOP-01 | hard | PASS | ReAct loop in production crate |
 | LOOP-02 | hard | **FAIL-CLOSED** | Requires Ollama NL planner (`nl_planner`) |
 | **PLAN-01** | hard | **FAIL-CLOSED** by default | Requires Ollama; passes on Linux when a chat model is available |
+| **SESS-01** | hard | PASS | Deterministic JSONL session log via `execute_structured_loop`; no Ollama dependency |
 | **AUTO-01** | hard | PASS | Local mock trigger; no Ollama |
 | **CHECK-01** | hard | PASS | Rule-based verifier node; no Ollama (FAIL-CLOSED if NL verifier enabled without Ollama) |
 | **GATE-01** | hard | PASS | Localhost mock Slack server; no real network |
@@ -36,13 +37,13 @@ AetherForge treats **Darwin (macOS 15+)** as the canonical platform. Linux CI va
 
 | Environment | Expected harness | Hard / soft | Notes |
 |-------------|------------------|-------------|-------|
-| Darwin + Ollama + sandbox-exec | **21/21 target** | **21 hard / 0 soft** | Last verified main baseline: 20/20; SB-01 canonical verification pending |
-| Linux (default CI) | **14/21** | 14 hard / 0 soft† | FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01 fail-closed |
-| Linux + Ollama + MCP | **18/21** | 18 hard / 0 soft† | Verified on the SB-01 branch; FS-02, SB-01, and OS-gated LOOP-02 fail closed |
+| Darwin + Ollama + sandbox-exec | **22/22 target** | **22 hard / 0 soft** | Last verified main baseline: 20/20; SB-01 + SESS-01 canonical verification pending |
+| Linux (default CI) | **15/22** | 15 hard / 0 soft† | FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01 fail-closed |
+| Linux + Ollama + MCP | **19/22** | 19 hard / 0 soft† | Verified on the SESS-01 branch; FS-02, SB-01, and OS-gated LOOP-02 fail closed |
 
-† Fail-closed tasks print `FAIL-CLOSED` and do not inflate the pass count — the harness reports **Passed: 14 / 21** on default Linux CI, not 21/21.
+† Fail-closed tasks print `FAIL-CLOSED` and do not inflate the pass count — the harness reports **Passed: 15 / 22** on default Linux CI, not 22/22.
 
-**Do not claim 21/21 on Linux.** Seven tasks require unavailable/default-disabled prerequisites; they must show explicit `FAIL-CLOSED`, never silent skip.
+**Do not claim 22/22 on Linux.** Seven tasks require unavailable/default-disabled prerequisites; they must show explicit `FAIL-CLOSED`, never silent skip.
 
 ## CI workflow tiers
 
@@ -50,17 +51,17 @@ GitHub Actions (`.github/workflows/ci.yml`):
 
 | Trigger | Linux job | Darwin job |
 |---------|-----------|------------|
-| **Pull request** | Full harness · gate ≥ 14/21 | **Build + unit tests + Swift only** — no golden harness |
-| **Push to `main`** | Full harness · gate ≥ 14/21 | Full harness · gate **21/21 (21 hard)** |
-| **Nightly schedule / manual** | Full harness · gate ≥ 14/21 | Full harness · gate **21/21 (21 hard)** |
+| **Pull request** | Full harness · gate ≥ 15/22 | **Build + unit tests + Swift only** — no golden harness |
+| **Push to `main`** | Full harness · gate ≥ 15/22 | Full harness · gate **22/22 (22 hard)** |
+| **Nightly schedule / manual** | Full harness · gate ≥ 15/22 | Full harness · gate **22/22 (22 hard)** |
 
 ### PR fast path (Linux Ollama-independent tasks)
 
-PRs validate the Ollama-independent core without blocking on cold-model flake. These **14 tasks** are expected PASS on every Linux run (including PRs):
+PRs validate the Ollama-independent core without blocking on cold-model flake. These **15 tasks** are expected PASS on every Linux run (including PRs):
 
-FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, AUTO-01, CHECK-01, GATE-01.
+FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, AUTO-01, CHECK-01, GATE-01.
 
-Linux PR jobs still run the **full 21-task harness** (14 pass + 7 fail-closed) and gate on ≥ 14/21. **Darwin PR jobs do not run the golden harness** — they run `cargo build`, `cargo test`, MCP allowlist scan, and Swift build only. Merge to `main` or nightly runs enforce **21/21 on Darwin**.
+Linux PR jobs still run the **full 22-task harness** (15 pass + 7 fail-closed) and gate on ≥ 15/22. **Darwin PR jobs do not run the golden harness** — they run `cargo build`, `cargo test`, MCP allowlist scan, and Swift build only. Merge to `main` or nightly runs enforce **22/22 on Darwin**.
 
 Steps on every job:
 
@@ -70,6 +71,13 @@ Steps on every job:
 4. `cargo run -p golden-harness` (Linux full matrix; Darwin harness only on push/nightly)
 
 Linux jobs **must not** skip fail-closed tasks silently — harness prints `FAIL-CLOSED` for FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, and PLAN-01 when prerequisites are absent.
+
+## Session logs on Linux
+
+`execute_structured_loop` always appends to a JSONL session log under `AETHER_SESSION_LOG_DIR`
+(default `~/.aether/sessions`). SESS-01 overrides this env var for the duration of its own test
+only and restores the previous value afterward — it does not touch the real daemon log directory
+in CI.
 
 ## ROUT-01 threshold honesty
 
@@ -93,9 +101,9 @@ Setting `AETHER_BYOK_PROVIDER` on non-macOS causes daemon startup to **fail clos
 ## Local reproduction
 
 ```bash
-# Full Darwin gate (SB-01 target — 21/21)
+# Full Darwin gate (SESS-01 target — 22/22)
 cargo run -p golden-harness
-# → Darwin scoreboard: 21/21 harness (21 hard / 0 soft)
+# → Darwin scoreboard: 22/22 harness (22 hard / 0 soft)
 
 # Simulate Linux fail-closed (unset Ollama, non-Darwin only)
 # On macOS, FS-02 still passes if sandbox-exec exists.

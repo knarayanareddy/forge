@@ -25,8 +25,10 @@ Phase 8 closes the **distribution**, **memory depth**, and **local inference** g
    Leiden/community summaries are no longer the default local-inference design.
 3. **Direct MLX is optional** — model registry and HF download remain useful; Ollama's MLX-backed
    Apple Silicon runtime is the default integration.
-4. **Current harness sequencing** — Phase 8.0 closes at 21 tasks; future tasks are added only per
-   the master roadmap's ≤5-per-phase discipline.
+4. **Current harness sequencing** — Phase 8.0 closes with a 21-task regression lock (through
+   SB-01); Phase 9 slice 9.5-9.6 (SESS-01) is the 22nd task. Future tasks are added only per the
+   master roadmap's ≤5-per-phase discipline — see [ROADMAP_PHASES_9-13.md](./ROADMAP_PHASES_9-13.md)
+   for the current count.
 5. **Explicit deferrals** — Lightpanda/browser MCP (preconditions documented), fleet orchestration at scale, LLM-as-judge without calibration, OmniRoute, graph viz UI, shadow/A/B prod.
 
 ---

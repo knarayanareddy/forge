@@ -4,6 +4,7 @@ pub mod gateway;
 pub mod ingest;
 pub mod protocol;
 pub mod server;
+pub mod session_log;
 pub mod task_runner;
 
 use aether_core::ModelRouter;

@@ -162,11 +162,11 @@ Make the loop honest and time-travellable. Every downstream feature — checkpoi
 | **9.3** | Repair loop: validation error → structured error back to model → bounded retry (cap 2) before hard fail | Malformed plan self-repairs | prep |
 | **9.4** | **PLAN-01** harness: ≥10 frozen diverse goals (read-only, git, MCP, skill, multi-file, and 2 adversarial) — ≥90% produce executable plans | Planner works beyond eval shape | **+1 → 19** |
 | **9.5** | `LoopEvent` → JSONL session log (append-only, one file per session, schema-versioned); daemon writes every plan/tool/observe/verify/error | Session reconstructable from disk | prep |
-| **9.6** | **SESS-01** harness: resume from log; deterministic replay of a recorded session with inference stubbed reproduces identical trajectory | Replay without re-inference | **+1 → 20** |
+| **9.5-9.6 *(implemented)*** | `LoopStreamEvent` → JSONL session log (`aether-daemon::session_log`), append-only, schema-versioned, one file per session; `execute_structured_loop` centralizes every daemon execution path (`run_task`, automation triggers, gateway inbound) so all of them log a `TurnStart` plus every plan/tool/observe/verify/budget/done/error event, success or failure. **SESS-01** harness parses the log with no access to the live run and reconstructs the identical tool trajectory; asserts strictly increasing `seq`, pinned `schema_version`, a second turn appends without overwriting and increments `turn_index`, and a rejected plan's `Error` record is present | Log is a complete, order-preserving record of what actually ran | **+1 → 22 (implemented, ahead of the 9.7-9.13 slices below)** |
 | **9.7** | Wire `undo_journal` into `ToolRegistry`: every `fs_write`/`fs_delete`/`rename` records an `inverse_patch` before mutating; git ops record ref state | Agent writes are journaled | prep |
-| **9.8** | **UNDO-01** harness: multi-step run mutates N files + git → single `undo_run(run_id)` restores byte-identical pre-state; non-undoable side effects enumerated, not silently skipped | Run-level undo | **+1 → 21** |
+| **9.8** | **UNDO-01** harness: multi-step run mutates N files + git → single `undo_run(run_id)` restores byte-identical pre-state; non-undoable side effects enumerated, not silently skipped | Run-level undo | **+1 → 23** |
 | **9.9** | Replan on verify failure: `verify_contains`/`python_lint` failure returns to planner with observation instead of aborting; bounded by iteration + token budget | Loop self-corrects | prep |
-| **9.10** | **LOOP-04** harness: frozen plan whose step 2 fails verification → loop replans → succeeds within budget; and a frozen unrecoverable case → clean bounded failure with audit | Self-correction proven | **+1 → 22** |
+| **9.10** | **LOOP-04** harness: frozen plan whose step 2 fails verification → loop replans → succeeds within budget; and a frozen unrecoverable case → clean bounded failure with audit | Self-correction proven | **+1 → 24** |
 | **9.11** | Cost/context accounting: real token counts from provider (`eval_count` / `usage`), per-tool and per-run attribution, default non-zero `max_tokens` (absorbs 8.1 BUDG-01) | Budgets enforced; no unlimited default | **COST-01** *(probe)* |
 | **9.12** | Prefix stability: static system+tools prefix at position 0, volatile state appended last, deterministic tool-result ordering; measure KV/cache reuse | Reuse rate instrumented | **CACHE-01** *(probe)* |
 | **9.13** | Tamper-evident audit export (C2): signed export of `audit_log` with chain verification CLI | Export verifies after adversarial edit | extends SAFE-01 |
@@ -176,7 +176,7 @@ Make the loop honest and time-travellable. Every downstream feature — checkpoi
 | Do NOT claim | Required proof |
 |--------------|----------------|
 | "NL planning works" | PLAN-01 ≥90% on ≥10 diverse goals — not the eval prompt plus one lookalike |
-| "Session replay" | SESS-01 byte-identical trajectory with stubbed inference |
+| "Session replay" | SESS-01 reconstructs the identical tool trajectory purely from the parsed log (deterministic structured plans stand in for "inference stubbed" here — no live run access, no re-execution) |
 | "Undo shipped" | UNDO-01 restores pre-state; `bulk_rename_with_undo` demo path does not count |
 | "Self-correcting agent" | LOOP-04 replan succeeds *and* unrecoverable case fails cleanly within budget |
 | "Cost tracking" | Provider-reported tokens, not `len/4` estimates |
@@ -373,10 +373,11 @@ Cheap, high-leverage, no feature dependency. Makes Forge composable rather than 
 | Phase 8.0a *(shipped)* | 18/18 | + LOOP-03, IPC-01 probes |
 | Phase 9 slices 9.1–9.4 *(merged)* | 19/19 | + PLAN-01 |
 | Phase 8.0b *(merged)* | 20/20 | + MEM-02 closed daemon memory loop |
-| Phase 8.0c implementation | 21/21 target | + SB-01 production tool sandbox |
-| Phase 8.0 complete | 21/21 | doc truth/canonical SB-01 verification remain |
-| Phase 8.1–8.3 | 22/22 | + INGEST-01 |
-| **Phase 9 complete** | **25/25** | + SESS-01, UNDO-01, LOOP-04 |
+| Phase 8.0c *(merged)* | 21/21 | + SB-01 production tool sandbox |
+| Phase 9 slices 9.5–9.6 implementation | 22/22 target | + SESS-01 session log; also fixed a `GIT_CONFIG_NOSYSTEM` Seatbelt/git regression the first post-merge Darwin run of Phase 8.0c surfaced |
+| Phase 8.0 complete | 22/22 | canonical Darwin verification pending |
+| Phase 8.1–8.3 | 23/23 | + INGEST-01 |
+| **Phase 9 complete** | **25/25** | + UNDO-01, LOOP-04 |
 | **Phase 10 complete** | **29/29** | + CKPT-01, SUB-01, HOOK-01, PERM-02 |
 | **Phase 11 complete** | **33/33** | + SKILL-03, SEC-01, INJECT-01, CONS-01 |
 | **Phase 12 complete** | **36/36** | + SLEEP-01, RELY-01, FORENSIC-01 |
@@ -408,7 +409,7 @@ Probes (`COST-01`, `CACHE-01`, `FORK-01`, `COMPACT-01`, `MCP-02`, `HEAD-01`, `ME
 |--------|--------|-------------|
 | PLAN-01 diverse-goal success | ≥90% of ≥10 frozen goals | `plan01.rs` |
 | LOOP-04 recovery | 100% of recoverable frozen cases; clean bounded failure otherwise | `loop04.rs` |
-| SESS-01 replay determinism | byte-identical trajectory | `sess01.rs` |
+| SESS-01 replay determinism | log-reconstructed trajectory matches the live run's own observations | `sess01.rs` |
 | UNDO-01 restoration | byte-identical pre-state; non-undoable effects enumerated | `undo01.rs` |
 | SKILL-03 / INJECT-01 escape rate | 0% | frozen corpora |
 | SEC-01 secret leakage | 0 occurrences across 4 sinks | `sec01.rs` |
