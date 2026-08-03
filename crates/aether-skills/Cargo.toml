@@ -7,5 +7,9 @@ edition = "2021"
 rusqlite = { version = "0.31", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "2.0"
+sha2 = "0.10"
 aether-permissions = { path = "../aether-permissions" }
 aether-sandbox = { path = "../aether-sandbox" }
+
+[dev-dependencies]
+serde_json = "1.0"

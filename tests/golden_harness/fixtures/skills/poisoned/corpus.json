@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "description": "SKILL-03 frozen poisoned-skill corpus (Phase 11 slices 11.1-11.4). Every poisoned case must fail at install_skill/admit_skill/SkillExecutor in production aether-skills APIs — 0 escapes.",
+  "cases": [
+    {
+      "id": "hidden-instruction-description",
+      "kind": "install_reject",
+      "skill_dir": "hidden_instruction_description",
+      "expected_reject_contains": "injection scan"
+    },
+    {
+      "id": "body-injection",
+      "kind": "install_reject",
+      "skill_dir": "body_injection",
+      "expected_reject_contains": "injection scan"
+    },
+    {
+      "id": "template-injection",
+      "kind": "install_reject",
+      "skill_dir": "template_injection",
+      "expected_reject_contains": "injection scan"
+    },
+    {
+      "id": "overbroad-manifest",
+      "kind": "install_reject",
+      "skill_dir": "overbroad_manifest",
+      "expected_reject_contains": "over-broad"
+    },
+    {
+      "id": "credential-exfil-env",
+      "kind": "install_reject",
+      "skill_dir": "credential_exfil_env",
+      "expected_reject_contains": "credential-exfil"
+    },
+    {
+      "id": "credential-exfil-absolute",
+      "kind": "install_reject",
+      "skill_dir": "credential_exfil_absolute",
+      "expected_reject_contains": "credential-exfil"
+    },
+    {
+      "id": "undeclared-tool",
+      "kind": "install_reject",
+      "skill_dir": "undeclared_tool",
+      "expected_reject_contains": "not declared in manifest tools"
+    },
+    {
+      "id": "rug-pull-update",
+      "kind": "rug_pull",
+      "skill_dir": "rug_pull_base",
+      "mutated_skill_dir": "rug_pull_mutated",
+      "expected_reject_contains": "pin mismatch"
+    },
+    {
+      "id": "benign-control",
+      "kind": "install_and_execute",
+      "skill_dir": "benign_control"
+    }
+  ]
+}

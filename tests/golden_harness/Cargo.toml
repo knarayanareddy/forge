@@ -24,3 +24,7 @@ aether-permissions = { path = "../../crates/aether-permissions" }
 aether-core = { path = "../../crates/aether-core" }
 aether-skills = { path = "../../crates/aether-skills" }
 aether-daemon = { path = "../../crates/aether-daemon" }
+
+[[test]]
+name = "skill03_harness"
+path = "tests/skill03_harness.rs"
