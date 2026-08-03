@@ -3,11 +3,13 @@
 **Baseline:** Phase 8.0 **closed** — Darwin **22/22 (22 hard / 0 soft)** on `main` @ `432ace9`, run
 [`30565128737`](https://github.com/knarayanareddy/forge/actions/runs/30565128737). See
 [PHASE_8_0_CLOSURE.md](./PHASE_8_0_CLOSURE.md). Phase 9 slices 9.7-9.8 (**UNDO-01**) and 9.9-9.10
-(**LOOP-04**) have since merged, bringing the harness to 24 tasks — Linux-verified, next Darwin
-canonical run pending. A small non-numbered gap flagged during the post-8.0 audit — `retrieve_session_memory`
-was wired into `run_stream_task` (8.0b) but not the structured `nl:`-prefixed loop path — is also
-closed: `run_nl_loop_task_with_replan` now recalls session memory before planning, fail-open on
-retrieval failure, the same way `run_stream_task` already did.
+(**LOOP-04**) have since merged, and Phase 10's **CKPT-01** (checkpoint + rewind) has been
+implemented ahead of the rest of Phase 10, bringing the harness to 25 tasks — all Linux-verified,
+next Darwin canonical run pending. A small non-numbered gap flagged during the post-8.0 audit —
+`retrieve_session_memory` was wired into `run_stream_task` (8.0b) but not the structured
+`nl:`-prefixed loop path — is also closed: `run_nl_loop_task_with_replan` now recalls session
+memory before planning, fail-open on retrieval failure, the same way `run_stream_task` already
+did.
 **Canonical platform:** Darwin (macOS 15+ Apple Silicon)
 **Binding spec:** Master roadmap. Each phase gets its own binding `ROADMAP_PHASE_N.md` **when it starts** — this document fixes scope, order, dependencies, and harness contracts.
 **Prerequisite gate:** [Phase 8.0](./ROADMAP_PHASE_8.0.md) slices 8.0b–8.0d — **cleared**. Phase 9 slices 9.11+ may proceed.
@@ -198,7 +200,7 @@ Reach table stakes. Nothing here is novel; all of it is disqualifying by absence
 
 | Slice | Scope | Harness |
 |-------|-------|---------|
-| **10.1** | File snapshot store + **CKPT-01**: checkpoint before every mutating step; rewind restores files and truncates session log; symlink/hardlink limits documented, not hidden | **+1 → 23** |
+| **10.1 *(implemented, narrower scope)*** | `checkpoints` table (new, no migration) captures a session's undo-journal watermark (`aether_permissions::current_undo_watermark`) plus its session-log turn count. `create_checkpoint`/`rewind_to_checkpoint` (`aether-daemon::checkpoint`), exposed as daemon IPC methods, undo every journal entry recorded since the watermark (`undo_since`, a generalization of UNDO-01's `undo_pending_writes`) *and* truncate the session log back to the checkpoint's turn count in the same call — restoring files and the transcript together, as required. **Narrower than planned:** this is an explicit, caller-invoked checkpoint/rewind pair, not an automatic checkpoint taken before every single mutating tool call — `undo_journal` already gives that per-write granularity; a checkpoint is the coarser, named, rewindable-later point on top of it. Symlink/hardlink limits are whatever `ProductionSandbox`/`undo_journal` already impose (documented in `docs/SANDBOX.md`), not a new mechanism. **CKPT-01** harness: checkpoint after turn 1, two more turns, rewind removes exactly the post-checkpoint files and truncates the log to 1 turn; a turn after rewind resumes numbering at 2 (proof truncation is real on disk); a second rewind to the same checkpoint is safe and also discards work added after the first rewind; rewinding an unknown checkpoint id fails closed | **+1 → 25 (implemented; Linux-verified, Darwin canonical run pending)** |
 | **10.2** | Session resume / fork / ephemeral side-branch over the JSONL log | **FORK-01** *(probe)* |
 | **10.3** | Subagent runtime: own context window, own budget, returns distilled summary (target ≤2k tokens) to parent | prep |
 | **10.4** | **SUB-01**: read-heavy task delegated to subagent; parent context stays below threshold; result sufficient to complete task | **+1 → 24** |
@@ -218,7 +220,7 @@ Reach table stakes. Nothing here is novel; all of it is disqualifying by absence
 
 | Do NOT claim | Required proof |
 |--------------|----------------|
-| "Checkpoints" | CKPT-01 restores files *and* truncates session log consistently |
+| "Checkpoints" | CKPT-01 restores files *and* truncates session log consistently — **shipped**, but only as an explicit checkpoint/rewind call, not automatic-before-every-step |
 | "Subagents" | SUB-01 measured parent-context saving, not a second loop call |
 | "Hooks" | HOOK-01 blocks; log-only advisory does not count |
 | "Permission UX solved" | PERM-02 batching with zero pre-approval side effects |
@@ -383,9 +385,10 @@ Cheap, high-leverage, no feature dependency. Makes Forge composable rather than 
 | **Phase 8.0 complete** | **22/22** | **Canonical Darwin verified** — run `30565128737` on `main` @ `432ace9` |
 | Phase 9 slices 9.7–9.8 *(merged)* | 23/23 | + UNDO-01 (session-scoped `undo_pending_writes`; git_init enumerated non-undoable); Linux-verified, Darwin canonical run pending |
 | Phase 9 slices 9.9–9.10 *(merged)* | 24/24 | + LOOP-04 (bounded replan on verify failure via `run_structured_with_replan`); Linux-verified, Darwin canonical run pending |
-| Phase 8.1–8.3 | 25/25 | + INGEST-01 |
-| **Phase 9 complete** | **25/25** | + INGEST-01 (UNDO-01, LOOP-04 already merged above) |
-| **Phase 10 complete** | **29/29** | + CKPT-01, SUB-01, HOOK-01, PERM-02 |
+| Phase 10 slice 10.1 *(merged, out of order)* | 25/25 | + CKPT-01 (`create_checkpoint`/`rewind_to_checkpoint`, explicit not automatic-per-step); Linux-verified, Darwin canonical run pending. Landed ahead of the rest of Phase 10. Note: Phase 11's CONS-01 may also land out of order on a separate branch around the same time — reconcile the running total with whichever merges first |
+| Phase 8.1–8.3 | 26/26 | + INGEST-01 |
+| **Phase 9 complete** | **26/26** | + INGEST-01 (UNDO-01, LOOP-04 already merged above) |
+| **Phase 10 complete** | **29/29** | + FORK-01, SUB-01, HOOK-01, PERM-02 (CKPT-01 already merged above) |
 | **Phase 11 complete** | **33/33** | + SKILL-03, SEC-01, INJECT-01, CONS-01 |
 | **Phase 12 complete** | **36/36** | + SLEEP-01, RELY-01, FORENSIC-01 |
 | **Phase 13 complete** | **37/37** | + APPLE-01 |
