@@ -117,6 +117,43 @@ async fn handle_client(
                     .await?;
                 }
             },
+            "create_checkpoint" => match handle_create_checkpoint(&state, &request) {
+                Ok(checkpoint_id) => {
+                    write_event(&mut writer, EventLine::checkpoint_created(checkpoint_id)).await?;
+                }
+                Err(e) => {
+                    write_event(
+                        &mut writer,
+                        EventLine::error(format!("create_checkpoint failed: {}", e)),
+                    )
+                    .await?;
+                }
+            },
+            "rewind_checkpoint" => match handle_rewind_checkpoint(&state, &request) {
+                Ok(report) => {
+                    let not_undone = report
+                        .not_undone
+                        .into_iter()
+                        .map(|n| format!("{}: {}", n.target_path, n.reason))
+                        .collect();
+                    write_event(
+                        &mut writer,
+                        EventLine::rewind_complete(
+                            report.reverted_paths,
+                            not_undone,
+                            report.turns_truncated,
+                        ),
+                    )
+                    .await?;
+                }
+                Err(e) => {
+                    write_event(
+                        &mut writer,
+                        EventLine::error(format!("rewind_checkpoint failed: {}", e)),
+                    )
+                    .await?;
+                }
+            },
             "undo_writes" => match handle_undo_writes(&state, &request) {
                 Ok(report) => {
                     let not_undone = report
@@ -251,6 +288,26 @@ fn handle_grant_workspace(
     )
     .map_err(|e| e.to_string())?;
     Ok(workspace)
+}
+
+fn handle_create_checkpoint(state: &Arc<DaemonState>, request: &RequestLine) -> Result<i64, String> {
+    let session_id = request
+        .params
+        .session_id
+        .as_deref()
+        .filter(|id| !id.trim().is_empty())
+        .ok_or("missing session_id")?;
+    let conn = state.db.conn();
+    crate::checkpoint::create_checkpoint(&conn, session_id).map(|c| c.id)
+}
+
+fn handle_rewind_checkpoint(
+    state: &Arc<DaemonState>,
+    request: &RequestLine,
+) -> Result<crate::checkpoint::RewindReport, String> {
+    let checkpoint_id = request.params.checkpoint_id.ok_or("missing checkpoint_id")?;
+    let conn = state.db.conn();
+    crate::checkpoint::rewind_to_checkpoint(&conn, checkpoint_id)
 }
 
 fn handle_undo_writes(

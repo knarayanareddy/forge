@@ -117,16 +117,41 @@ pub fn journal_git_init(
 /// Unwind every still-`applied` journal entry for `session_id`, most recent first. Writes are
 /// restored to their pre-write content or removed if the agent created them; git markers are
 /// reported as `not_undone` rather than reverted or skipped.
+///
+/// Equivalent to [`undo_since`] with a watermark of `0` — every journal entry ever recorded for
+/// this session is fair game.
 pub fn undo_pending_writes(conn: &Connection, session_id: &str) -> Result<UndoReport, String> {
+    undo_since(conn, session_id, 0)
+}
+
+/// The highest `undo_journal.id` recorded for `session_id` so far (`0` if none yet). A checkpoint
+/// that records this value can later be rewound with [`undo_since`], which undoes only entries
+/// recorded strictly after it — the entries a checkpoint at that watermark did not yet know about
+/// (Phase 10 slice 10.1 / CKPT-01).
+pub fn current_undo_watermark(conn: &Connection, session_id: &str) -> Result<i64, String> {
+    let watermark: Option<i64> = conn
+        .query_row(
+            "SELECT MAX(id) FROM undo_journal WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(watermark.unwrap_or(0))
+}
+
+/// Unwind every still-`applied` journal entry for `session_id` with `id > since_id`, most recent
+/// first. Writes are restored to their pre-write content or removed if the agent created them;
+/// git markers are reported as `not_undone` rather than reverted or skipped.
+pub fn undo_since(conn: &Connection, session_id: &str, since_id: i64) -> Result<UndoReport, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id, target_path, inverse_patch FROM undo_journal
-             WHERE session_id = ?1 AND status = 'applied'
+             WHERE session_id = ?1 AND status = 'applied' AND id > ?2
              ORDER BY id DESC",
         )
         .map_err(|e| e.to_string())?;
     let rows: Vec<(i64, String, String)> = stmt
-        .query_map(params![session_id], |row| {
+        .query_map(params![session_id, since_id], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?))
         })
         .map_err(|e| e.to_string())?
@@ -293,6 +318,37 @@ mod tests {
 
         let second = undo_pending_writes(&conn, session_id).unwrap();
         assert!(second.is_empty());
+    }
+
+    #[test]
+    fn watermark_scoped_undo_leaves_earlier_writes_alone() {
+        let db = Database::open_in_memory().unwrap();
+        let session_id = "sess-undo-watermark";
+        seed_session(&db, session_id);
+        let workspace = tempfile::tempdir().unwrap();
+        let before_a = workspace.path().join("before.txt");
+        let after_b = workspace.path().join("after.txt");
+
+        let conn = db.conn();
+        journal_file_write(&conn, session_id, workspace.path(), &before_a, "kept").unwrap();
+        let watermark = current_undo_watermark(&conn, session_id).unwrap();
+        assert_eq!(watermark, 1);
+
+        journal_file_write(&conn, session_id, workspace.path(), &after_b, "discarded").unwrap();
+
+        let report = undo_since(&conn, session_id, watermark).unwrap();
+        assert_eq!(report.reverted, vec![after_b.to_string_lossy().to_string()]);
+        assert!(before_a.exists(), "write recorded before the watermark must survive");
+        assert!(!after_b.exists(), "write recorded after the watermark must be undone");
+    }
+
+    #[test]
+    fn watermark_is_zero_for_a_session_with_no_journal_entries() {
+        let db = Database::open_in_memory().unwrap();
+        let session_id = "sess-undo-watermark-empty";
+        seed_session(&db, session_id);
+        let conn = db.conn();
+        assert_eq!(current_undo_watermark(&conn, session_id).unwrap(), 0);
     }
 
     #[test]
