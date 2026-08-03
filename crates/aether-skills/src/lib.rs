@@ -1,8 +1,15 @@
 mod disclosure;
+mod trust;
 
 pub use disclosure::{
     citation_fidelity, compose_citation_answer, route_chapter_for_query, DisclosureEntry,
     DisclosureIndex, DisclosureKind, RoutedChapter,
+};
+
+pub use trust::{
+    admit_skill, install_skill, scan_credential_paths, scan_skill_injection, skill_content_hash,
+    validate_manifest_not_overbroad, validate_steps_within_manifest, SkillCapabilityManifest,
+    SkillPinStore, CREDENTIAL_PATH_PATTERNS, INJECTION_PATTERNS,
 };
 
 use aether_permissions::{PermissionDecision, PermissionManager};
@@ -25,6 +32,8 @@ pub enum SkillError {
     PermissionDenied(String),
     #[error("Execution error: {0}")]
     Execution(String),
+    #[error("Security violation: {0}")]
+    SecurityViolation(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +54,9 @@ pub struct SkillDefinition {
     pub description: String,
     pub markdown_body: String,
     pub steps: Vec<SkillStep>,
+    /// Present when the skill declares `filesystem` / `network` / `tools` in frontmatter
+    /// (Phase 11 / SKILL-03). Required for [`install_skill`] / [`admit_skill`].
+    pub capabilities: Option<SkillCapabilityManifest>,
 }
 
 pub struct SkillLoader;
@@ -96,6 +108,7 @@ impl SkillLoader {
             .to_string();
 
         let steps = parse_steps(body)?;
+        let capabilities = parse_capabilities(&meta)?;
 
         Ok(SkillDefinition {
             id,
@@ -103,6 +116,7 @@ impl SkillLoader {
             description,
             markdown_body: content.to_string(),
             steps,
+            capabilities,
         })
     }
 }
@@ -111,6 +125,9 @@ pub struct SkillExecutor;
 
 impl SkillExecutor {
     /// Execute procedural skill steps against a workspace with grant-based permission checks.
+    ///
+    /// When the skill declares a capability manifest, step actions/paths must stay inside it
+    /// (Phase 11 / SKILL-03). Credential-shaped paths are always rejected, manifest or not.
     pub fn execute(
         conn: &Connection,
         session_id: &str,
@@ -118,6 +135,15 @@ impl SkillExecutor {
         workspace: &Path,
         variables: &HashMap<String, String>,
     ) -> Result<(), SkillError> {
+        // Re-run install-time trust checks at execute so skipping `install_skill` is not an
+        // escape hatch for a poisoned body that somehow entered the skill map.
+        scan_skill_injection(skill)?;
+        scan_credential_paths(skill)?;
+        if let Some(caps) = &skill.capabilities {
+            validate_manifest_not_overbroad(&skill.id, caps)?;
+            validate_steps_within_manifest(skill, caps)?;
+        }
+
         for step in &skill.steps {
             match step {
                 SkillStep::ReadFile { path } => {
@@ -238,6 +264,51 @@ fn parse_frontmatter(yaml: &str) -> Result<HashMap<String, String>, SkillError> 
         map.insert(key.trim().to_string(), value.trim().to_string());
     }
     Ok(map)
+}
+
+/// Parse optional capability manifest keys from flat frontmatter:
+/// `filesystem: a.txt,b.txt`, `network: false`, `tools: read_file,append_file`.
+/// All three must be present together; partial declarations are a parse error.
+fn parse_capabilities(
+    meta: &HashMap<String, String>,
+) -> Result<Option<SkillCapabilityManifest>, SkillError> {
+    let has_fs = meta.contains_key("filesystem");
+    let has_net = meta.contains_key("network");
+    let has_tools = meta.contains_key("tools");
+    if !has_fs && !has_net && !has_tools {
+        return Ok(None);
+    }
+    if !(has_fs && has_net && has_tools) {
+        return Err(SkillError::Parse(
+            "Capability manifest requires filesystem, network, and tools together".into(),
+        ));
+    }
+
+    let filesystem = meta["filesystem"]
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>();
+    let network = match meta["network"].to_ascii_lowercase().as_str() {
+        "true" | "yes" | "1" => true,
+        "false" | "no" | "0" | "none" => false,
+        other => {
+            return Err(SkillError::Parse(format!(
+                "Invalid network capability value: {other}"
+            )));
+        }
+    };
+    let tools = meta["tools"]
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>();
+
+    Ok(Some(SkillCapabilityManifest {
+        filesystem,
+        network,
+        tools,
+    }))
 }
 
 fn parse_steps(body: &str) -> Result<Vec<SkillStep>, SkillError> {

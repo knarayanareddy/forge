@@ -244,7 +244,7 @@ Make extensibility safe and memory accountable. This is the phase that lets a ma
 | **11.1** | Skill/plugin capability manifests: declared filesystem, network, and tool requirements shown before install; enforced at runtime | prep |
 | **11.2** | Signing + pin-on-install + diff-on-update for skills (extends MCP `tools_hash` pattern, C3) | prep |
 | **11.3** | Static injection scanner: flag imperative instructions in skill bodies, tool descriptions, and parameter schemas | prep |
-| **11.4** | **SKILL-03**: frozen poisoned-skill corpus (≥8 cases: hidden instruction in description, rug-pull on update, over-broad manifest, credential exfil step) — 0 escapes | **+1 → 27** |
+| **11.4 *(this PR)*** | **SKILL-03**: frozen poisoned-skill corpus (≥8 cases: hidden instruction in description, rug-pull on update, over-broad manifest, credential exfil step) — 0 escapes via production `install_skill`/`admit_skill`/`SkillExecutor` (slices 11.1–11.3 bundled) | **+1 → 31** |
 | **11.5** | Secrets broker (A6): credentials injected at tool-invocation time, never in context; transcript and log redaction | prep |
 | **11.6 *(this PR)*** | **SEC-01**: tool authenticates using a brokered secret (`secret_env` on `mcp_call`); value injected into the MCP subprocess env at spawn and redacted from observations; secret absent from context, session log, audit log, and crash dump | **+1 → 30** |
 | **11.7** | Untrusted-data boundary: explicit delimiting of all tool output; per-session tool dependency graph | prep |
@@ -393,11 +393,12 @@ Cheap, high-leverage, no feature dependency. Makes Forge composable rather than 
 | Phase 11 slice 11.10 *(merged, out of order)* | 27/27 | + CONS-01 (`apply_consolidation_run`/`reject_consolidation_run`, applies exactly the persisted review artifact); Darwin canonical verified (run `30840008383` @ `51658d0`). Landed ahead of the rest of Phase 11 — smallest fully-isolated slice, no schema migration needed |
 | Phase 10 slices 10.8-10.9 *(merged, out of order)* | 28/28 | + PERM-02 (`evaluate_approval_gate`, wired into the human-facing `run_task` path; no permission-mode UI or batching UI); Darwin canonical verified (run `30840008383` @ `51658d0`). Landed alongside HOOK-01, CKPT-01, CONS-01 |
 | Phase 10 slices 10.3-10.4 *(merged, out of order)* | 29/29 | + SUB-01 (mechanical, not LLM, distillation); Darwin canonical verified (run `30840008383` @ `51658d0`). Last non-probe Phase 10 item — only `FORK-01` (probe) remains there |
-| Phase 11 slice 11.6 *(this PR)* | 30/30 | + SEC-01 (brokered secrets: name-only plan/audit/session; env injection at MCP spawn; observation redaction); Linux-verified, Darwin canonical run pending |
-| Phase 8.1–8.3 | 31/31 | + INGEST-01 |
-| **Phase 9 complete** | **31/31** | + INGEST-01 (UNDO-01, LOOP-04 already merged above) |
-| **Phase 10 complete** | **31/31** | All non-probe Phase 10 items merged above (HOOK-01, CKPT-01, PERM-02, SUB-01); `FORK-01` stays off the scoreboard as a probe |
-| **Phase 11 complete** | **33/33** | + SKILL-03, INJECT-01 (CONS-01 and SEC-01 already merged above) |
+| Phase 11 slice 11.6 *(merged)* | 30/30 | + SEC-01 (brokered secrets: name-only plan/audit/session; env injection at MCP spawn; observation redaction); Linux-verified, Darwin canonical run pending |
+| Phase 11 slices 11.1–11.4 *(this PR)* | 31/31 | + SKILL-03 (capability manifest + content pin + injection scan + ≥8 poisoned corpus, 0 escapes); Linux-verified, Darwin canonical run pending |
+| Phase 8.1–8.3 | 32/32 | + INGEST-01 |
+| **Phase 9 complete** | **32/32** | + INGEST-01 (UNDO-01, LOOP-04 already merged above) |
+| **Phase 10 complete** | **32/32** | All non-probe Phase 10 items merged above (HOOK-01, CKPT-01, PERM-02, SUB-01); `FORK-01` stays off the scoreboard as a probe |
+| **Phase 11 complete** | **33/33** | + INJECT-01 (CONS-01, SEC-01, and SKILL-03 already merged above) |
 | **Phase 12 complete** | **36/36** | + SLEEP-01, RELY-01, FORENSIC-01 |
 | **Phase 13 complete** | **37/37** | + APPLE-01 |
 

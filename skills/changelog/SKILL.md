@@ -1,6 +1,9 @@
 ---
 name: changelog
 description: Append a dated entry to CHANGELOG.md in a granted workspace
+filesystem: CHANGELOG.md
+network: false
+tools: read_file,append_file
 ---
 
 # Changelog Skill
