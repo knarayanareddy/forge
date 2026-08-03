@@ -25,6 +25,9 @@ use undo01::test_undo01_impl;
 mod loop04;
 use loop04::test_loop04_impl;
 
+mod hook01;
+use hook01::test_hook01_impl;
+
 mod auto01;
 use auto01::test_auto01_impl;
 
@@ -66,7 +69,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 24] = [
+const TASKS: [TaskSpec; 25] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -92,6 +95,7 @@ const TASKS: [TaskSpec; 24] = [
     TaskSpec { name: "AUTO-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CHECK-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "GATE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "HOOK-01", hard_on_darwin: true, fail_closed_off_darwin: false },
 ];
 
 fn is_darwin() -> bool {
@@ -204,7 +208,7 @@ async fn main() {
         println!("Darwin scoreboard: {}/{} harness ({} hard / {} soft)", passed, total, hard_pass, soft_pass);
     } else {
         println!(
-            "Non-Darwin note: FS-02, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04 expected fail-closed when sandbox-exec/Ollama absent"
+            "Non-Darwin note: FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04 expected fail-closed when sandbox-exec/Ollama absent"
         );
     }
 }
@@ -258,6 +262,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "AUTO-01" => test_auto01(db).await.map(|_| true),
         "CHECK-01" => test_check01(db).await.map(|_| true),
         "GATE-01" => test_gate01(db).await.map(|_| true),
+        "HOOK-01" => test_hook01_impl(db).map(|_| true),
         other => Err(format!("Unknown task {}", other)),
     };
 
