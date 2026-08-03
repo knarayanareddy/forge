@@ -6,7 +6,7 @@ This repo (`forge` / AetherForge) is a Rust workspace (`Cargo.toml`, `crates/`, 
 
 ### Services / components
 - **`aether-daemon`** — the app. TCP JSON-lines server on `127.0.0.1:7433`. Run with `cargo run -p aether-daemon`. See `docs/DAEMON_IPC.md`.
-- **`golden-harness`** (`tests/golden_harness`) — 25-task acceptance eval. Run with `cargo run -p golden-harness`.
+- **`golden-harness`** (`tests/golden_harness`) — 27-task acceptance eval. Run with `cargo run -p golden-harness`.
 - **macOS Swift app** (`swift build` / `swift run AetherForgeApp` / `scripts/build-ffi.sh`) — **cannot run on Linux** (no Swift toolchain here); skip it.
 
 ### Build / test / lint / run (standard commands live in `README.md`, `.github/workflows/ci.yml`, `docs/LINUX_CI.md`)
@@ -16,7 +16,7 @@ This repo (`forge` / AetherForge) is a Rust workspace (`Cargo.toml`, `crates/`, 
 
 ### Non-obvious caveats
 - **Toolchain:** a transitive dep needs Rust edition2024, so **Rust ≥ 1.85 is required** (build fails on older). The base image's default `rustup` toolchain may be pinned to an old version; the update script runs `rustup default stable`.
-- **Golden harness on default Linux scores 17/25 — this is correct, not a regression.** `FS-02`/`SB-01` require Darwin; `ROUT-01`, `MEM-01`, `GRAPH-01`, `LOOP-02`, `PLAN-01`, and `LOOP-04` require Darwin/Ollama and print `FAIL-CLOSED`. With local Ollama + MCP the verified score is 22/25 (FS-02, SB-01, and OS-gated LOOP-02 fail closed). See `docs/LINUX_CI.md`.
+- **Golden harness on default Linux scores 19/27 — this is correct, not a regression.** `FS-02`/`SB-01` require Darwin; `ROUT-01`, `MEM-01`, `GRAPH-01`, `LOOP-02`, `PLAN-01`, and `LOOP-04` require Darwin/Ollama and print `FAIL-CLOSED`. With local Ollama + MCP the verified score is 24/27 (FS-02, SB-01, and OS-gated LOOP-02 fail closed). See `docs/LINUX_CI.md`.
 - **Session logs:** every structured-loop execution path (`run_task`, automation triggers, gateway inbound) appends a JSONL transcript under `AETHER_SESSION_LOG_DIR` (default `~/.aether/sessions`) via `aether_daemon::session_log`. `SESS-01` overrides that env var for its own duration only.
 - **Git tool children use a fixed local identity** injected by `ProductionSandbox`; host/global git identity is not inherited.
 - **Daemon IPC auth:** on non-macOS, auth is optional (no Keychain) unless `AETHER_DAEMON_AUTH_TOKEN` is set. `ping` never needs auth.

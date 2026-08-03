@@ -158,6 +158,92 @@ impl Database {
             Ok(None)
         }
     }
+
+    /// Apply a `review_pending` consolidation run: supersede exactly the node pairs recorded in
+    /// its persisted review artifact — not a freshly recomputed diff, which could have drifted
+    /// from what a human actually reviewed if new turns landed in between. Returns the number of
+    /// nodes superseded.
+    ///
+    /// Re-applying an already-`applied` run is idempotent: it returns `Ok(0)` rather than an
+    /// error, since the end state is unchanged. Every other non-`review_pending` status is a hard
+    /// error — in particular, applying a `rejected` run always fails, so a stray apply call can
+    /// never silently override an explicit human rejection (Phase 11 slice / CONS-01).
+    pub fn apply_consolidation_run(&self, run_id: i64) -> Result<usize> {
+        let mut conn = self.conn.lock().unwrap();
+
+        let (status, artifact_path): (String, Option<String>) = conn.query_row(
+            "SELECT status, review_artifact_path FROM consolidation_runs WHERE id = ?1",
+            params![run_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+
+        if status == "applied" {
+            return Ok(0);
+        }
+        if status != "review_pending" {
+            return Err(consolidate_error(format!(
+                "consolidation run {run_id} is '{status}', not 'review_pending'; cannot apply"
+            )));
+        }
+        let artifact_path = artifact_path.ok_or_else(|| {
+            consolidate_error(format!(
+                "consolidation run {run_id} has no review artifact to apply"
+            ))
+        })?;
+        let json = fs::read_to_string(&artifact_path).map_err(|e| {
+            consolidate_error(format!("read consolidation artifact {artifact_path}: {e}"))
+        })?;
+        let preview: ConsolidatePreview = serde_json::from_str(&json).map_err(|e| {
+            consolidate_error(format!("parse consolidation artifact {artifact_path}: {e}"))
+        })?;
+
+        let tx = conn.transaction()?;
+        let mut applied = 0usize;
+        for diff in &preview.nodes_superseded {
+            if let Some(survivor) = &diff.superseded_by {
+                let rows = tx.execute(
+                    "UPDATE graph_nodes SET superseded_by = ?1 WHERE id = ?2 AND superseded_by IS NULL",
+                    params![survivor, diff.id],
+                )?;
+                applied += rows;
+            }
+        }
+        tx.execute(
+            "UPDATE consolidation_runs SET status = 'applied', applied_at = CURRENT_TIMESTAMP WHERE id = ?1",
+            params![run_id],
+        )?;
+        tx.commit()?;
+
+        Ok(applied)
+    }
+
+    /// Reject a `review_pending` consolidation run: mark it `rejected` without mutating any graph
+    /// node. Fails closed on any status other than `review_pending` (Phase 11 slice / CONS-01).
+    pub fn reject_consolidation_run(&self, run_id: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let status: String = conn.query_row(
+            "SELECT status FROM consolidation_runs WHERE id = ?1",
+            params![run_id],
+            |row| row.get(0),
+        )?;
+        if status != "review_pending" {
+            return Err(consolidate_error(format!(
+                "consolidation run {run_id} is '{status}', not 'review_pending'; cannot reject"
+            )));
+        }
+        conn.execute(
+            "UPDATE consolidation_runs SET status = 'rejected', finished_at = CURRENT_TIMESTAMP WHERE id = ?1",
+            params![run_id],
+        )?;
+        Ok(())
+    }
+}
+
+fn consolidate_error(message: String) -> rusqlite::Error {
+    rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
+        std::io::ErrorKind::InvalidInput,
+        message,
+    )))
 }
 
 fn normalize_name(name: &str) -> String {
@@ -367,5 +453,119 @@ mod tests {
         assert!(md_path.exists());
         let md = fs::read_to_string(md_path).unwrap();
         assert!(md.contains("review_pending"));
+    }
+
+    fn seed_duplicate_pair(db: &Database, session_id: &str, a: &str, b: &str) {
+        for (id, recorded_hint) in [(a, "2024-01-01"), (b, "2024-02-01")] {
+            db.insert_graph_node(NewGraphNode {
+                id,
+                session_id,
+                entity_type: EntityType::Project,
+                canonical_name: "AetherForge",
+                aliases_json: "[]",
+                properties_json: "{}",
+                source_uri: "memory://ingest",
+                valid_from: Some(recorded_hint),
+                valid_to: None,
+            })
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn apply_consolidation_run_supersedes_exactly_the_reviewed_pair() {
+        let db = Database::open_in_memory().unwrap();
+        seed_session(&db, "sess-apply");
+        seed_duplicate_pair(&db, "sess-apply", "node-a", "node-b");
+
+        let dir = tempdir().unwrap();
+        let record = db.consolidate_memory("sess-apply", dir.path()).unwrap();
+        assert_eq!(record.preview.nodes_superseded.len(), 1);
+
+        // A node added to the graph AFTER review must not be touched by apply — apply replays
+        // exactly what was reviewed, not a freshly recomputed diff.
+        db.insert_graph_node(NewGraphNode {
+            id: "node-c",
+            session_id: "sess-apply",
+            entity_type: EntityType::Project,
+            canonical_name: "AetherForge",
+            aliases_json: "[]",
+            properties_json: "{}",
+            source_uri: "memory://ingest",
+            valid_from: Some("2024-03-01"),
+            valid_to: None,
+        })
+        .unwrap();
+
+        let applied = db.apply_consolidation_run(record.run_id).unwrap();
+        assert_eq!(applied, 1);
+
+        let status = db
+            .get_consolidation_run_status(record.run_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(status, "applied");
+
+        let active = db.get_active_graph_nodes("sess-apply", None).unwrap();
+        let active_ids: Vec<&str> = active.iter().map(|n| n.id.as_str()).collect();
+        assert!(!active_ids.contains(&"node-b"), "duplicate must be superseded");
+        assert!(active_ids.contains(&"node-a"), "survivor must remain active");
+        assert!(
+            active_ids.contains(&"node-c"),
+            "node added after review must be untouched by apply"
+        );
+    }
+
+    #[test]
+    fn apply_consolidation_run_is_idempotent_when_already_applied() {
+        let db = Database::open_in_memory().unwrap();
+        seed_session(&db, "sess-apply-twice");
+        seed_duplicate_pair(&db, "sess-apply-twice", "node-a", "node-b");
+
+        let dir = tempdir().unwrap();
+        let record = db.consolidate_memory("sess-apply-twice", dir.path()).unwrap();
+        let first = db.apply_consolidation_run(record.run_id).unwrap();
+        assert_eq!(first, 1);
+
+        // Re-applying an already-applied run is a safe no-op, not an error.
+        let second = db.apply_consolidation_run(record.run_id).unwrap();
+        assert_eq!(second, 0);
+
+        let status = db
+            .get_consolidation_run_status(record.run_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(status, "applied");
+    }
+
+    #[test]
+    fn apply_consolidation_run_rejects_unknown_run_id() {
+        let db = Database::open_in_memory().unwrap();
+        assert!(db.apply_consolidation_run(999_999).is_err());
+    }
+
+    #[test]
+    fn reject_consolidation_run_mutates_no_nodes() {
+        let db = Database::open_in_memory().unwrap();
+        seed_session(&db, "sess-reject");
+        seed_duplicate_pair(&db, "sess-reject", "node-a", "node-b");
+
+        let dir = tempdir().unwrap();
+        let record = db.consolidate_memory("sess-reject", dir.path()).unwrap();
+
+        db.reject_consolidation_run(record.run_id).unwrap();
+
+        let status = db
+            .get_consolidation_run_status(record.run_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(status, "rejected");
+
+        let active = db.get_active_graph_nodes("sess-reject", None).unwrap();
+        assert_eq!(active.len(), 2, "reject must not supersede any node");
+
+        // A rejected run can never later be applied.
+        let err = db.apply_consolidation_run(record.run_id).unwrap_err();
+        assert!(err.to_string().contains("not 'review_pending'"));
     }
 }

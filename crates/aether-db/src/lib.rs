@@ -238,6 +238,19 @@ impl Database {
                 applied_at TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS checkpoints (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                -- Highest undo_journal.id for this session at checkpoint time (0 = none yet).
+                -- Rewinding undoes every journal entry recorded strictly after this watermark.
+                undo_watermark INTEGER NOT NULL,
+                -- Session-log turn count at checkpoint time. Rewinding truncates the log back to
+                -- this many turns.
+                turn_watermark INTEGER NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_rewound_at TIMESTAMP
+            );
+
             CREATE TABLE IF NOT EXISTS query_policy (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 policy_name TEXT UNIQUE NOT NULL,

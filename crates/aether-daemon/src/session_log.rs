@@ -214,6 +214,34 @@ impl SessionLogWriter {
         Ok(turn_index)
     }
 
+    /// Truncate a session's log back to its first `keep_turns` turns, dropping every record from
+    /// later turns. Used by checkpoint rewind (Phase 10 slice 10.1 / CKPT-01) to keep the session
+    /// log consistent with the files a rewind restores — a checkpoint is only meaningful if both
+    /// the filesystem and the transcript agree on what happened.
+    ///
+    /// `keep_turns = 0` empties the log entirely (matching "never ran" read semantics). A missing
+    /// log is a no-op, not an error.
+    pub fn truncate_after_turn(&self, session_id: &str, keep_turns: u32) -> io::Result<()> {
+        let path = self.path_for_session(session_id);
+        if !path.exists() {
+            return Ok(());
+        }
+        let records = self.read_session_log(session_id)?;
+        let kept: Vec<&SessionLogRecord> = records
+            .iter()
+            .filter(|r| r.turn_index <= keep_turns)
+            .collect();
+
+        let mut buf = String::new();
+        for record in kept {
+            let line = serde_json::to_string(record)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+            buf.push_str(&line);
+            buf.push('\n');
+        }
+        fs::write(&path, buf)
+    }
+
     /// Parse the full on-disk log for a session. Returns an empty vec if no log exists yet —
     /// "never ran" and "ran with zero events" are different states callers can still tell apart
     /// via the caller's own bookkeeping, but for read purposes both yield no records.
@@ -359,6 +387,45 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let writer = SessionLogWriter::new(dir.path().to_path_buf());
         assert_eq!(writer.read_session_log("never-ran").unwrap(), Vec::new());
+    }
+
+    #[test]
+    fn truncate_after_turn_drops_only_later_turns() {
+        let dir = tempfile::tempdir().unwrap();
+        let writer = SessionLogWriter::new(dir.path().to_path_buf());
+        writer.append_turn("sess-trunc", "first", &sample_events()).unwrap();
+        writer.append_turn("sess-trunc", "second", &sample_events()).unwrap();
+        writer.append_turn("sess-trunc", "third", &sample_events()).unwrap();
+
+        writer.truncate_after_turn("sess-trunc", 1).unwrap();
+
+        let records = writer.read_session_log("sess-trunc").unwrap();
+        assert_eq!(records.len(), 5); // just turn 1's TurnStart + 4 events
+        assert!(records.iter().all(|r| r.turn_index == 1));
+
+        // A subsequent turn must append as turn 2, not turn 4 — truncation must actually rewrite
+        // the on-disk turn count the next writer sees, not just hide old records from this reader.
+        let next_turn = writer.append_turn("sess-trunc", "fourth", &sample_events()).unwrap();
+        assert_eq!(next_turn, 2);
+    }
+
+    #[test]
+    fn truncate_after_turn_zero_empties_the_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let writer = SessionLogWriter::new(dir.path().to_path_buf());
+        writer.append_turn("sess-trunc-zero", "first", &sample_events()).unwrap();
+
+        writer.truncate_after_turn("sess-trunc-zero", 0).unwrap();
+
+        assert_eq!(writer.read_session_log("sess-trunc-zero").unwrap(), Vec::new());
+    }
+
+    #[test]
+    fn truncate_after_turn_on_missing_log_is_a_no_op() {
+        let dir = tempfile::tempdir().unwrap();
+        let writer = SessionLogWriter::new(dir.path().to_path_buf());
+        writer.truncate_after_turn("never-existed", 3).unwrap();
+        assert_eq!(writer.read_session_log("never-existed").unwrap(), Vec::new());
     }
 
     #[test]
