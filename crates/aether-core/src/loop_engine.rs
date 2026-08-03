@@ -516,7 +516,12 @@ impl ReActLoopEngine {
                     on_event(LoopStreamEvent::Error {
                         message: obs.output.clone(),
                     });
-                    return Err(LoopError::Turn(obs.output));
+                    return Err(LoopError::VerifyFailed {
+                        failed_tool: obs.tool.clone(),
+                        detail: obs.output.clone(),
+                        iterations_used: iteration,
+                        observations,
+                    });
                 }
                 continue;
             }
@@ -537,7 +542,12 @@ impl ReActLoopEngine {
                     on_event(LoopStreamEvent::Error {
                         message: obs.output.clone(),
                     });
-                    return Err(LoopError::Turn(obs.output));
+                    return Err(LoopError::VerifyFailed {
+                        failed_tool: obs.tool.clone(),
+                        detail: obs.output.clone(),
+                        iterations_used: iteration,
+                        observations,
+                    });
                 }
                 continue;
             }

@@ -25,10 +25,10 @@ pub use loop_engine::{
 };
 
 pub use nl_planner::{
-    build_nl_plan_prompt, build_nl_repair_prompt, nl_plan_schema, normalize_nl_plan_json,
-    plan_tool_name, run_nl_planner, validate_nl_plan, validate_nl_plan_gold_trajectory,
-    validate_goal_coverage, NlPlanError, LOOP02_EVAL_PROMPT, LOOP02_GOLD_TOOL_ORDER,
-    NL_PLAN_SCHEMA,
+    build_nl_plan_prompt, build_nl_repair_prompt, build_nl_verify_repair_prompt, nl_plan_schema,
+    normalize_nl_plan_json, plan_tool_name, run_nl_planner, run_nl_planner_repair,
+    validate_nl_plan, validate_nl_plan_gold_trajectory, validate_goal_coverage, NlPlanError,
+    LOOP02_EVAL_PROMPT, LOOP02_GOLD_TOOL_ORDER, NL_PLAN_SCHEMA,
 };
 
 pub use orchestration_graph::OrchestrationGraph;
@@ -886,6 +886,16 @@ pub enum LoopError {
     BudgetExceeded { used: usize, max: usize },
     #[error("Turn error: {0}")]
     Turn(String),
+    /// A `verify_contains`/`python_lint` step failed before `done`. Distinct from `Turn` so a
+    /// caller with a natural-language goal on hand (Phase 9 slice 9.9-9.10 / LOOP-04) can attempt
+    /// a bounded replan instead of aborting; every other caller treats it as a plain failure.
+    #[error("Verify failed on {failed_tool}: {detail}")]
+    VerifyFailed {
+        failed_tool: String,
+        detail: String,
+        iterations_used: usize,
+        observations: Vec<crate::loop_engine::ToolObservation>,
+    },
 }
 
 impl From<String> for LoopError {

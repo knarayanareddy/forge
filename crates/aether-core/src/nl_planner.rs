@@ -387,6 +387,86 @@ pub async fn run_nl_planner(
     Err(last_error.unwrap_or(NlPlanError::EmptyPlan))
 }
 
+/// Build a replan prompt after a step failed verification mid-execution (Phase 9 slice 9.9-9.10 /
+/// LOOP-04). Distinct from [`build_nl_repair_prompt`]: that one fixes a rejected *plan* before any
+/// tool ran; this one fixes a plan whose execution already ran partway and hit a real tool
+/// failure, so the model must continue from the current state rather than start over.
+pub fn build_nl_verify_repair_prompt(
+    nl_goal: &str,
+    completed_tools: &[String],
+    failed_tool: &str,
+    failure_detail: &str,
+) -> String {
+    format!(
+        r#"{base}
+
+Execution already started and is NOT starting over. These steps already ran successfully, in
+order: {completed:?}. The next step, "{failed_tool}", FAILED verification with this detail:
+{failure_detail}
+
+Produce a corrected JSON plan for ONLY the remaining work needed to reach the original goal above,
+given what already happened. Do not repeat the already-completed steps. Fix whatever caused the
+failure — for example, rewrite the file with the correct content, or verify the substring that is
+actually present — then finish with {{"action":"done"}}."#,
+        base = build_nl_plan_prompt(nl_goal),
+        completed = completed_tools,
+        failed_tool = failed_tool,
+        failure_detail = failure_detail,
+    )
+}
+
+/// Replan after a verify failure mid-execution (Phase 9 slice 9.9-9.10 / LOOP-04).
+///
+/// Structurally identical decode-and-repair loop to [`run_nl_planner`], but validates only
+/// structural correctness (`validate_nl_plan`) rather than [`validate_goal_coverage`] against the
+/// full original goal: a remediation plan is inherently partial by design (it does not repeat
+/// already-completed steps), so checking it against the complete original goal's keyword
+/// requirements would reject correct, minimal fixes.
+pub async fn run_nl_planner_repair(
+    router: &ModelRouter,
+    nl_goal: &str,
+    completed_tools: &[String],
+    failed_tool: &str,
+    failure_detail: &str,
+    max_iterations: usize,
+) -> Result<Vec<ToolInvocation>, NlPlanError> {
+    let schema = nl_plan_schema();
+    let mut prompt =
+        build_nl_verify_repair_prompt(nl_goal, completed_tools, failed_tool, failure_detail);
+    let mut last_error: Option<NlPlanError> = None;
+
+    for attempt in 0..=MAX_PLAN_REPAIRS {
+        let raw = router
+            .complete_json_schema(&prompt, NL_PLAN_NUM_PREDICT, &schema)
+            .await
+            .map_err(|e| NlPlanError::Ollama(e.to_string()))?
+            .content;
+        let json = strip_json_fence(&raw);
+        let normalized = match normalize_nl_plan_json(&json) {
+            Ok(value) => value,
+            Err(e) => {
+                if attempt < MAX_PLAN_REPAIRS {
+                    prompt = build_nl_repair_prompt(nl_goal, &json, &e);
+                }
+                last_error = Some(e);
+                continue;
+            }
+        };
+
+        match validate_nl_plan(&normalized, max_iterations) {
+            Ok(plan) => return Ok(plan),
+            Err(e) => {
+                if attempt < MAX_PLAN_REPAIRS {
+                    prompt = build_nl_repair_prompt(nl_goal, &normalized, &e);
+                }
+                last_error = Some(e);
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or(NlPlanError::EmptyPlan))
+}
+
 fn forbidden_pattern_detail(step: &ToolInvocation) -> Option<String> {
     match step {
         ToolInvocation::FsWrite { path, content } => {

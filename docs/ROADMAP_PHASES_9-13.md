@@ -2,11 +2,15 @@
 
 **Baseline:** Phase 8.0 **closed** — Darwin **22/22 (22 hard / 0 soft)** on `main` @ `432ace9`, run
 [`30565128737`](https://github.com/knarayanareddy/forge/actions/runs/30565128737). See
-[PHASE_8_0_CLOSURE.md](./PHASE_8_0_CLOSURE.md). Phase 9 slices 9.7-9.8 (**UNDO-01**) have since
-merged, bringing the harness to 23 tasks — Linux-verified, next Darwin canonical run pending.
+[PHASE_8_0_CLOSURE.md](./PHASE_8_0_CLOSURE.md). Phase 9 slices 9.7-9.8 (**UNDO-01**) and 9.9-9.10
+(**LOOP-04**) have since merged, bringing the harness to 24 tasks — Linux-verified, next Darwin
+canonical run pending. A small non-numbered gap flagged during the post-8.0 audit — `retrieve_session_memory`
+was wired into `run_stream_task` (8.0b) but not the structured `nl:`-prefixed loop path — is also
+closed: `run_nl_loop_task_with_replan` now recalls session memory before planning, fail-open on
+retrieval failure, the same way `run_stream_task` already did.
 **Canonical platform:** Darwin (macOS 15+ Apple Silicon)
 **Binding spec:** Master roadmap. Each phase gets its own binding `ROADMAP_PHASE_N.md` **when it starts** — this document fixes scope, order, dependencies, and harness contracts.
-**Prerequisite gate:** [Phase 8.0](./ROADMAP_PHASE_8.0.md) slices 8.0b–8.0d — **cleared**. Phase 9 slices 9.9+ may proceed.
+**Prerequisite gate:** [Phase 8.0](./ROADMAP_PHASE_8.0.md) slices 8.0b–8.0d — **cleared**. Phase 9 slices 9.11+ may proceed.
 
 ---
 
@@ -167,8 +171,7 @@ Make the loop honest and time-travellable. Every downstream feature — checkpoi
 | **9.5** | `LoopEvent` → JSONL session log (append-only, one file per session, schema-versioned); daemon writes every plan/tool/observe/verify/error | Session reconstructable from disk | prep |
 | **9.5-9.6 *(implemented)*** | `LoopStreamEvent` → JSONL session log (`aether-daemon::session_log`), append-only, schema-versioned, one file per session; `execute_structured_loop` centralizes every daemon execution path (`run_task`, automation triggers, gateway inbound) so all of them log a `TurnStart` plus every plan/tool/observe/verify/budget/done/error event, success or failure. **SESS-01** harness parses the log with no access to the live run and reconstructs the identical tool trajectory; asserts strictly increasing `seq`, pinned `schema_version`, a second turn appends without overwriting and increments `turn_index`, and a rejected plan's `Error` record is present | Log is a complete, order-preserving record of what actually ran | **+1 → 22 (implemented, ahead of the 9.7-9.13 slices below)** |
 | **9.7-9.8 *(implemented, narrower scope)*** | `aether_permissions::journal_file_write`/`journal_git_init` wired into `ToolRegistry::execute` for `fs_write` and `git_init` (the only mutating tools that exist today — there is no `fs_delete`/`rename` tool to wire). `undo_pending_writes(session_id)` unwinds every still-`applied` journal row for the session, most recent first, restoring byte-identical prior content or deleting agent-created files; `git_init` is recorded as a marker and reported `not_undone` with a reason rather than reverted. **Scope narrower than originally planned:** this is session-scoped ("undo everything since the last undo"), not the `undo_run(run_id)` single-turn scoping the phrasing below implies — `undo_journal` has no run/turn column yet, and adding one is a documented follow-up, not a silent redefinition. **UNDO-01** harness proves multi-file + git run → byte-identical restore for every journaled write, idempotent on a second call, with the git mutation explicitly enumerated as non-undoable | Agent writes are journaled and reversible; non-undoable side effects are enumerated, not silently skipped | **+1 → 23 (implemented; Linux-verified, Darwin canonical run pending)** |
-| **9.9** | Replan on verify failure: `verify_contains`/`python_lint` failure returns to planner with observation instead of aborting; bounded by iteration + token budget | Loop self-corrects | prep |
-| **9.10** | **LOOP-04** harness: frozen plan whose step 2 fails verification → loop replans → succeeds within budget; and a frozen unrecoverable case → clean bounded failure with audit | Self-correction proven | **+1 → 24** |
+| **9.9-9.10 *(implemented)*** | `LoopError::VerifyFailed` (new variant) carries the failure plus observations-so-far out of `ReActLoopEngine::run_structured` instead of a plain `Turn` abort; `aether_daemon::task_runner::run_structured_with_replan` catches it, calls `run_nl_planner_repair` (a new NL-planner function analogous to the schema-repair loop but validated only for structural correctness, since a remediation plan is inherently partial) with the failed tool/detail/completed-steps fed back, and re-executes — bounded by [`MAX_LOOP_REPLANS`] = 2 and by the *shared* `max_iterations` budget (decremented by iterations already spent, not reset per attempt) so an unrecoverable goal fails cleanly instead of looping past budget. Each attempt gets its own session-log turn. **LOOP-04** harness: a frozen plan with a deliberately-wrong write fails `verify_contains` on the first attempt every time (fully deterministic); the replanned correction is checked across 5 isolated trials with a **60% minimum pass rate** (a 3B local model's exact correction is not 100% guaranteed — the mechanism is what's proven, not one lucky run — and a pass requires `replans >= 1`, so a first-try fluke cannot count), plus one fully deterministic case where the shared budget is exhausted by the first failure alone, proving a clean `MaxIterations` failure with an `Error` record in the session log and zero replan attempts (never calls the LLM once budget is gone) | Loop self-corrects, bounded by budget not luck | **+1 → 24 (implemented; Linux-verified, Darwin canonical run pending)** |
 | **9.11** | Cost/context accounting: real token counts from provider (`eval_count` / `usage`), per-tool and per-run attribution, default non-zero `max_tokens` (absorbs 8.1 BUDG-01) | Budgets enforced; no unlimited default | **COST-01** *(probe)* |
 | **9.12** | Prefix stability: static system+tools prefix at position 0, volatile state appended last, deterministic tool-result ordering; measure KV/cache reuse | Reuse rate instrumented | **CACHE-01** *(probe)* |
 | **9.13** | Tamper-evident audit export (C2): signed export of `audit_log` with chain verification CLI | Export verifies after adversarial edit | extends SAFE-01 |
@@ -379,9 +382,9 @@ Cheap, high-leverage, no feature dependency. Makes Forge composable rather than 
 | Phase 9 slices 9.5–9.6 *(merged)* | 22/22 | + SESS-01 session log; also fixed a `GIT_CONFIG_NOSYSTEM` Seatbelt/git regression the first post-merge Darwin run of Phase 8.0c surfaced |
 | **Phase 8.0 complete** | **22/22** | **Canonical Darwin verified** — run `30565128737` on `main` @ `432ace9` |
 | Phase 9 slices 9.7–9.8 *(merged)* | 23/23 | + UNDO-01 (session-scoped `undo_pending_writes`; git_init enumerated non-undoable); Linux-verified, Darwin canonical run pending |
-| Phase 8.1–8.3 | 24/24 | + INGEST-01 |
-| Phase 9 slices 9.9–9.10 | 25/25 | + LOOP-04 |
-| **Phase 9 complete** | **25/25** | + INGEST-01, LOOP-04 (UNDO-01 already merged above) |
+| Phase 9 slices 9.9–9.10 *(merged)* | 24/24 | + LOOP-04 (bounded replan on verify failure via `run_structured_with_replan`); Linux-verified, Darwin canonical run pending |
+| Phase 8.1–8.3 | 25/25 | + INGEST-01 |
+| **Phase 9 complete** | **25/25** | + INGEST-01 (UNDO-01, LOOP-04 already merged above) |
 | **Phase 10 complete** | **29/29** | + CKPT-01, SUB-01, HOOK-01, PERM-02 |
 | **Phase 11 complete** | **33/33** | + SKILL-03, SEC-01, INJECT-01, CONS-01 |
 | **Phase 12 complete** | **36/36** | + SLEEP-01, RELY-01, FORENSIC-01 |
@@ -402,7 +405,7 @@ Probes (`COST-01`, `CACHE-01`, `FORK-01`, `COMPACT-01`, `MCP-02`, `HEAD-01`, `ME
 | **Probe promotion** | Probes join the scoreboard only when their invariant moves into production code. |
 | **No product claims without Track D** | README may not say "installable" until DIST-01 verifies signatures. |
 | **No marketplace before Phase 11** | User-installable skills/plugins ship only after SKILL-03 is green. |
-| **Naming honesty** | Rename `ReActLoopEngine` → accurate name when LOOP-04 lands real replanning; drop `OllamaMlx` in favour of a backend enum that names what it does. |
+| **Naming honesty** | `ReActLoopEngine::run_structured` itself is still a single-pass sequential executor; real replanning now lives one layer up in `aether_daemon::task_runner::run_structured_with_replan`, which re-invokes it per attempt. Consider renaming `ReActLoopEngine` once/if replanning moves inside the engine itself. Also drop `OllamaMlx` in favour of a backend enum that names what it does. |
 | **Critique cadence** | Independent code-grounded audit at each phase boundary, in the Phase 8.0 pattern. |
 
 ---
@@ -412,7 +415,7 @@ Probes (`COST-01`, `CACHE-01`, `FORK-01`, `COMPACT-01`, `MCP-02`, `HEAD-01`, `ME
 | Metric | Target | Measurement |
 |--------|--------|-------------|
 | PLAN-01 diverse-goal success | ≥90% of ≥10 frozen goals | `plan01.rs` |
-| LOOP-04 recovery | 100% of recoverable frozen cases; clean bounded failure otherwise | `loop04.rs` |
+| LOOP-04 recovery | ≥60% self-correction pass rate across isolated trials (small local model, not claimed deterministic) with replan genuinely firing; 100% clean bounded failure once budget is exhausted | `loop04.rs` |
 | SESS-01 replay determinism | log-reconstructed trajectory matches the live run's own observations | `sess01.rs` |
 | UNDO-01 restoration | byte-identical pre-state; non-undoable effects enumerated | `undo01.rs` |
 | SKILL-03 / INJECT-01 escape rate | 0% | frozen corpora |
