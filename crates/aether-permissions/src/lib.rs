@@ -1,6 +1,9 @@
 mod undo;
 
-pub use undo::{journal_file_write, journal_git_init, undo_pending_writes, NotUndone, UndoReport};
+pub use undo::{
+    current_undo_watermark, journal_file_write, journal_git_init, undo_pending_writes,
+    undo_since, NotUndone, UndoReport,
+};
 
 use rusqlite::{Connection, Result, params};
 use serde::{Deserialize, Serialize};
