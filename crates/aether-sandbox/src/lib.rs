@@ -341,6 +341,26 @@ impl ProductionSandbox {
             ))
         }
     }
+
+    /// Remove a single file inside the workspace. Used by undo to delete a file that an agent
+    /// created (i.e. one with no prior content to restore). Missing-file is treated as success —
+    /// undo is idempotent by design.
+    pub fn remove_file(workspace: &Path, target: &Path) -> Result<(), SandboxError> {
+        let target = Self::validate_target(workspace, target)?;
+        if !target.exists() {
+            return Ok(());
+        }
+        let output = Self::command("/bin/rm", [OsStr::new("-f"), target.as_os_str()], workspace)?
+            .output()
+            .map_err(|e| SandboxError::Execution(e.to_string()))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(SandboxError::Violation(
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ))
+        }
+    }
 }
 
 pub struct StreamParser;

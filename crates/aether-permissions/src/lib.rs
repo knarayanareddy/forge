@@ -1,3 +1,7 @@
+mod undo;
+
+pub use undo::{journal_file_write, journal_git_init, undo_pending_writes, NotUndone, UndoReport};
+
 use rusqlite::{Connection, Result, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
