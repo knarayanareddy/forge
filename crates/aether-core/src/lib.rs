@@ -1,5 +1,6 @@
 mod graph_extract;
 mod hooks;
+mod inject;
 mod keychain;
 mod loop_engine;
 mod nl_planner;
@@ -16,6 +17,12 @@ pub use graph_extract::{
 };
 
 pub use hooks::{pre_tool_use_path_check, HookDecision, DEFAULT_DENY_PATH_PATTERNS};
+
+pub use inject::{
+    admit_plan_against_observations, tool_result_has_injection_phrase, wrap_untrusted_tool_output,
+    AdmitDecision, CorrelationFinding, ToolDepEdge, ToolDependencyGraph,
+    MIN_CORRELATION_SUBSTRING, TOOL_RESULT_INJECTION_PATTERNS,
+};
 
 pub use risk::{evaluate_approval_gate, find_steps_requiring_approval, RiskyStep};
 

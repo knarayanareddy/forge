@@ -248,7 +248,7 @@ Make extensibility safe and memory accountable. This is the phase that lets a ma
 | **11.5** | Secrets broker (A6): credentials injected at tool-invocation time, never in context; transcript and log redaction | prep |
 | **11.6 *(this PR)*** | **SEC-01**: tool authenticates using a brokered secret (`secret_env` on `mcp_call`); value injected into the MCP subprocess env at spawn and redacted from observations; secret absent from context, session log, audit log, and crash dump | **+1 → 30** |
 | **11.7** | Untrusted-data boundary: explicit delimiting of all tool output; per-session tool dependency graph | prep |
-| **11.8** | **INJECT-01**: frozen corpus where tool *results* attempt to induce unplanned tool calls — cross-call correlation flags and blocks; extends RED-01 surface | **+1 → 29** |
+| **11.8 *(this PR)*** | **INJECT-01**: frozen corpus where tool *results* attempt to induce unplanned tool calls — cross-call correlation flags and blocks via `admit_plan_against_observations` (wired into LOOP-04 replan); tool output delimited at the session-log boundary (11.7 bundled) | **+1 → 32** |
 | **11.9** | Consolidation apply (C5): `apply_consolidation_run(run_id)` in one transaction — `supersede_graph_node` + edge rewire + `review_pending → applied`; reject path too | prep |
 | **11.10 *(implemented, out of order)*** | `Database::apply_consolidation_run` reads back the *persisted review artifact* (not a freshly recomputed diff, so post-review graph drift can't silently change what gets applied) and supersedes exactly that node set in one transaction; re-applying an already-`applied` run is idempotent (`Ok(0)`, not an error), but applying a `rejected` or unknown run is always a hard error so a stray call can never override an explicit human rejection. `reject_consolidation_run` mutates no node. **CONS-01** harness: preview → apply → active graph reflects supersession and ignores a node added after review; idempotent re-apply; reject leaves the graph untouched and permanently blocks apply; unknown run id fails closed. Implemented ahead of the rest of Phase 11 (SKILL-03, SEC-01, INJECT-01 not yet started) since it was the smallest fully-isolated slice, using only existing `aether-db` schema — no migration needed | **+1 → 26 (implemented; Darwin canonical verified (run `30840008383` @ `51658d0`) — lands alongside CKPT-01, see the scoreboard projection below for the combined total)** |
 | **11.11** | User-inspectable memory (A8): "what I know about you" view with provenance, per-fact edit and delete, export | **MEM-03** *(probe)* |
@@ -394,11 +394,12 @@ Cheap, high-leverage, no feature dependency. Makes Forge composable rather than 
 | Phase 10 slices 10.8-10.9 *(merged, out of order)* | 28/28 | + PERM-02 (`evaluate_approval_gate`, wired into the human-facing `run_task` path; no permission-mode UI or batching UI); Darwin canonical verified (run `30840008383` @ `51658d0`). Landed alongside HOOK-01, CKPT-01, CONS-01 |
 | Phase 10 slices 10.3-10.4 *(merged, out of order)* | 29/29 | + SUB-01 (mechanical, not LLM, distillation); Darwin canonical verified (run `30840008383` @ `51658d0`). Last non-probe Phase 10 item — only `FORK-01` (probe) remains there |
 | Phase 11 slice 11.6 *(merged)* | 30/30 | + SEC-01 (brokered secrets: name-only plan/audit/session; env injection at MCP spawn; observation redaction); Linux-verified, Darwin canonical run pending |
-| Phase 11 slices 11.1–11.4 *(this PR)* | 31/31 | + SKILL-03 (capability manifest + content pin + injection scan + ≥8 poisoned corpus, 0 escapes); Linux-verified, Darwin canonical run pending |
-| Phase 8.1–8.3 | 32/32 | + INGEST-01 |
-| **Phase 9 complete** | **32/32** | + INGEST-01 (UNDO-01, LOOP-04 already merged above) |
-| **Phase 10 complete** | **32/32** | All non-probe Phase 10 items merged above (HOOK-01, CKPT-01, PERM-02, SUB-01); `FORK-01` stays off the scoreboard as a probe |
-| **Phase 11 complete** | **33/33** | + INJECT-01 (CONS-01, SEC-01, and SKILL-03 already merged above) |
+| Phase 11 slices 11.1–11.4 *(merged)* | 31/31 | + SKILL-03 (capability manifest + content pin + injection scan + ≥8 poisoned corpus, 0 escapes); Linux-verified, Darwin canonical run pending |
+| Phase 11 slices 11.7–11.8 *(this PR)* | 32/32 | + INJECT-01 (untrusted tool-result delimiters + cross-call correlation on LOOP-04 replan; ≥8 deny + benign allow corpus); Linux-verified, Darwin canonical run pending |
+| Phase 8.1–8.3 | 33/33 | + INGEST-01 |
+| **Phase 9 complete** | **33/33** | + INGEST-01 (UNDO-01, LOOP-04 already merged above) |
+| **Phase 10 complete** | **33/33** | All non-probe Phase 10 items merged above (HOOK-01, CKPT-01, PERM-02, SUB-01); `FORK-01` stays off the scoreboard as a probe |
+| **Phase 11 complete** | **32/32** | CONS-01, SEC-01, SKILL-03, and INJECT-01 merged (scoreboard complete for non-probe Phase 11 items; INGEST-01 remains a later projection) |
 | **Phase 12 complete** | **36/36** | + SLEEP-01, RELY-01, FORENSIC-01 |
 | **Phase 13 complete** | **37/37** | + APPLE-01 |
 
