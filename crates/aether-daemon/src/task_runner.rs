@@ -398,7 +398,30 @@ async fn run_nl_loop_task_with_replan(
         ensure_session_and_workspace_grant(&conn, &session_id, &config.workspace)?;
     }
 
-    let plan = match aether_core::run_nl_planner(&state.router, nl_goal, max_iterations).await {
+    // Close the memory-retrieval gap for structured NL-goal runs (Phase 8.0b previously only
+    // wired this into run_stream_task): recall is a no-op for a fresh session and never blocks
+    // planning if it fails, matching the same fail-open behavior already used there.
+    let planning_goal = match retrieve_session_memory(
+        &state.db,
+        &session_id,
+        nl_goal,
+        DEFAULT_MEMORY_RETRIEVAL_LIMIT,
+    )
+    .await
+    {
+        Ok(hits) => enrich_prompt_with_memory(nl_goal, &hits),
+        Err(e) => {
+            tracing::warn!(
+                session_id = %session_id,
+                error = %e,
+                "memory retrieval failed; planning without recalled context"
+            );
+            nl_goal.to_string()
+        }
+    };
+
+    let plan = match aether_core::run_nl_planner(&state.router, &planning_goal, max_iterations).await
+    {
         Ok(plan) => plan,
         Err(e) => {
             write_event(
@@ -836,6 +859,51 @@ mod tests {
             enrich_prompt_with_memory("plain request", &[]),
             "plain request"
         );
+    }
+
+    /// Phase 9 memory-retrieval gap closure: `run_nl_loop_task_with_replan` composes
+    /// `retrieve_session_memory_with_embedding` + `enrich_prompt_with_memory` exactly like this
+    /// before calling the NL planner. Proves that composition for an nl_goal-shaped query: the
+    /// recalled fact appears, and the original goal text survives verbatim at the end so
+    /// `validate_goal_coverage`'s keyword matching against the full enriched string still sees
+    /// every literal word the user wrote.
+    #[test]
+    fn nl_goal_planning_prompt_recalls_session_memory_and_preserves_goal_text() {
+        let db = Database::open_in_memory().unwrap();
+        {
+            let conn = db.conn();
+            conn.execute(
+                "INSERT INTO sessions (id, title, status) VALUES ('sess-nl-recall', 'NL', 'active')",
+                [],
+            )
+            .unwrap();
+        }
+        let embedding = vec![0.3f32; 384];
+        db.insert_memory_chunk(
+            "sess-nl-recall::t1::turn",
+            "memory://sess-nl-recall/turn/1",
+            "The project workspace is named aether-forge-demo.",
+            &embedding,
+        )
+        .unwrap();
+
+        let nl_goal = "Write a file named notes.txt containing exactly done. Verify notes.txt contains done. Then finish.";
+        let hits = retrieve_session_memory_with_embedding(
+            &db,
+            "sess-nl-recall",
+            nl_goal,
+            &embedding,
+            DEFAULT_MEMORY_RETRIEVAL_LIMIT,
+        )
+        .unwrap();
+        let planning_goal = enrich_prompt_with_memory(nl_goal, &hits);
+
+        assert!(planning_goal.contains("aether-forge-demo"));
+        assert!(planning_goal.ends_with(nl_goal));
+        // validate_goal_coverage keys off literal substrings like "write " / "verify " anywhere
+        // in the string; confirm they still match post-enrichment.
+        assert!(planning_goal.to_ascii_lowercase().contains("write "));
+        assert!(planning_goal.to_ascii_lowercase().contains("verify "));
     }
 
     #[test]

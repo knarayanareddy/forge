@@ -4,7 +4,10 @@
 [`30565128737`](https://github.com/knarayanareddy/forge/actions/runs/30565128737). See
 [PHASE_8_0_CLOSURE.md](./PHASE_8_0_CLOSURE.md). Phase 9 slices 9.7-9.8 (**UNDO-01**) and 9.9-9.10
 (**LOOP-04**) have since merged, bringing the harness to 24 tasks — Linux-verified, next Darwin
-canonical run pending.
+canonical run pending. A small non-numbered gap flagged during the post-8.0 audit — `retrieve_session_memory`
+was wired into `run_stream_task` (8.0b) but not the structured `nl:`-prefixed loop path — is also
+closed: `run_nl_loop_task_with_replan` now recalls session memory before planning, fail-open on
+retrieval failure, the same way `run_stream_task` already did.
 **Canonical platform:** Darwin (macOS 15+ Apple Silicon)
 **Binding spec:** Master roadmap. Each phase gets its own binding `ROADMAP_PHASE_N.md` **when it starts** — this document fixes scope, order, dependencies, and harness contracts.
 **Prerequisite gate:** [Phase 8.0](./ROADMAP_PHASE_8.0.md) slices 8.0b–8.0d — **cleared**. Phase 9 slices 9.11+ may proceed.
