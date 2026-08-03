@@ -191,6 +191,9 @@ impl ToolRegistry {
             ToolInvocation::FsWrite { path, content } => {
                 let full = resolve_workspace_path(&config.workspace, path)?;
                 let full_str = full.to_string_lossy().to_string();
+                if let crate::HookDecision::Deny(reason) = crate::pre_tool_use_path_check(&full) {
+                    return Err(reason);
+                }
                 let decision = PermissionManager::check_file_access(
                     conn,
                     &config.session_id,
@@ -219,6 +222,9 @@ impl ToolRegistry {
             ToolInvocation::FsRead { path } => {
                 let full = resolve_workspace_path(&config.workspace, path)?;
                 let full_str = full.to_string_lossy().to_string();
+                if let crate::HookDecision::Deny(reason) = crate::pre_tool_use_path_check(&full) {
+                    return Err(reason);
+                }
                 let decision = PermissionManager::check_file_access(
                     conn,
                     &config.session_id,

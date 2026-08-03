@@ -1,4 +1,5 @@
 mod graph_extract;
+mod hooks;
 mod keychain;
 mod loop_engine;
 mod nl_planner;
@@ -11,6 +12,8 @@ pub use graph_extract::{
     ExtractEdge, ExtractNode, GraphExtractError, GraphExtractPayload, PreparedGraphEdge,
     PreparedGraphNode, Provenance, GRAPH_EXTRACT_SCHEMA_PATH,
 };
+
+pub use hooks::{pre_tool_use_path_check, HookDecision, DEFAULT_DENY_PATH_PATTERNS};
 
 pub use keychain::{
     ensure_daemon_auth_token, load_byok_key, load_daemon_auth_token, load_daemon_auth_token_file,

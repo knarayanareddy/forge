@@ -25,6 +25,9 @@ use undo01::test_undo01_impl;
 mod loop04;
 use loop04::test_loop04_impl;
 
+mod hook01;
+use hook01::test_hook01_impl;
+
 mod ckpt01;
 use ckpt01::test_ckpt01_impl;
 
@@ -72,7 +75,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 26] = [
+const TASKS: [TaskSpec; 27] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -98,6 +101,7 @@ const TASKS: [TaskSpec; 26] = [
     TaskSpec { name: "AUTO-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CHECK-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "GATE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "HOOK-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CKPT-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CONS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
 ];
@@ -266,6 +270,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "AUTO-01" => test_auto01(db).await.map(|_| true),
         "CHECK-01" => test_check01(db).await.map(|_| true),
         "GATE-01" => test_gate01(db).await.map(|_| true),
+        "HOOK-01" => test_hook01_impl(db).map(|_| true),
         "CKPT-01" => test_ckpt01_impl(db).map(|_| true),
         "CONS-01" => test_cons01_impl(db).map(|_| true),
         other => Err(format!("Unknown task {}", other)),
