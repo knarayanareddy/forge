@@ -1,12 +1,15 @@
 # forge
 
-AetherForge MVP — **Phase 8.0 closed** (Darwin 22/22 verified). Phase 9 in progress.
+AetherForge MVP — **Phase 8.0 closed** (Darwin 22/22 verified at `432ace9`). Phase 9 in progress;
+the harness has since grown to 23 tasks with **UNDO-01** (Phase 9 slices 9.7-9.8), which is
+Linux-verified but not yet re-run through canonical Darwin CI.
 
 ## Harness score (Darwin, canonical)
 
 ```text
 cargo run -p golden-harness --bin golden-harness
-→ 22/22 harness target (last verified main baseline: 20/20) when ROUT-01 median warm TTFT ≤ 200ms,
+→ 23/23 harness target (Phase 8.0 closure verified 22/22 at 432ace9; UNDO-01 added after and is
+  Linux-verified pending its first Darwin canonical run) when ROUT-01 median warm TTFT ≤ 200ms,
   GRAPH-01 recall@3 ≥ 1.0, LOOP-02 NL plan through verify shell (gold trajectory in harness eval only),
   RED-01 blocks all frozen adversarial cases (≥12, currently 14),
   SKILL-02 routes 3/3 book_skill questions with citation fidelity ≥ 0.9,
@@ -16,17 +19,19 @@ cargo run -p golden-harness --bin golden-harness
   PLAN-01 routes ≥9/10 diverse NL goals with required tools and no forbidden tools,
   MEM-02 proves daemon turn → semantic chunk → graph link → isolated next-turn recall,
   SB-01 proves production tool sandboxing, environment scrubbing, and network denial,
-  and SESS-01 proves the JSONL session log records every plan/tool/observe/verify/error event
-  and reconstructs the executed trajectory without re-running inference
+  SESS-01 proves the JSONL session log records every plan/tool/observe/verify/error event
+  and reconstructs the executed trajectory without re-running inference,
+  and UNDO-01 proves a multi-file + git run can be undone byte-identical for every journaled
+  write, with the non-undoable git_init explicitly enumerated rather than silently skipped
 ```
 
 | Platform | Expected score | Hard / soft |
 |----------|----------------|-------------|
-| **Darwin** (Ollama + `sandbox-exec`) | **22/22 verified** | Canonical Darwin harness green on `main` @ `432ace9` (run `30565128737`) |
-| **Linux CI** (full matrix) | **15/22** | 15 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01 **FAIL-CLOSED** |
-| **Linux Ollama-independent** | **15/15** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, AUTO-01, CHECK-01, GATE-01 |
+| **Darwin** (Ollama + `sandbox-exec`) | **23/23 target** | 22/22 verified through `432ace9` (run `30565128737`); UNDO-01 added since, Linux-verified |
+| **Linux CI** (full matrix) | **16/23** | 16 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01 **FAIL-CLOSED** |
+| **Linux Ollama-independent** | **16/16** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, GATE-01 |
 
-Tasks (22): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **SESS-01**, **AUTO-01**, **CHECK-01**, **GATE-01**
+Tasks (23): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **GATE-01**
 
 ROUT-01 runs first, warms the chat model, drains five discard streams, then records **seven**
 server-side warm TTFT samples (`load_duration + prompt_eval_duration`). It drops the lowest and
@@ -49,7 +54,7 @@ product-performance claim.
 | **6 — Graph v1 + eval** | Bi-temporal graph, ingest extract, GRAPH-01/LOOP-02/RED-01/SKILL-02, consolidate offline | **Done** |
 | **7 — Orchestration** | Automation scheduler (AUTO-01), maker-checker (CHECK-01), gateway (GATE-01) | **Done — 18/18 harness** |
 | **8.0 — Honesty + closed loop** | IPC lockdown, NL de-harness, memory (MEM-02), production sandbox (SB-01) | **8.0a–8.0c implemented; docs/canonical SB-01 gate remain** |
-| **9 — Trust & Time** | Planner schema/repair (PLAN-01), JSONL session log (SESS-01) | **Slices 9.1–9.6 implemented; Darwin 22/22 verified** |
+| **9 — Trust & Time** | Planner schema/repair (PLAN-01), JSONL session log (SESS-01), undo journal (UNDO-01) | **Slices 9.1–9.8 implemented; Darwin 22/22 verified through SESS-01, UNDO-01 Linux-verified** |
 
 See [docs/ROADMAP_PHASES_1-5.md](docs/ROADMAP_PHASES_1-5.md) for Phases 1–5 acceptance criteria.  
 See [docs/ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md) for Phase 6 binding spec.  
@@ -191,7 +196,7 @@ FFI (`aether_ffi_daemon_ipc`, `aether_daemon_default_port`) provides default hos
 - **RED-01:** ≥12 frozen adversarial cases (14 shipped); 0% forbidden-action escape
 - **SKILL-02:** book-to-skill progressive disclosure — [docs/RATEL_TOOL_INDEX.md](docs/RATEL_TOOL_INDEX.md)
 - **Consolidate offline:** `./scripts/consolidate_memory.sh` → `review_pending` until human apply
-- **CI:** `.github/workflows/ci.yml` — Linux full matrix gate **≥15/22** · Darwin PR **build + unit tests + Swift only** · push/nightly Darwin **22/22 target** ([docs/LINUX_CI.md](docs/LINUX_CI.md))
+- **CI:** `.github/workflows/ci.yml` — Linux full matrix gate **≥16/23** · Darwin PR **build + unit tests + Swift only** · push/nightly Darwin **23/23 target** ([docs/LINUX_CI.md](docs/LINUX_CI.md))
 
 Install guide: [docs/INSTALL.md](docs/INSTALL.md)
 
