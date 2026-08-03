@@ -45,7 +45,7 @@ AetherForge treats **Darwin (macOS 15+)** as the canonical platform. Linux CI va
 
 | Environment | Expected harness | Hard / soft | Notes |
 |-------------|------------------|-------------|-------|
-| Darwin + Ollama + sandbox-exec | **30/30 target** | **30 hard / 0 soft** | Last canonical Darwin run verified 29/29 with SUB-01; SEC-01 added since and is Linux-verified pending its first Darwin canonical run |
+| Darwin + Ollama + sandbox-exec | **30/30 target** | **30 hard / 0 soft** | Canonical Darwin 29/29 green on `main` @ `51658d0` (run `30840008383`); SEC-01 added since and is Linux-verified pending its first Darwin canonical run |
 | Linux (default CI) | **22/30** | 22 hard / 0 soft† | FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04 fail-closed |
 | Linux + Ollama + MCP | **27/30** | 27 hard / 0 soft† | FS-02, SB-01, and OS-gated LOOP-02 fail closed |
 
