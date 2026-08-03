@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "description": "INGEST-01 fresh transcript fixture — live Ollama graph_extract only; no extract_json seed.",
+  "session_id": "sess-ingest-01",
+  "user_text": "Mira Chen maintains the NebulaLedger daemon at Acme Robotics. The release codename is Orchid-9.",
+  "assistant_text": "Noted — Mira Chen at Acme Robotics owns NebulaLedger; I will remember the Orchid-9 codename.",
+  "expected_entity_names": [
+    "Mira Chen",
+    "NebulaLedger",
+    "Orchid-9"
+  ],
+  "gold_query": "Who maintains the NebulaLedger daemon and what is the Orchid-9 codename?",
+  "recall_must_contain": "Orchid-9"
+}

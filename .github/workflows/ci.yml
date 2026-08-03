@@ -55,9 +55,9 @@ jobs:
           cargo run -p golden-harness 2>&1 | tee harness.log
           PASS=$(grep 'Passed:' harness.log | tail -1 | sed -E 's/.*Passed: ([0-9]+).*/\1/')
           HARD=$(grep 'Hard green:' harness.log | tail -1 | sed -E 's/.*Hard green: ([0-9]+).*/\1/')
-          echo "Harness passed: ${PASS:-0}/32 (${HARD:-0} hard)"
+          echo "Harness passed: ${PASS:-0}/33 (${HARD:-0} hard)"
           if [[ "${PASS:-0}" -lt 24 ]]; then
-            echo "Expected at least 24/32 on Linux (FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04 fail-closed without Darwin/Ollama)"
+            echo "Expected at least 24/33 on Linux (FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01 fail-closed without Darwin/Ollama)"
             exit 1
           fi
 
@@ -143,7 +143,7 @@ jobs:
       - name: Build workspace
         run: cargo build --workspace
 
-      - name: Golden harness (Darwin canonical 32/32)
+      - name: Golden harness (Darwin canonical 33/33)
         env:
           # macos-15 GHA runners vary 300–550ms warm server TTFT; 550ms avoids flake on slow VMs.
           AETHER_ROUT_TTFT_MS: "550"
@@ -152,9 +152,9 @@ jobs:
           cargo run -p golden-harness 2>&1 | tee harness.log
           PASS=$(grep 'Passed:' harness.log | tail -1 | sed -E 's/.*Passed: ([0-9]+).*/\1/')
           HARD=$(grep 'Hard green:' harness.log | tail -1 | sed -E 's/.*Hard green: ([0-9]+).*/\1/')
-          echo "Harness passed: ${PASS:-0}/32 (${HARD:-0} hard)"
-          if [[ "${PASS:-0}" -ne 32 || "${HARD:-0}" -ne 32 ]]; then
-            echo "Darwin canonical gate requires 32/32 (32 hard / 0 soft)"
+          echo "Harness passed: ${PASS:-0}/33 (${HARD:-0} hard)"
+          if [[ "${PASS:-0}" -ne 33 || "${HARD:-0}" -ne 33 ]]; then
+            echo "Darwin canonical gate requires 33/33 (33 hard / 0 soft)"
             exit 1
           fi
 

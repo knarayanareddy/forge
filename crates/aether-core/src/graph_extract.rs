@@ -168,8 +168,12 @@ async fn call_graph_extract_json(
     router: &ModelRouter,
     prompt: &str,
 ) -> Result<String, GraphExtractError> {
+    // Prefer schema-constrained decoding (Ollama grammar / BYOK structured outputs) so small
+    // local models cannot emit invalid entity_type/provenance enums — INGEST-01 anti-flake.
+    let schema: serde_json::Value = serde_json::from_str(graph_extract_schema_json())
+        .map_err(|e| GraphExtractError::Json(format!("pinned schema parse failed: {e}")))?;
     router
-        .complete_json(prompt, GRAPH_EXTRACT_NUM_PREDICT)
+        .complete_json_schema(prompt, GRAPH_EXTRACT_NUM_PREDICT, &schema)
         .await
         .map(|result| result.content)
         .map_err(|e| GraphExtractError::Ollama(e.to_string()))

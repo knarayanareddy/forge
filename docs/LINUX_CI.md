@@ -4,7 +4,7 @@ AetherForge treats **Darwin (macOS 15+)** as the canonical platform. Linux CI va
 
 **Related:** [ROADMAP_PHASE_6.md](./ROADMAP_PHASE_6.md) · [ROADMAP_PHASE_7.md](./ROADMAP_PHASE_7.md) · [GRAPH_V1.md](./GRAPH_V1.md) · [PHASE_6_SLICE_CHECKLIST.md](./PHASE_6_SLICE_CHECKLIST.md)
 
-## Harness matrix (32 tasks)
+## Harness matrix (33 tasks)
 
 | Task | Tier | Linux CI | Reason |
 |------|------|----------|--------|
@@ -47,13 +47,13 @@ AetherForge treats **Darwin (macOS 15+)** as the canonical platform. Linux CI va
 
 | Environment | Expected harness | Hard / soft | Notes |
 |-------------|------------------|-------------|-------|
-| Darwin + Ollama + sandbox-exec | **32/32 target** | **32 hard / 0 soft** | Canonical Darwin 29/29 green on `main` @ `51658d0` (run `30840008383`); SEC-01 + SKILL-03 + INJECT-01 Linux-verified pending Darwin re-run |
-| Linux (default CI) | **24/32** | 24 hard / 0 soft† | FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04 fail-closed |
-| Linux + Ollama + MCP | **29/32** | 29 hard / 0 soft† | FS-02, SB-01, and OS-gated LOOP-02 fail closed |
+| Darwin + Ollama + sandbox-exec | **33/33 target** | **32 hard / 0 soft** | Canonical Darwin 29/29 green on `main` @ `51658d0` (run `30840008383`); SEC-01 + SKILL-03 + INJECT-01 Linux-verified pending Darwin re-run |
+| Linux (default CI) | **24/33** | 24 hard / 0 soft† | FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01 fail-closed |
+| Linux + Ollama + MCP | **30/33** | 29 hard / 0 soft† | FS-02, SB-01, and OS-gated LOOP-02 fail closed |
 
-† Fail-closed tasks print `FAIL-CLOSED` and do not inflate the pass count — the harness reports **Passed: 24 / 32** on default Linux CI, not 32/32.
+† Fail-closed tasks print `FAIL-CLOSED` and do not inflate the pass count — the harness reports **Passed: 24 / 33** on default Linux CI, not 33/33.
 
-**Do not claim 32/32 on Linux.** Eight tasks require unavailable/default-disabled prerequisites; they must show explicit `FAIL-CLOSED`, never silent skip.
+**Do not claim 33/33 on Linux.** Nine tasks require unavailable/default-disabled prerequisites; they must show explicit `FAIL-CLOSED`, never silent skip.
 
 ## CI workflow tiers
 
@@ -61,9 +61,9 @@ GitHub Actions (`.github/workflows/ci.yml`):
 
 | Trigger | Linux job | Darwin job |
 |---------|-----------|------------|
-| **Pull request** | Full harness · gate ≥ 24/32 | **Build + unit tests + Swift only** — no golden harness |
-| **Push to `main`** | Full harness · gate ≥ 24/32 | Full harness · gate **32/32 (32 hard)** |
-| **Nightly schedule / manual** | Full harness · gate ≥ 24/32 | Full harness · gate **32/32 (32 hard)** |
+| **Pull request** | Full harness · gate ≥ 24/33 | **Build + unit tests + Swift only** — no golden harness |
+| **Push to `main`** | Full harness · gate ≥ 24/33 | Full harness · gate **33/33 (32 hard)** |
+| **Nightly schedule / manual** | Full harness · gate ≥ 24/33 | Full harness · gate **33/33 (32 hard)** |
 
 ### PR fast path (Linux Ollama-independent tasks)
 
@@ -71,7 +71,7 @@ PRs validate the Ollama-independent core without blocking on cold-model flake. T
 
 FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, UNDO-01, AUTO-01, CHECK-01, GATE-01, HOOK-01, CKPT-01, CONS-01, PERM-02, SUB-01, SEC-01, SKILL-03, INJECT-01.
 
-Linux PR jobs still run the **full 32-task harness** (24 pass + 8 fail-closed) and gate on ≥ 24/32. **Darwin PR jobs do not run the golden harness** — they run `cargo build`, `cargo test`, MCP allowlist scan, and Swift build only. Merge to `main` or nightly runs enforce **32/32 on Darwin**.
+Linux PR jobs still run the **full 33-task harness** (24 pass + 9 fail-closed) and gate on ≥ 24/33. **Darwin PR jobs do not run the golden harness** — they run `cargo build`, `cargo test`, MCP allowlist scan, and Swift build only. Merge to `main` or nightly runs enforce **33/33 on Darwin**.
 
 Steps on every job:
 
@@ -111,12 +111,20 @@ Setting `AETHER_BYOK_PROVIDER` on non-macOS causes daemon startup to **fail clos
 ## Local reproduction
 
 ```bash
-# Full Darwin gate (includes INJECT-01 — 32/32)
+# Full Darwin gate (includes INJECT-01 — 33/33)
 cargo run -p golden-harness
-# → Darwin scoreboard: 32/32 harness (32 hard / 0 soft)
+# → Darwin scoreboard: 33/33 harness (32 hard / 0 soft)
 
 # Simulate Linux fail-closed (unset Ollama, non-Darwin only)
 # On macOS, FS-02 still passes if sandbox-exec exists.
 ```
 
 See also [INSTALL.md](./INSTALL.md) for Ollama model requirements and [RATEL_TOOL_INDEX.md](./RATEL_TOOL_INDEX.md) for SKILL-02 progressive-disclosure routing.
+
+### INGEST-01 (live graph extract) — Phase 8.2–8.3
+
+Fresh transcript fixture under `tests/golden_harness/fixtures/ingest01_transcript.json` (no `extract_json` seed).
+Production path: `aether_daemon::ingest::ingest_turn_with_graph_extract` runs schema-constrained
+Ollama `graph_extract`, inserts namespaced graph nodes, embeds the turn, then recall@1 must
+surface the distinctive fact. Fail-closed when Ollama is offline.
+
