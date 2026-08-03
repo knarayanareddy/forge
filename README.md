@@ -1,16 +1,17 @@
 # forge
 
 AetherForge MVP — **Phase 8.0 closed** (Darwin 22/22 verified at `432ace9`). Phase 9 in progress;
-the harness has since grown to 24 tasks with **UNDO-01** (Phase 9 slices 9.7-9.8) and **LOOP-04**
-(Phase 9 slices 9.9-9.10), both Linux-verified but not yet re-run through canonical Darwin CI.
+the harness has since grown to 25 tasks with **UNDO-01** (Phase 9 slices 9.7-9.8), **LOOP-04**
+(Phase 9 slices 9.9-9.10), and **HOOK-01** (Phase 10 slice 10.7, `PreToolUse` hooks), all
+Linux-verified but not yet re-run through canonical Darwin CI.
 
 ## Harness score (Darwin, canonical)
 
 ```text
 cargo run -p golden-harness --bin golden-harness
-→ 24/24 harness target (Phase 8.0 closure verified 22/22 at 432ace9; UNDO-01 and LOOP-04 added
-  after and are Linux-verified pending their first Darwin canonical run) when ROUT-01 median warm
-  TTFT ≤ 200ms,
+→ 25/25 harness target (Phase 8.0 closure verified 22/22 at 432ace9; UNDO-01, LOOP-04, and HOOK-01
+  added after and are Linux-verified pending their first Darwin canonical run) when ROUT-01 median
+  warm TTFT ≤ 200ms,
   GRAPH-01 recall@3 ≥ 1.0, LOOP-02 NL plan through verify shell (gold trajectory in harness eval only),
   RED-01 blocks all frozen adversarial cases (≥12, currently 14),
   SKILL-02 routes 3/3 book_skill questions with citation fidelity ≥ 0.9,
@@ -24,18 +25,20 @@ cargo run -p golden-harness --bin golden-harness
   and reconstructs the executed trajectory without re-running inference,
   UNDO-01 proves a multi-file + git run can be undone byte-identical for every journaled
   write, with the non-undoable git_init explicitly enumerated rather than silently skipped,
-  and LOOP-04 proves a failed verify step triggers a bounded replan that self-corrects (tolerant
+  LOOP-04 proves a failed verify step triggers a bounded replan that self-corrects (tolerant
   pass rate, small local models are not 100% deterministic) plus a fully deterministic clean
-  failure once the shared iteration budget is exhausted
+  failure once the shared iteration budget is exhausted,
+  and HOOK-01 proves a PreToolUse hook blocks a sensitive-path write/read even with an explicit
+  grant and an explicit plan instruction, while an ordinary path is unaffected
 ```
 
 | Platform | Expected score | Hard / soft |
 |----------|----------------|-------------|
-| **Darwin** (Ollama + `sandbox-exec`) | **24/24 target** | 22/22 verified through `432ace9` (run `30565128737`); UNDO-01 and LOOP-04 added since, Linux-verified |
-| **Linux CI** (full matrix) | **16/24** | 16 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04 **FAIL-CLOSED** |
-| **Linux Ollama-independent** | **16/16** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, GATE-01 |
+| **Darwin** (Ollama + `sandbox-exec`) | **25/25 target** | 22/22 verified through `432ace9` (run `30565128737`); UNDO-01, LOOP-04, HOOK-01 added since, Linux-verified |
+| **Linux CI** (full matrix) | **17/25** | 17 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04 **FAIL-CLOSED** |
+| **Linux Ollama-independent** | **17/17** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, GATE-01, **HOOK-01** |
 
-Tasks (24): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **GATE-01**
+Tasks (25): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **GATE-01**, **HOOK-01**
 
 ROUT-01 runs first, warms the chat model, drains five discard streams, then records **seven**
 server-side warm TTFT samples (`load_duration + prompt_eval_duration`). It drops the lowest and
@@ -59,6 +62,7 @@ product-performance claim.
 | **7 — Orchestration** | Automation scheduler (AUTO-01), maker-checker (CHECK-01), gateway (GATE-01) | **Done — 18/18 harness** |
 | **8.0 — Honesty + closed loop** | IPC lockdown, NL de-harness, memory (MEM-02), production sandbox (SB-01) | **8.0a–8.0c implemented; docs/canonical SB-01 gate remain** |
 | **9 — Trust & Time** | Planner schema/repair (PLAN-01), JSONL session log (SESS-01), undo journal (UNDO-01), replan-on-verify-failure (LOOP-04) | **Slices 9.1–9.10 implemented; Darwin 22/22 verified through SESS-01, UNDO-01/LOOP-04 Linux-verified** |
+| **10 — Product Surface** | `PreToolUse` hook that blocks (HOOK-01) | **Slice 10.7 implemented ahead of the rest of Phase 10 (CKPT-01, FORK-01, SUB-01, PERM-02 not yet started on this branch); Linux-verified** |
 
 See [docs/ROADMAP_PHASES_1-5.md](docs/ROADMAP_PHASES_1-5.md) for Phases 1–5 acceptance criteria.  
 See [docs/ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md) for Phase 6 binding spec.  
@@ -200,7 +204,7 @@ FFI (`aether_ffi_daemon_ipc`, `aether_daemon_default_port`) provides default hos
 - **RED-01:** ≥12 frozen adversarial cases (14 shipped); 0% forbidden-action escape
 - **SKILL-02:** book-to-skill progressive disclosure — [docs/RATEL_TOOL_INDEX.md](docs/RATEL_TOOL_INDEX.md)
 - **Consolidate offline:** `./scripts/consolidate_memory.sh` → `review_pending` until human apply
-- **CI:** `.github/workflows/ci.yml` — Linux full matrix gate **≥16/24** · Darwin PR **build + unit tests + Swift only** · push/nightly Darwin **24/24 target** ([docs/LINUX_CI.md](docs/LINUX_CI.md))
+- **CI:** `.github/workflows/ci.yml` — Linux full matrix gate **≥17/25** · Darwin PR **build + unit tests + Swift only** · push/nightly Darwin **25/25 target** ([docs/LINUX_CI.md](docs/LINUX_CI.md))
 
 Install guide: [docs/INSTALL.md](docs/INSTALL.md)
 
