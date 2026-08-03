@@ -1,20 +1,22 @@
 # forge
 
-AetherForge MVP — **Phase 8.0 closed** (Darwin 22/22 verified at `432ace9`). Phase 9 in progress;
-the harness has since grown to 29 tasks with **UNDO-01** (Phase 9 slices 9.7-9.8), **LOOP-04**
-(Phase 9 slices 9.9-9.10), **HOOK-01** (Phase 10 slice 10.7, `PreToolUse` hooks), **CKPT-01**
-(Phase 10 slice 10.1, checkpoint + rewind), **CONS-01** (Phase 11, human-in-loop consolidation
-apply), **PERM-02** (Phase 10 slices 10.8-10.9, batched approval gate), and **SUB-01** (Phase 10
-slices 10.3-10.4, subagent delegation), all Linux-verified but not yet re-run through canonical
-Darwin CI.
+AetherForge MVP — **Darwin canonical 29/29 verified** at `51658d0` (run
+[`30840008383`](https://github.com/knarayanareddy/forge/actions/runs/30840008383)). The harness has
+grown from Phase 8.0's closed 22/22 to 29 tasks with **UNDO-01** (Phase 9 slices 9.7-9.8),
+**LOOP-04** (Phase 9 slices 9.9-9.10), **HOOK-01** (Phase 10 slice 10.7, `PreToolUse` hooks),
+**CKPT-01** (Phase 10 slice 10.1, checkpoint + rewind), **CONS-01** (Phase 11, human-in-loop
+consolidation apply), **PERM-02** (Phase 10 slices 10.8-10.9, batched approval gate), and **SUB-01**
+(Phase 10 slices 10.3-10.4, subagent delegation) — all now genuinely Darwin-verified, not just
+Linux-verified pending a canonical run, via `main`'s push-triggered `darwin-full` CI job on real
+`macos-15` runners with live Ollama and Seatbelt.
 
 ## Harness score (Darwin, canonical)
 
 ```text
 cargo run -p golden-harness --bin golden-harness
-→ 29/29 harness target (Phase 8.0 closure verified 22/22 at 432ace9; UNDO-01, LOOP-04, HOOK-01,
-  CKPT-01, CONS-01, PERM-02, and SUB-01 added after and are Linux-verified pending their first
-  Darwin canonical run) when ROUT-01 median warm TTFT ≤ 200ms,
+→ 29/29 harness — Darwin canonical, verified at 51658d0 (run 30840008383): UNDO-01, LOOP-04,
+  HOOK-01, CKPT-01, CONS-01, PERM-02, and SUB-01 all pass for real on macos-15 with live Ollama and
+  Seatbelt, not just Linux fail-closed — when ROUT-01 median warm TTFT ≤ 200ms,
   GRAPH-01 recall@3 ≥ 1.0, LOOP-02 NL plan through verify shell (gold trajectory in harness eval only),
   RED-01 blocks all frozen adversarial cases (≥12, currently 14),
   SKILL-02 routes 3/3 book_skill questions with citation fidelity ≥ 0.9,
@@ -47,7 +49,7 @@ cargo run -p golden-harness --bin golden-harness
 
 | Platform | Expected score | Hard / soft |
 |----------|----------------|-------------|
-| **Darwin** (Ollama + `sandbox-exec`) | **29/29 target** | 22/22 verified through `432ace9` (run `30565128737`); UNDO-01, LOOP-04, HOOK-01, CKPT-01, CONS-01, PERM-02, SUB-01 added since, Linux-verified |
+| **Darwin** (Ollama + `sandbox-exec`) | **29/29 verified** | Canonical Darwin harness green on `main` @ `51658d0` (run `30840008383`) |
 | **Linux CI** (full matrix) | **21/29** | 21 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04 **FAIL-CLOSED** |
 | **Linux Ollama-independent** | **21/21** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, GATE-01, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01** |
 
@@ -74,9 +76,9 @@ product-performance claim.
 | **6 — Graph v1 + eval** | Bi-temporal graph, ingest extract, GRAPH-01/LOOP-02/RED-01/SKILL-02, consolidate offline | **Done** |
 | **7 — Orchestration** | Automation scheduler (AUTO-01), maker-checker (CHECK-01), gateway (GATE-01) | **Done — 18/18 harness** |
 | **8.0 — Honesty + closed loop** | IPC lockdown, NL de-harness, memory (MEM-02), production sandbox (SB-01) | **8.0a–8.0c implemented; docs/canonical SB-01 gate remain** |
-| **9 — Trust & Time** | Planner schema/repair (PLAN-01), JSONL session log (SESS-01), undo journal (UNDO-01), replan-on-verify-failure (LOOP-04) | **Slices 9.1–9.10 implemented; Darwin 22/22 verified through SESS-01, UNDO-01/LOOP-04 Linux-verified** |
-| **10 — Product Surface** | Checkpoint + rewind (CKPT-01), `PreToolUse` hook that blocks (HOOK-01), batched approval gate (PERM-02), subagent delegation (SUB-01) | **Slices 10.1, 10.3-10.4, 10.7-10.9 implemented; only FORK-01 (probe) remains in Phase 10; Linux-verified** |
-| **11 — Memory & Supply Chain** | Human-in-loop consolidation apply/reject (CONS-01) | **CONS-01 implemented ahead of the rest of Phase 11 (SKILL-03, SEC-01, INJECT-01 not yet started); Linux-verified** |
+| **9 — Trust & Time** | Planner schema/repair (PLAN-01), JSONL session log (SESS-01), undo journal (UNDO-01), replan-on-verify-failure (LOOP-04) | **Slices 9.1–9.10 implemented; Darwin canonical 29/29 verified** |
+| **10 — Product Surface** | Checkpoint + rewind (CKPT-01), `PreToolUse` hook that blocks (HOOK-01), batched approval gate (PERM-02), subagent delegation (SUB-01) | **Slices 10.1, 10.3-10.4, 10.7-10.9 implemented; only FORK-01 (probe) remains in Phase 10; Darwin canonical 29/29 verified** |
+| **11 — Memory & Supply Chain** | Human-in-loop consolidation apply/reject (CONS-01) | **CONS-01 implemented ahead of the rest of Phase 11 (SKILL-03, SEC-01, INJECT-01 not yet started); Darwin canonical 29/29 verified** |
 
 See [docs/ROADMAP_PHASES_1-5.md](docs/ROADMAP_PHASES_1-5.md) for Phases 1–5 acceptance criteria.  
 See [docs/ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md) for Phase 6 binding spec.  
@@ -202,6 +204,15 @@ user action, the app sends authenticated `grant_workspace` before `run_task`. Ex
 require the pre-existing grant and never grant themselves authority. All agent execution goes
 through the daemon — the Swift app never calls git/fs tools directly.
 
+**Tabs:** Chat, Workspace, Permissions, Activity, and **Safety** (`SafetyView.swift`/`SafetyModel.swift`) —
+undo the session's last writes, create a checkpoint, and rewind to one, calling the daemon's
+`undo_writes`/`create_checkpoint`/`rewind_checkpoint` IPC methods (Phase 9/10's `UNDO-01`/`CKPT-01`
+backends). Compiles clean on Darwin CI (`main` @ `51658d0`, run
+[`30838281310`](https://github.com/knarayanareddy/forge/actions/runs/30838281310)); still needs a
+manual Xcode smoke test of the actual undo/checkpoint/rewind round-trip against a live daemon, which
+no CI job does yet. No UI yet for the approval gate (`PERM-02`), consolidation review (`CONS-01`),
+or subagent delegation (`SUB-01`) — those remain daemon/harness-only.
+
 FFI (`aether_ffi_daemon_ipc`, `aether_daemon_default_port`) provides default host/port hints only; streaming uses TCP.
 
 ## Phase 5 — Polish
@@ -225,4 +236,4 @@ Install guide: [docs/INSTALL.md](docs/INSTALL.md)
 ## Architecture target vs product readiness
 
 - **Spec engineering target:** 8.5+ (see v1.2.3 / v1.2.4 docs; Phase 6 memory architecture via [ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md))
-- **Last verified main baseline:** **22/22 on Darwin** (run `30565128737`) — Phase 7 capabilities plus schema-constrained planner repair (PLAN-01), closed daemon semantic-memory recall (MEM-02), authenticated IPC lockdown, production tool sandboxing (SB-01), and the JSONL session log (SESS-01).
+- **Last verified main baseline:** **29/29 on Darwin** (run `30840008383` @ `51658d0`) — everything through Phase 8.0's closure plus schema-constrained planner repair (PLAN-01), closed daemon semantic-memory recall (MEM-02), authenticated IPC lockdown, production tool sandboxing (SB-01), the JSONL session log (SESS-01), undo journal (UNDO-01), bounded replan (LOOP-04), a `PreToolUse` hook (HOOK-01), checkpoint + rewind (CKPT-01), consolidation apply (CONS-01), the approval gate (PERM-02), and subagent delegation (SUB-01). The prior 22/22 baseline (run `30565128737` @ `432ace9`) was Phase 8.0's own closure evidence; see [docs/PHASE_8_0_CLOSURE.md](docs/PHASE_8_0_CLOSURE.md).
