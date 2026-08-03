@@ -37,6 +37,9 @@ use cons01::test_cons01_impl;
 mod perm02;
 use perm02::test_perm02_impl;
 
+mod sub01;
+use sub01::test_sub01_impl;
+
 mod auto01;
 use auto01::test_auto01_impl;
 
@@ -78,7 +81,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 28] = [
+const TASKS: [TaskSpec; 29] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -108,6 +111,7 @@ const TASKS: [TaskSpec; 28] = [
     TaskSpec { name: "CKPT-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CONS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "PERM-02", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "SUB-01", hard_on_darwin: true, fail_closed_off_darwin: false },
 ];
 
 fn is_darwin() -> bool {
@@ -278,6 +282,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "CKPT-01" => test_ckpt01_impl(db).map(|_| true),
         "CONS-01" => test_cons01_impl(db).map(|_| true),
         "PERM-02" => test_perm02_impl(db).map(|_| true),
+        "SUB-01" => test_sub01_impl(db).map(|_| true),
         other => Err(format!("Unknown task {}", other)),
     };
 
