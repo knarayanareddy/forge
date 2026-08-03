@@ -523,6 +523,7 @@ fn tool_name(step: &ToolInvocation) -> &'static str {
         ToolInvocation::McpCall { .. } => "mcp_call",
         ToolInvocation::SkillExecute { .. } => "skill_execute",
         ToolInvocation::VerifyContains { .. } => "verify_contains",
+        ToolInvocation::SubagentTask { .. } => "subagent_task",
         ToolInvocation::Done => "done",
     }
 }
@@ -536,6 +537,7 @@ fn tool_target_key(step: &ToolInvocation) -> String {
         ToolInvocation::GitInit { branch } => branch.clone(),
         ToolInvocation::McpCall { server, tool, .. } => format!("{}:{}", server, tool),
         ToolInvocation::SkillExecute { skill_id, .. } => skill_id.clone(),
+        ToolInvocation::SubagentTask { paths } => paths.join(","),
         ToolInvocation::Done => "done".into(),
     }
 }

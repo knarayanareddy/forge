@@ -76,6 +76,13 @@ pub enum ToolInvocation {
         path: String,
         text: String,
     },
+    /// Delegate a read-heavy batch to a subagent with its own file-count budget (Phase 10 slices
+    /// 10.3-10.4 / SUB-01). Returns one distilled summary observation, not each file's full
+    /// content — this is what keeps the parent's context bounded regardless of how much the
+    /// subagent reads internally.
+    SubagentTask {
+        paths: Vec<String>,
+    },
     Done,
 }
 
@@ -367,6 +374,35 @@ impl ToolRegistry {
                         format!("Missing {:?} in {}", text, path)
                     },
                 ))
+            }
+            ToolInvocation::SubagentTask { paths } => {
+                for path in paths {
+                    let full = resolve_workspace_path(&config.workspace, path)?;
+                    if let crate::HookDecision::Deny(reason) = crate::pre_tool_use_path_check(&full)
+                    {
+                        return Err(reason);
+                    }
+                    let full_str = full.to_string_lossy().to_string();
+                    let decision = PermissionManager::check_file_access(
+                        conn,
+                        &config.session_id,
+                        &full_str,
+                        "read",
+                    )
+                    .map_err(|e| e.to_string())?;
+                    if decision != PermissionDecision::Approved {
+                        return Err(format!("Read denied for {}", full_str));
+                    }
+                }
+                match crate::run_subagent_read_task(&config.workspace, paths) {
+                    Ok(result) => Ok(observation(
+                        iteration,
+                        "subagent_task",
+                        true,
+                        result.distilled,
+                    )),
+                    Err(e) => Ok(observation(iteration, "subagent_task", false, e)),
+                }
             }
             ToolInvocation::Done => Ok(observation(iteration, "done", true, "plan complete".into())),
         }
@@ -673,6 +709,7 @@ fn tool_name(step: &ToolInvocation) -> &str {
         ToolInvocation::McpCall { .. } => "mcp_call",
         ToolInvocation::SkillExecute { .. } => "skill_execute",
         ToolInvocation::VerifyContains { .. } => "verify_contains",
+        ToolInvocation::SubagentTask { .. } => "subagent_task",
         ToolInvocation::Done => "done",
     }
 }
@@ -712,6 +749,9 @@ fn estimate_invocation_tokens(step: &ToolInvocation) -> usize {
         }
         ToolInvocation::VerifyContains { path, text } => {
             estimate_tokens(path) + estimate_tokens(text)
+        }
+        ToolInvocation::SubagentTask { paths } => {
+            paths.iter().map(|p| estimate_tokens(p)).sum()
         }
         ToolInvocation::Done => 1,
     }

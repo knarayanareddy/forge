@@ -5,6 +5,7 @@ mod loop_engine;
 mod nl_planner;
 mod orchestration_graph;
 mod risk;
+mod subagent;
 mod verifier_node;
 
 pub use graph_extract::{
@@ -17,6 +18,11 @@ pub use graph_extract::{
 pub use hooks::{pre_tool_use_path_check, HookDecision, DEFAULT_DENY_PATH_PATTERNS};
 
 pub use risk::{evaluate_approval_gate, find_steps_requiring_approval, RiskyStep};
+
+pub use subagent::{
+    run_subagent_read_task, SubagentFileSummary, SubagentResult, MAX_DISTILLED_CHARS,
+    MAX_SUBAGENT_FILES,
+};
 
 pub use keychain::{
     ensure_daemon_auth_token, load_byok_key, load_daemon_auth_token, load_daemon_auth_token_file,
