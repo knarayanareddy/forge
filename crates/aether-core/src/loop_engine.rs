@@ -201,8 +201,14 @@ impl ToolRegistry {
                 if decision != PermissionDecision::Approved {
                     return Err(format!("Write denied for target path {}", full_str));
                 }
-                ProductionSandbox::write_file(&config.workspace, &full, content.as_bytes())
-                    .map_err(|e| e.to_string())?;
+                aether_permissions::journal_file_write(
+                    conn,
+                    &config.session_id,
+                    &config.workspace,
+                    &full,
+                    content,
+                )
+                .map_err(|e| e.to_string())?;
                 Ok(observation(
                     iteration,
                     "fs_write",
@@ -261,12 +267,23 @@ impl ToolRegistry {
                     &config.workspace,
                     branch,
                 ) {
-                    Ok(()) => Ok(observation(
-                        iteration,
-                        "git_init",
-                        true,
-                        format!("Initialized repo on branch {}", branch),
-                    )),
+                    Ok(()) => {
+                        // Best-effort bookkeeping: git already succeeded, so a journal failure
+                        // here must not fail the tool call. It only means `undo_pending_writes`
+                        // will not be able to report this git_init as a known non-undoable step.
+                        let _ = aether_permissions::journal_git_init(
+                            conn,
+                            &config.session_id,
+                            &config.workspace,
+                            branch,
+                        );
+                        Ok(observation(
+                            iteration,
+                            "git_init",
+                            true,
+                            format!("Initialized repo on branch {}", branch),
+                        ))
+                    }
                     Err(e) => Ok(observation(
                         iteration,
                         "git_init",

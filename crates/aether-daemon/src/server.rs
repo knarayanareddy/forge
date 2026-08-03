@@ -117,6 +117,27 @@ async fn handle_client(
                     .await?;
                 }
             },
+            "undo_writes" => match handle_undo_writes(&state, &request) {
+                Ok(report) => {
+                    let not_undone = report
+                        .not_undone
+                        .into_iter()
+                        .map(|n| format!("{}: {}", n.target_path, n.reason))
+                        .collect();
+                    write_event(
+                        &mut writer,
+                        EventLine::undo_complete(report.reverted, not_undone),
+                    )
+                    .await?;
+                }
+                Err(e) => {
+                    write_event(
+                        &mut writer,
+                        EventLine::error(format!("undo_writes failed: {}", e)),
+                    )
+                    .await?;
+                }
+            },
             "register_automation" => {
                 if let Err(e) = handle_register_automation(&state, &request).await {
                     write_event(
@@ -230,6 +251,20 @@ fn handle_grant_workspace(
     )
     .map_err(|e| e.to_string())?;
     Ok(workspace)
+}
+
+fn handle_undo_writes(
+    state: &Arc<DaemonState>,
+    request: &RequestLine,
+) -> Result<aether_permissions::UndoReport, String> {
+    let session_id = request
+        .params
+        .session_id
+        .as_deref()
+        .filter(|id| !id.trim().is_empty())
+        .ok_or("missing session_id")?;
+    let conn = state.db.conn();
+    aether_permissions::undo_pending_writes(&conn, session_id)
 }
 
 async fn handle_automation_run(

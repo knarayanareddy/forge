@@ -75,6 +75,11 @@ pub struct EventLine {
     pub tick_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runs_completed: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reverted_paths: Option<Vec<String>>,
+    /// `"path: reason"` entries for journal entries that were intentionally not undone.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub not_undone: Option<Vec<String>>,
 }
 
 impl EventLine {
@@ -100,6 +105,8 @@ impl EventLine {
             trigger_id: None,
             tick_count: None,
             runs_completed: None,
+            reverted_paths: None,
+            not_undone: None,
         }
     }
 
@@ -209,6 +216,13 @@ impl EventLine {
     pub fn automation_run_complete(count: usize) -> Self {
         let mut e = Self::base("automation_run_complete");
         e.tick_count = Some(count);
+        e
+    }
+
+    pub fn undo_complete(reverted: Vec<String>, not_undone: Vec<String>) -> Self {
+        let mut e = Self::base("undo_complete");
+        e.reverted_paths = Some(reverted);
+        e.not_undone = Some(not_undone);
         e
     }
 }
