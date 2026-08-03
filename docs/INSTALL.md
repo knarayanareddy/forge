@@ -104,7 +104,7 @@ Darwin is canonical. On Linux, the golden harness **fail-closes** tasks that req
 | FS-02, SB-01 | FAIL-CLOSED (Darwin Seatbelt required) |
 | MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04 | FAIL-CLOSED (Ollama/Darwin unavailable in default CI) |
 
-Expected score: **21/29 PASS**, 8 explicit fail-closed.
+Expected score: **22/30 PASS**, 8 explicit fail-closed.
 
 See [LINUX_CI.md](LINUX_CI.md) for CI matrix details and PR fast-path vs nightly Darwin gate.
 
@@ -112,7 +112,7 @@ See [LINUX_CI.md](LINUX_CI.md) for CI matrix details and PR fast-path vs nightly
 
 ```bash
 cargo run -p golden-harness
-# Darwin with Ollama warm: 29/29 target (29 hard / 0 soft)
+# Darwin with Ollama warm: 30/30 target (30 hard / 0 soft)
 swift build
 ./scripts/build-ffi.sh
 ```

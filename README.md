@@ -2,21 +2,19 @@
 
 AetherForge MVP — **Darwin canonical 29/29 verified** at `51658d0` (run
 [`30840008383`](https://github.com/knarayanareddy/forge/actions/runs/30840008383)). The harness has
-grown from Phase 8.0's closed 22/22 to 29 tasks with **UNDO-01** (Phase 9 slices 9.7-9.8),
-**LOOP-04** (Phase 9 slices 9.9-9.10), **HOOK-01** (Phase 10 slice 10.7, `PreToolUse` hooks),
-**CKPT-01** (Phase 10 slice 10.1, checkpoint + rewind), **CONS-01** (Phase 11, human-in-loop
-consolidation apply), **PERM-02** (Phase 10 slices 10.8-10.9, batched approval gate), and **SUB-01**
-(Phase 10 slices 10.3-10.4, subagent delegation) — all now genuinely Darwin-verified, not just
-Linux-verified pending a canonical run, via `main`'s push-triggered `darwin-full` CI job on real
-`macos-15` runners with live Ollama and Seatbelt.
+grown from Phase 8.0's closed 22/22 through that verified 29, and this branch adds **SEC-01**
+(Phase 11 slice 11.6, brokered secrets) for a **30/30 target**. Tasks through **SUB-01** are
+genuinely Darwin-verified via `main`'s push-triggered `darwin-full` CI job on real `macos-15`
+runners with live Ollama and Seatbelt; **SEC-01** is Linux-verified pending its first Darwin
+canonical run.
 
 ## Harness score (Darwin, canonical)
 
 ```text
 cargo run -p golden-harness --bin golden-harness
-→ 29/29 harness — Darwin canonical, verified at 51658d0 (run 30840008383): UNDO-01, LOOP-04,
-  HOOK-01, CKPT-01, CONS-01, PERM-02, and SUB-01 all pass for real on macos-15 with live Ollama and
-  Seatbelt, not just Linux fail-closed — when ROUT-01 median warm TTFT ≤ 200ms,
+→ 30/30 harness target (Darwin canonical 29/29 verified at 51658d0, run 30840008383; SEC-01
+  added after and is Linux-verified pending its first Darwin canonical run) when ROUT-01 median
+  warm TTFT ≤ 200ms,
   GRAPH-01 recall@3 ≥ 1.0, LOOP-02 NL plan through verify shell (gold trajectory in harness eval only),
   RED-01 blocks all frozen adversarial cases (≥12, currently 14),
   SKILL-02 routes 3/3 book_skill questions with citation fidelity ≥ 0.9,
@@ -42,18 +40,21 @@ cargo run -p golden-harness --bin golden-harness
   PERM-02 proves a plan that would overwrite an existing file (or call an external MCP tool)
   is blocked with zero side effects until explicitly approved, while a plan touching only new files
   needs no approval at all,
-  and SUB-01 proves a subagent's distilled summary is a fraction of the raw content it read,
+  SUB-01 proves a subagent's distilled summary is a fraction of the raw content it read,
   every delegated file is still named in the summary, and the subagent's own file-count budget is
-  enforced independent of the parent's iteration budget
+  enforced independent of the parent's iteration budget,
+  and SEC-01 proves a tool authenticates with a brokered secret by name while the secret value
+  is absent from plan/context, session log, audit log, and a synthesized crash dump (including
+  when the tool result deliberately echoes the value)
 ```
 
 | Platform | Expected score | Hard / soft |
 |----------|----------------|-------------|
-| **Darwin** (Ollama + `sandbox-exec`) | **29/29 verified** | Canonical Darwin harness green on `main` @ `51658d0` (run `30840008383`) |
-| **Linux CI** (full matrix) | **21/29** | 21 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04 **FAIL-CLOSED** |
-| **Linux Ollama-independent** | **21/21** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, GATE-01, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01** |
+| **Darwin** (Ollama + `sandbox-exec`) | **30/30 target** | 29/29 verified on `main` @ `51658d0` (run `30840008383`); SEC-01 Linux-verified pending Darwin re-run |
+| **Linux CI** (full matrix) | **22/30** | 22 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04 **FAIL-CLOSED** |
+| **Linux Ollama-independent** | **22/22** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, GATE-01, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01** |
 
-Tasks (29): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **GATE-01**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**
+Tasks (30): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **GATE-01**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**
 
 ROUT-01 runs first, warms the chat model, drains five discard streams, then records **seven**
 server-side warm TTFT samples (`load_duration + prompt_eval_duration`). It drops the lowest and
@@ -78,7 +79,7 @@ product-performance claim.
 | **8.0 — Honesty + closed loop** | IPC lockdown, NL de-harness, memory (MEM-02), production sandbox (SB-01) | **8.0a–8.0c implemented; docs/canonical SB-01 gate remain** |
 | **9 — Trust & Time** | Planner schema/repair (PLAN-01), JSONL session log (SESS-01), undo journal (UNDO-01), replan-on-verify-failure (LOOP-04) | **Slices 9.1–9.10 implemented; Darwin canonical 29/29 verified** |
 | **10 — Product Surface** | Checkpoint + rewind (CKPT-01), `PreToolUse` hook that blocks (HOOK-01), batched approval gate (PERM-02), subagent delegation (SUB-01) | **Slices 10.1, 10.3-10.4, 10.7-10.9 implemented; only FORK-01 (probe) remains in Phase 10; Darwin canonical 29/29 verified** |
-| **11 — Memory & Supply Chain** | Human-in-loop consolidation apply/reject (CONS-01) | **CONS-01 implemented ahead of the rest of Phase 11 (SKILL-03, SEC-01, INJECT-01 not yet started); Darwin canonical 29/29 verified** |
+| **11 — Memory & Supply Chain** | Consolidation apply/reject (CONS-01), brokered secrets (SEC-01) | **CONS-01 Darwin-verified; SEC-01 on this branch (30/30 target, Linux-verified); SKILL-03 and INJECT-01 not yet started** |
 
 See [docs/ROADMAP_PHASES_1-5.md](docs/ROADMAP_PHASES_1-5.md) for Phases 1–5 acceptance criteria.  
 See [docs/ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md) for Phase 6 binding spec.  
@@ -229,11 +230,11 @@ FFI (`aether_ffi_daemon_ipc`, `aether_daemon_default_port`) provides default hos
 - **RED-01:** ≥12 frozen adversarial cases (14 shipped); 0% forbidden-action escape
 - **SKILL-02:** book-to-skill progressive disclosure — [docs/RATEL_TOOL_INDEX.md](docs/RATEL_TOOL_INDEX.md)
 - **Consolidate offline:** `./scripts/consolidate_memory.sh` → `review_pending` until human apply
-- **CI:** `.github/workflows/ci.yml` — Linux full matrix gate **≥21/29** · Darwin PR **build + unit tests + Swift only** · push/nightly Darwin **29/29 target** ([docs/LINUX_CI.md](docs/LINUX_CI.md))
+- **CI:** `.github/workflows/ci.yml` — Linux full matrix gate **≥22/30** · Darwin PR **build + unit tests + Swift only** · push/nightly Darwin **30/30 target** ([docs/LINUX_CI.md](docs/LINUX_CI.md))
 
 Install guide: [docs/INSTALL.md](docs/INSTALL.md)
 
 ## Architecture target vs product readiness
 
 - **Spec engineering target:** 8.5+ (see v1.2.3 / v1.2.4 docs; Phase 6 memory architecture via [ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md))
-- **Last verified main baseline:** **29/29 on Darwin** (run `30840008383` @ `51658d0`) — everything through Phase 8.0's closure plus schema-constrained planner repair (PLAN-01), closed daemon semantic-memory recall (MEM-02), authenticated IPC lockdown, production tool sandboxing (SB-01), the JSONL session log (SESS-01), undo journal (UNDO-01), bounded replan (LOOP-04), a `PreToolUse` hook (HOOK-01), checkpoint + rewind (CKPT-01), consolidation apply (CONS-01), the approval gate (PERM-02), and subagent delegation (SUB-01). The prior 22/22 baseline (run `30565128737` @ `432ace9`) was Phase 8.0's own closure evidence; see [docs/PHASE_8_0_CLOSURE.md](docs/PHASE_8_0_CLOSURE.md).
+- **Last verified main baseline:** **29/29 on Darwin** (run `30840008383` @ `51658d0`) — everything through Phase 8.0's closure plus schema-constrained planner repair (PLAN-01), closed daemon semantic-memory recall (MEM-02), authenticated IPC lockdown, production tool sandboxing (SB-01), the JSONL session log (SESS-01), undo journal (UNDO-01), bounded replan (LOOP-04), a `PreToolUse` hook (HOOK-01), checkpoint + rewind (CKPT-01), consolidation apply (CONS-01), the approval gate (PERM-02), and subagent delegation (SUB-01). This branch adds SEC-01 for a **30/30** target (Linux-verified). The prior 22/22 baseline (run `30565128737` @ `432ace9`) was Phase 8.0's own closure evidence; see [docs/PHASE_8_0_CLOSURE.md](docs/PHASE_8_0_CLOSURE.md).

@@ -337,6 +337,7 @@ fn run_mcp_case(conn: &rusqlite::Connection, case: &RedTeamCase) -> Result<(), S
         tool,
         args,
         &[workspace_str.clone()],
+        &[],
     );
 
     if result.is_ok() {
