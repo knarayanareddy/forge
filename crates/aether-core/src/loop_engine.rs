@@ -638,7 +638,7 @@ fn require_verified_writes(pending_writes: &[String]) -> Result<(), String> {
 }
 
 /// Resolve a workspace-relative path and reject escapes (absolute paths, `..`, encoded segments).
-fn resolve_workspace_path(workspace: &PathBuf, rel: &str) -> Result<PathBuf, String> {
+pub(crate) fn resolve_workspace_path(workspace: &PathBuf, rel: &str) -> Result<PathBuf, String> {
     use aether_permissions::canonicalize_access_path;
 
     let workspace_canon = workspace
