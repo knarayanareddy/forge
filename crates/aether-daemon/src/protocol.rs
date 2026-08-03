@@ -31,6 +31,8 @@ pub struct RequestParams {
     pub config_json: Option<String>,
     #[serde(default)]
     pub grant_automation: Option<bool>,
+    #[serde(default)]
+    pub checkpoint_id: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -80,6 +82,10 @@ pub struct EventLine {
     /// `"path: reason"` entries for journal entries that were intentionally not undone.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub not_undone: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checkpoint_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turns_truncated: Option<u32>,
 }
 
 impl EventLine {
@@ -107,6 +113,8 @@ impl EventLine {
             runs_completed: None,
             reverted_paths: None,
             not_undone: None,
+            checkpoint_id: None,
+            turns_truncated: None,
         }
     }
 
@@ -223,6 +231,20 @@ impl EventLine {
         let mut e = Self::base("undo_complete");
         e.reverted_paths = Some(reverted);
         e.not_undone = Some(not_undone);
+        e
+    }
+
+    pub fn checkpoint_created(checkpoint_id: i64) -> Self {
+        let mut e = Self::base("checkpoint_created");
+        e.checkpoint_id = Some(checkpoint_id);
+        e
+    }
+
+    pub fn rewind_complete(reverted: Vec<String>, not_undone: Vec<String>, turns_truncated: u32) -> Self {
+        let mut e = Self::base("rewind_complete");
+        e.reverted_paths = Some(reverted);
+        e.not_undone = Some(not_undone);
+        e.turns_truncated = Some(turns_truncated);
         e
     }
 }
