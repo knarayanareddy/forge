@@ -179,18 +179,7 @@ pub async fn run_task(
     params: &RunTaskParams,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if let Some(nl_goal) = params.prompt.strip_prefix("nl:") {
-        let max_iterations = params.max_iterations.unwrap_or(8);
-        match aether_core::run_nl_planner(&state.router, nl_goal.trim(), max_iterations).await {
-            Ok(plan) => return run_loop_task(writer, state, params, plan).await,
-            Err(e) => {
-                write_event(
-                    writer,
-                    EventLine::error(format!("NlPlanner failed: {}", e)),
-                )
-                .await?;
-                return Ok(());
-            }
-        }
+        return run_nl_loop_task_with_replan(writer, state, params, nl_goal.trim()).await;
     }
 
     if OrchestrationGraph::parse_checker_goal(&params.prompt).is_some() {
@@ -258,6 +247,210 @@ async fn run_loop_task(
     }
 
     match result {
+        Ok(run) => {
+            write_event(
+                writer,
+                EventLine::done_with_tokens(
+                    run.summary.clone(),
+                    0,
+                    "loop".into(),
+                    Some(run.tokens_used),
+                ),
+            )
+            .await?;
+
+            post_turn_ingest(
+                state,
+                &session_id,
+                params.prompt.trim(),
+                run.summary.trim(),
+            )
+            .await;
+        }
+        Err(e) => {
+            write_event(writer, EventLine::error(e.to_string())).await?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Bounded replan attempts on top of the initial plan (Phase 9 slice 9.9-9.10 / LOOP-04).
+pub const MAX_LOOP_REPLANS: usize = 2;
+
+/// Run a structured plan with bounded self-correction: when a `verify_contains`/`python_lint`
+/// step fails mid-execution, replan the remaining work with the failure fed back to the planner
+/// instead of aborting outright. Each attempt (initial plus every replan, up to
+/// [`MAX_LOOP_REPLANS`]) still goes through `execute_structured_loop`, so each gets its own
+/// session-log turn — an honest audit trail of what was tried, not just the final outcome. The
+/// overall `max_iterations`/token budget in `config` is shared across every attempt, not reset per
+/// replan, so an unrecoverable goal still fails cleanly within budget rather than looping
+/// indefinitely. Returns the final result, every attempt's events concatenated in order, and how
+/// many replans actually ran (so a caller — or a test — can tell self-correction genuinely fired
+/// rather than the first attempt happening to succeed).
+///
+/// This is the single production entry point for LOOP-04-style execution: both the daemon's
+/// `nl:`-prefixed `run_task` path and the `LOOP-04` harness task call it directly.
+pub async fn run_structured_with_replan(
+    db: &Database,
+    config: &mut LoopConfig,
+    initial_plan: Vec<aether_core::ToolInvocation>,
+    allowlist: Option<&McpAllowlist>,
+    skills: &HashMap<String, SkillDefinition>,
+    router: &aether_core::ModelRouter,
+    nl_goal: &str,
+) -> (Result<LoopRunResult, LoopError>, Vec<LoopStreamEvent>, usize) {
+    let overall_max_iterations = config.max_iterations;
+    let mut plan = initial_plan;
+    let mut turn_label = format!("nl:{nl_goal}");
+    let mut replans = 0usize;
+    let mut all_events = Vec::new();
+
+    let final_result = loop {
+        // Scoped so the DB mutex guard is dropped before any `.await` below — holding it across
+        // the planner's network round-trip would serialize every other daemon DB access on this
+        // session for the duration of that call, and would make this future non-`Send`.
+        let (result, events) = {
+            let conn = db.conn();
+            execute_structured_loop(&conn, config, plan, allowlist, skills, None, &turn_label)
+        };
+        all_events.extend(events);
+
+        match result {
+            Err(LoopError::VerifyFailed {
+                failed_tool,
+                detail,
+                iterations_used,
+                observations,
+            }) if replans < MAX_LOOP_REPLANS => {
+                // Share one iteration budget across every attempt instead of resetting it per
+                // replan — otherwise an unrecoverable goal could loop far past the caller's
+                // requested max_iterations. Check budget BEFORE counting this as a replan
+                // attempt: `replans` tracks planner calls that actually happened, not attempts
+                // that were merely eligible.
+                config.max_iterations = config.max_iterations.saturating_sub(iterations_used);
+                if config.max_iterations == 0 {
+                    break Err(LoopError::MaxIterations(overall_max_iterations));
+                }
+                replans += 1;
+                let completed_tools: Vec<String> = observations
+                    .iter()
+                    .filter(|o| o.success)
+                    .map(|o| o.tool.clone())
+                    .collect();
+                match aether_core::run_nl_planner_repair(
+                    router,
+                    nl_goal,
+                    &completed_tools,
+                    &failed_tool,
+                    &detail,
+                    config.max_iterations,
+                )
+                .await
+                {
+                    Ok(new_plan) => {
+                        plan = new_plan;
+                        turn_label = format!(
+                            "nl-replan-{replans}:{nl_goal} (after {failed_tool} failed: {detail})"
+                        );
+                        continue;
+                    }
+                    Err(e) => {
+                        break Err(LoopError::Turn(format!(
+                            "replan {replans} failed: {e}"
+                        )))
+                    }
+                }
+            }
+            other => break other,
+        }
+    };
+
+    (final_result, all_events, replans)
+}
+
+/// NL-goal loop execution with bounded self-correction (see [`run_structured_with_replan`]).
+async fn run_nl_loop_task_with_replan(
+    writer: &mut OwnedWriteHalf,
+    state: &Arc<DaemonState>,
+    params: &RunTaskParams,
+    nl_goal: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let session_id = params
+        .session_id
+        .clone()
+        .unwrap_or_else(|| "daemon-loop".into());
+    let workspace = resolve_workspace(params.workspace_path.as_deref())?;
+    let allowlist = load_allowlist();
+    let skills = load_skills();
+    let max_iterations = params.max_iterations.unwrap_or(8);
+    let max_tokens = params.max_tokens.unwrap_or(DEFAULT_MAX_LOOP_TOKENS);
+    let mut config = LoopConfig {
+        max_iterations,
+        max_tokens,
+        tokens_used: 0,
+        session_id: session_id.clone(),
+        workspace,
+    };
+
+    {
+        let conn = state.db.conn();
+        ensure_session_and_workspace_grant(&conn, &session_id, &config.workspace)?;
+    }
+
+    // Close the memory-retrieval gap for structured NL-goal runs (Phase 8.0b previously only
+    // wired this into run_stream_task): recall is a no-op for a fresh session and never blocks
+    // planning if it fails, matching the same fail-open behavior already used there.
+    let planning_goal = match retrieve_session_memory(
+        &state.db,
+        &session_id,
+        nl_goal,
+        DEFAULT_MEMORY_RETRIEVAL_LIMIT,
+    )
+    .await
+    {
+        Ok(hits) => enrich_prompt_with_memory(nl_goal, &hits),
+        Err(e) => {
+            tracing::warn!(
+                session_id = %session_id,
+                error = %e,
+                "memory retrieval failed; planning without recalled context"
+            );
+            nl_goal.to_string()
+        }
+    };
+
+    let plan = match aether_core::run_nl_planner(&state.router, &planning_goal, max_iterations).await
+    {
+        Ok(plan) => plan,
+        Err(e) => {
+            write_event(
+                writer,
+                EventLine::error(format!("NlPlanner failed: {}", e)),
+            )
+            .await?;
+            return Ok(());
+        }
+    };
+
+    let (final_result, events, _replans) = run_structured_with_replan(
+        &state.db,
+        &mut config,
+        plan,
+        allowlist.as_ref(),
+        &skills,
+        &state.router,
+        nl_goal,
+    )
+    .await;
+
+    for event in &events {
+        if let Some(line) = loop_event_to_line(event) {
+            write_event(writer, line).await?;
+        }
+    }
+
+    match final_result {
         Ok(run) => {
             write_event(
                 writer,
@@ -666,6 +859,51 @@ mod tests {
             enrich_prompt_with_memory("plain request", &[]),
             "plain request"
         );
+    }
+
+    /// Phase 9 memory-retrieval gap closure: `run_nl_loop_task_with_replan` composes
+    /// `retrieve_session_memory_with_embedding` + `enrich_prompt_with_memory` exactly like this
+    /// before calling the NL planner. Proves that composition for an nl_goal-shaped query: the
+    /// recalled fact appears, and the original goal text survives verbatim at the end so
+    /// `validate_goal_coverage`'s keyword matching against the full enriched string still sees
+    /// every literal word the user wrote.
+    #[test]
+    fn nl_goal_planning_prompt_recalls_session_memory_and_preserves_goal_text() {
+        let db = Database::open_in_memory().unwrap();
+        {
+            let conn = db.conn();
+            conn.execute(
+                "INSERT INTO sessions (id, title, status) VALUES ('sess-nl-recall', 'NL', 'active')",
+                [],
+            )
+            .unwrap();
+        }
+        let embedding = vec![0.3f32; 384];
+        db.insert_memory_chunk(
+            "sess-nl-recall::t1::turn",
+            "memory://sess-nl-recall/turn/1",
+            "The project workspace is named aether-forge-demo.",
+            &embedding,
+        )
+        .unwrap();
+
+        let nl_goal = "Write a file named notes.txt containing exactly done. Verify notes.txt contains done. Then finish.";
+        let hits = retrieve_session_memory_with_embedding(
+            &db,
+            "sess-nl-recall",
+            nl_goal,
+            &embedding,
+            DEFAULT_MEMORY_RETRIEVAL_LIMIT,
+        )
+        .unwrap();
+        let planning_goal = enrich_prompt_with_memory(nl_goal, &hits);
+
+        assert!(planning_goal.contains("aether-forge-demo"));
+        assert!(planning_goal.ends_with(nl_goal));
+        // validate_goal_coverage keys off literal substrings like "write " / "verify " anywhere
+        // in the string; confirm they still match post-enrichment.
+        assert!(planning_goal.to_ascii_lowercase().contains("write "));
+        assert!(planning_goal.to_ascii_lowercase().contains("verify "));
     }
 
     #[test]
