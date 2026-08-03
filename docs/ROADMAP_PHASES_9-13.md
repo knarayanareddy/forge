@@ -3,11 +3,13 @@
 **Baseline:** Phase 8.0 **closed** — Darwin **22/22 (22 hard / 0 soft)** on `main` @ `432ace9`, run
 [`30565128737`](https://github.com/knarayanareddy/forge/actions/runs/30565128737). See
 [PHASE_8_0_CLOSURE.md](./PHASE_8_0_CLOSURE.md). Phase 9 slices 9.7-9.8 (**UNDO-01**) and 9.9-9.10
-(**LOOP-04**) have since merged, bringing the harness to 24 tasks — Linux-verified, next Darwin
-canonical run pending. A small non-numbered gap flagged during the post-8.0 audit — `retrieve_session_memory`
-was wired into `run_stream_task` (8.0b) but not the structured `nl:`-prefixed loop path — is also
-closed: `run_nl_loop_task_with_replan` now recalls session memory before planning, fail-open on
-retrieval failure, the same way `run_stream_task` already did.
+(**LOOP-04**) have since merged, and Phase 11's **CONS-01** (consolidation apply/reject) has been
+implemented ahead of the rest of Phase 11, bringing the harness to 25 tasks — all three
+Linux-verified, next Darwin canonical run pending. A small non-numbered gap flagged during the
+post-8.0 audit — `retrieve_session_memory` was wired into `run_stream_task` (8.0b) but not the
+structured `nl:`-prefixed loop path — is also closed: `run_nl_loop_task_with_replan` now recalls
+session memory before planning, fail-open on retrieval failure, the same way `run_stream_task`
+already did.
 **Canonical platform:** Darwin (macOS 15+ Apple Silicon)
 **Binding spec:** Master roadmap. Each phase gets its own binding `ROADMAP_PHASE_N.md` **when it starts** — this document fixes scope, order, dependencies, and harness contracts.
 **Prerequisite gate:** [Phase 8.0](./ROADMAP_PHASE_8.0.md) slices 8.0b–8.0d — **cleared**. Phase 9 slices 9.11+ may proceed.
@@ -123,7 +125,7 @@ Phases 9–13 close that gap in dependency order, not wish order. The organising
 | C2 | Hash-chained `audit_log` | Tamper-evident exportable activity log | 9 | *(extends SAFE-01)* |
 | C3 | MCP SHA-256 + `tools_hash` pinning | Skill/plugin supply chain: signing, capability manifests, injection scan | 11 | SKILL-03 |
 | C4 | `query_policy` table | Retrieval policy autotune per corpus | 11 | POLICY-01 *(probe)* |
-| C5 | `consolidation_runs` / `review_pending` (no apply path) | Human-in-loop memory apply | 11 | CONS-01 |
+| C5 *(implemented)* | `consolidation_runs` / `review_pending` gained `apply_consolidation_run`/`reject_consolidation_run` | Human-in-loop memory apply | 11 | CONS-01 |
 | C6 | Seatbelt plumbing (FS-02 only) | Sandbox all tools + egress control | **8.0c** | *(extends FS-02)* |
 
 ---
@@ -245,7 +247,7 @@ Make extensibility safe and memory accountable. This is the phase that lets a ma
 | **11.7** | Untrusted-data boundary: explicit delimiting of all tool output; per-session tool dependency graph | prep |
 | **11.8** | **INJECT-01**: frozen corpus where tool *results* attempt to induce unplanned tool calls — cross-call correlation flags and blocks; extends RED-01 surface | **+1 → 29** |
 | **11.9** | Consolidation apply (C5): `apply_consolidation_run(run_id)` in one transaction — `supersede_graph_node` + edge rewire + `review_pending → applied`; reject path too | prep |
-| **11.10** | **CONS-01**: preview → apply → active graph reflects supersession; rejected run leaves graph untouched; re-apply is idempotent | **+1 → 30** |
+| **11.10 *(implemented, out of order)*** | `Database::apply_consolidation_run` reads back the *persisted review artifact* (not a freshly recomputed diff, so post-review graph drift can't silently change what gets applied) and supersedes exactly that node set in one transaction; re-applying an already-`applied` run is idempotent (`Ok(0)`, not an error), but applying a `rejected` or unknown run is always a hard error so a stray call can never override an explicit human rejection. `reject_consolidation_run` mutates no node. **CONS-01** harness: preview → apply → active graph reflects supersession and ignores a node added after review; idempotent re-apply; reject leaves the graph untouched and permanently blocks apply; unknown run id fails closed. Implemented ahead of the rest of Phase 11 (SKILL-03, SEC-01, INJECT-01 not yet started) since it was the smallest fully-isolated slice, using only existing `aether-db` schema — no migration needed | **+1 → 25 (implemented; Linux-verified, Darwin canonical run pending)** |
 | **11.11** | User-inspectable memory (A8): "what I know about you" view with provenance, per-fact edit and delete, export | **MEM-03** *(probe)* |
 | **11.12** | Retrieval policy autotune (C4): tune `query_policy` weights against a local gold set; per-corpus profiles | **POLICY-01** *(probe)* |
 | **11.13** | Graph depth (re-scoped from 8.4–8.6): bidirectional 1-hop first, then bounded multi-hop with path ranking. **No Leiden community summarization** — token budget incompatible with local inference | **GRAPH-02** *(gated on recall delta)* |
@@ -257,7 +259,7 @@ Make extensibility safe and memory accountable. This is the phase that lets a ma
 | "Safe skill marketplace" | SKILL-03 0/8 escapes with signing + manifest enforcement |
 | "Secrets never leak" | SEC-01 across context, session log, audit log, crash dump |
 | "Injection defended" | INJECT-01 cross-call correlation blocks, not delimiters alone |
-| "Consolidation workflow" | CONS-01 apply path in a transaction, plus reject and idempotent re-apply |
+| "Consolidation workflow" | CONS-01 apply path in a transaction, plus reject and idempotent re-apply — **shipped** |
 | "Graph v2" | GRAPH-02 recall delta over the GRAPH-01 baseline; hop depth alone is hop theater |
 
 ---
@@ -383,10 +385,11 @@ Cheap, high-leverage, no feature dependency. Makes Forge composable rather than 
 | **Phase 8.0 complete** | **22/22** | **Canonical Darwin verified** — run `30565128737` on `main` @ `432ace9` |
 | Phase 9 slices 9.7–9.8 *(merged)* | 23/23 | + UNDO-01 (session-scoped `undo_pending_writes`; git_init enumerated non-undoable); Linux-verified, Darwin canonical run pending |
 | Phase 9 slices 9.9–9.10 *(merged)* | 24/24 | + LOOP-04 (bounded replan on verify failure via `run_structured_with_replan`); Linux-verified, Darwin canonical run pending |
-| Phase 8.1–8.3 | 25/25 | + INGEST-01 |
-| **Phase 9 complete** | **25/25** | + INGEST-01 (UNDO-01, LOOP-04 already merged above) |
-| **Phase 10 complete** | **29/29** | + CKPT-01, SUB-01, HOOK-01, PERM-02 |
-| **Phase 11 complete** | **33/33** | + SKILL-03, SEC-01, INJECT-01, CONS-01 |
+| Phase 11 slice 11.10 *(merged, out of order)* | 25/25 | + CONS-01 (`apply_consolidation_run`/`reject_consolidation_run`, applies exactly the persisted review artifact); Linux-verified, Darwin canonical run pending. Landed ahead of Phase 10 and the rest of Phase 11 — smallest fully-isolated slice, no schema migration needed |
+| Phase 8.1–8.3 | 26/26 | + INGEST-01 |
+| **Phase 9 complete** | **26/26** | + INGEST-01 (UNDO-01, LOOP-04 already merged above) |
+| **Phase 10 complete** | **30/30** | + CKPT-01, SUB-01, HOOK-01, PERM-02 |
+| **Phase 11 complete** | **33/33** | + SKILL-03, SEC-01, INJECT-01 (CONS-01 already merged above) |
 | **Phase 12 complete** | **36/36** | + SLEEP-01, RELY-01, FORENSIC-01 |
 | **Phase 13 complete** | **37/37** | + APPLE-01 |
 
