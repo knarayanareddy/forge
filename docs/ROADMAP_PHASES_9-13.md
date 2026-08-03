@@ -2,10 +2,11 @@
 
 **Baseline:** Phase 8.0 **closed** — Darwin **22/22 (22 hard / 0 soft)** on `main` @ `432ace9`, run
 [`30565128737`](https://github.com/knarayanareddy/forge/actions/runs/30565128737). See
-[PHASE_8_0_CLOSURE.md](./PHASE_8_0_CLOSURE.md).
+[PHASE_8_0_CLOSURE.md](./PHASE_8_0_CLOSURE.md). Phase 9 slices 9.7-9.8 (**UNDO-01**) have since
+merged, bringing the harness to 23 tasks — Linux-verified, next Darwin canonical run pending.
 **Canonical platform:** Darwin (macOS 15+ Apple Silicon)
 **Binding spec:** Master roadmap. Each phase gets its own binding `ROADMAP_PHASE_N.md` **when it starts** — this document fixes scope, order, dependencies, and harness contracts.
-**Prerequisite gate:** [Phase 8.0](./ROADMAP_PHASE_8.0.md) slices 8.0b–8.0d — **cleared**. Phase 9 slices 9.7+ may proceed.
+**Prerequisite gate:** [Phase 8.0](./ROADMAP_PHASE_8.0.md) slices 8.0b–8.0d — **cleared**. Phase 9 slices 9.9+ may proceed.
 
 ---
 
@@ -165,8 +166,7 @@ Make the loop honest and time-travellable. Every downstream feature — checkpoi
 | **9.4** | **PLAN-01** harness: ≥10 frozen diverse goals (read-only, git, MCP, skill, multi-file, and 2 adversarial) — ≥90% produce executable plans | Planner works beyond eval shape | **+1 → 19** |
 | **9.5** | `LoopEvent` → JSONL session log (append-only, one file per session, schema-versioned); daemon writes every plan/tool/observe/verify/error | Session reconstructable from disk | prep |
 | **9.5-9.6 *(implemented)*** | `LoopStreamEvent` → JSONL session log (`aether-daemon::session_log`), append-only, schema-versioned, one file per session; `execute_structured_loop` centralizes every daemon execution path (`run_task`, automation triggers, gateway inbound) so all of them log a `TurnStart` plus every plan/tool/observe/verify/budget/done/error event, success or failure. **SESS-01** harness parses the log with no access to the live run and reconstructs the identical tool trajectory; asserts strictly increasing `seq`, pinned `schema_version`, a second turn appends without overwriting and increments `turn_index`, and a rejected plan's `Error` record is present | Log is a complete, order-preserving record of what actually ran | **+1 → 22 (implemented, ahead of the 9.7-9.13 slices below)** |
-| **9.7** | Wire `undo_journal` into `ToolRegistry`: every `fs_write`/`fs_delete`/`rename` records an `inverse_patch` before mutating; git ops record ref state | Agent writes are journaled | prep |
-| **9.8** | **UNDO-01** harness: multi-step run mutates N files + git → single `undo_run(run_id)` restores byte-identical pre-state; non-undoable side effects enumerated, not silently skipped | Run-level undo | **+1 → 23** |
+| **9.7-9.8 *(implemented, narrower scope)*** | `aether_permissions::journal_file_write`/`journal_git_init` wired into `ToolRegistry::execute` for `fs_write` and `git_init` (the only mutating tools that exist today — there is no `fs_delete`/`rename` tool to wire). `undo_pending_writes(session_id)` unwinds every still-`applied` journal row for the session, most recent first, restoring byte-identical prior content or deleting agent-created files; `git_init` is recorded as a marker and reported `not_undone` with a reason rather than reverted. **Scope narrower than originally planned:** this is session-scoped ("undo everything since the last undo"), not the `undo_run(run_id)` single-turn scoping the phrasing below implies — `undo_journal` has no run/turn column yet, and adding one is a documented follow-up, not a silent redefinition. **UNDO-01** harness proves multi-file + git run → byte-identical restore for every journaled write, idempotent on a second call, with the git mutation explicitly enumerated as non-undoable | Agent writes are journaled and reversible; non-undoable side effects are enumerated, not silently skipped | **+1 → 23 (implemented; Linux-verified, Darwin canonical run pending)** |
 | **9.9** | Replan on verify failure: `verify_contains`/`python_lint` failure returns to planner with observation instead of aborting; bounded by iteration + token budget | Loop self-corrects | prep |
 | **9.10** | **LOOP-04** harness: frozen plan whose step 2 fails verification → loop replans → succeeds within budget; and a frozen unrecoverable case → clean bounded failure with audit | Self-correction proven | **+1 → 24** |
 | **9.11** | Cost/context accounting: real token counts from provider (`eval_count` / `usage`), per-tool and per-run attribution, default non-zero `max_tokens` (absorbs 8.1 BUDG-01) | Budgets enforced; no unlimited default | **COST-01** *(probe)* |
@@ -378,8 +378,10 @@ Cheap, high-leverage, no feature dependency. Makes Forge composable rather than 
 | Phase 8.0c *(merged)* | 21/21 | + SB-01 production tool sandbox |
 | Phase 9 slices 9.5–9.6 *(merged)* | 22/22 | + SESS-01 session log; also fixed a `GIT_CONFIG_NOSYSTEM` Seatbelt/git regression the first post-merge Darwin run of Phase 8.0c surfaced |
 | **Phase 8.0 complete** | **22/22** | **Canonical Darwin verified** — run `30565128737` on `main` @ `432ace9` |
-| Phase 8.1–8.3 | 23/23 | + INGEST-01 |
-| **Phase 9 complete** | **25/25** | + UNDO-01, LOOP-04 |
+| Phase 9 slices 9.7–9.8 *(merged)* | 23/23 | + UNDO-01 (session-scoped `undo_pending_writes`; git_init enumerated non-undoable); Linux-verified, Darwin canonical run pending |
+| Phase 8.1–8.3 | 24/24 | + INGEST-01 |
+| Phase 9 slices 9.9–9.10 | 25/25 | + LOOP-04 |
+| **Phase 9 complete** | **25/25** | + INGEST-01, LOOP-04 (UNDO-01 already merged above) |
 | **Phase 10 complete** | **29/29** | + CKPT-01, SUB-01, HOOK-01, PERM-02 |
 | **Phase 11 complete** | **33/33** | + SKILL-03, SEC-01, INJECT-01, CONS-01 |
 | **Phase 12 complete** | **36/36** | + SLEEP-01, RELY-01, FORENSIC-01 |
