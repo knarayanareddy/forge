@@ -1,19 +1,20 @@
 # forge
 
 AetherForge MVP — **Phase 8.0 closed** (Darwin 22/22 verified at `432ace9`). Phase 9 in progress;
-the harness has since grown to 28 tasks with **UNDO-01** (Phase 9 slices 9.7-9.8), **LOOP-04**
+the harness has since grown to 29 tasks with **UNDO-01** (Phase 9 slices 9.7-9.8), **LOOP-04**
 (Phase 9 slices 9.9-9.10), **HOOK-01** (Phase 10 slice 10.7, `PreToolUse` hooks), **CKPT-01**
 (Phase 10 slice 10.1, checkpoint + rewind), **CONS-01** (Phase 11, human-in-loop consolidation
-apply), and **PERM-02** (Phase 10 slices 10.8-10.9, batched approval gate), all Linux-verified but
-not yet re-run through canonical Darwin CI.
+apply), **PERM-02** (Phase 10 slices 10.8-10.9, batched approval gate), and **SUB-01** (Phase 10
+slices 10.3-10.4, subagent delegation), all Linux-verified but not yet re-run through canonical
+Darwin CI.
 
 ## Harness score (Darwin, canonical)
 
 ```text
 cargo run -p golden-harness --bin golden-harness
-→ 28/28 harness target (Phase 8.0 closure verified 22/22 at 432ace9; UNDO-01, LOOP-04, HOOK-01,
-  CKPT-01, CONS-01, and PERM-02 added after and are Linux-verified pending their first Darwin
-  canonical run) when ROUT-01 median warm TTFT ≤ 200ms,
+→ 29/29 harness target (Phase 8.0 closure verified 22/22 at 432ace9; UNDO-01, LOOP-04, HOOK-01,
+  CKPT-01, CONS-01, PERM-02, and SUB-01 added after and are Linux-verified pending their first
+  Darwin canonical run) when ROUT-01 median warm TTFT ≤ 200ms,
   GRAPH-01 recall@3 ≥ 1.0, LOOP-02 NL plan through verify shell (gold trajectory in harness eval only),
   RED-01 blocks all frozen adversarial cases (≥12, currently 14),
   SKILL-02 routes 3/3 book_skill questions with citation fidelity ≥ 0.9,
@@ -36,18 +37,21 @@ cargo run -p golden-harness --bin golden-harness
   survives a second rewind, and fails closed on an unknown checkpoint id,
   CONS-01 proves apply supersedes exactly the reviewed diff (ignoring later graph drift),
   apply is idempotent, reject mutates no node, and a rejected run can never later be applied,
-  and PERM-02 proves a plan that would overwrite an existing file (or call an external MCP tool)
+  PERM-02 proves a plan that would overwrite an existing file (or call an external MCP tool)
   is blocked with zero side effects until explicitly approved, while a plan touching only new files
-  needs no approval at all
+  needs no approval at all,
+  and SUB-01 proves a subagent's distilled summary is a fraction of the raw content it read,
+  every delegated file is still named in the summary, and the subagent's own file-count budget is
+  enforced independent of the parent's iteration budget
 ```
 
 | Platform | Expected score | Hard / soft |
 |----------|----------------|-------------|
-| **Darwin** (Ollama + `sandbox-exec`) | **28/28 target** | 22/22 verified through `432ace9` (run `30565128737`); UNDO-01, LOOP-04, HOOK-01, CKPT-01, CONS-01, PERM-02 added since, Linux-verified |
-| **Linux CI** (full matrix) | **20/28** | 20 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04 **FAIL-CLOSED** |
-| **Linux Ollama-independent** | **20/20** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, GATE-01, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02** |
+| **Darwin** (Ollama + `sandbox-exec`) | **29/29 target** | 22/22 verified through `432ace9` (run `30565128737`); UNDO-01, LOOP-04, HOOK-01, CKPT-01, CONS-01, PERM-02, SUB-01 added since, Linux-verified |
+| **Linux CI** (full matrix) | **21/29** | 21 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04 **FAIL-CLOSED** |
+| **Linux Ollama-independent** | **21/21** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, GATE-01, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01** |
 
-Tasks (28): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **GATE-01**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**
+Tasks (29): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **GATE-01**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**
 
 ROUT-01 runs first, warms the chat model, drains five discard streams, then records **seven**
 server-side warm TTFT samples (`load_duration + prompt_eval_duration`). It drops the lowest and
@@ -71,7 +75,7 @@ product-performance claim.
 | **7 — Orchestration** | Automation scheduler (AUTO-01), maker-checker (CHECK-01), gateway (GATE-01) | **Done — 18/18 harness** |
 | **8.0 — Honesty + closed loop** | IPC lockdown, NL de-harness, memory (MEM-02), production sandbox (SB-01) | **8.0a–8.0c implemented; docs/canonical SB-01 gate remain** |
 | **9 — Trust & Time** | Planner schema/repair (PLAN-01), JSONL session log (SESS-01), undo journal (UNDO-01), replan-on-verify-failure (LOOP-04) | **Slices 9.1–9.10 implemented; Darwin 22/22 verified through SESS-01, UNDO-01/LOOP-04 Linux-verified** |
-| **10 — Product Surface** | Checkpoint + rewind (CKPT-01), `PreToolUse` hook that blocks (HOOK-01), batched approval gate (PERM-02) | **Slices 10.1, 10.7-10.9 implemented ahead of the rest of Phase 10 (FORK-01, SUB-01 not yet started); Linux-verified** |
+| **10 — Product Surface** | Checkpoint + rewind (CKPT-01), `PreToolUse` hook that blocks (HOOK-01), batched approval gate (PERM-02), subagent delegation (SUB-01) | **Slices 10.1, 10.3-10.4, 10.7-10.9 implemented; only FORK-01 (probe) remains in Phase 10; Linux-verified** |
 | **11 — Memory & Supply Chain** | Human-in-loop consolidation apply/reject (CONS-01) | **CONS-01 implemented ahead of the rest of Phase 11 (SKILL-03, SEC-01, INJECT-01 not yet started); Linux-verified** |
 
 See [docs/ROADMAP_PHASES_1-5.md](docs/ROADMAP_PHASES_1-5.md) for Phases 1–5 acceptance criteria.  
@@ -214,7 +218,7 @@ FFI (`aether_ffi_daemon_ipc`, `aether_daemon_default_port`) provides default hos
 - **RED-01:** ≥12 frozen adversarial cases (14 shipped); 0% forbidden-action escape
 - **SKILL-02:** book-to-skill progressive disclosure — [docs/RATEL_TOOL_INDEX.md](docs/RATEL_TOOL_INDEX.md)
 - **Consolidate offline:** `./scripts/consolidate_memory.sh` → `review_pending` until human apply
-- **CI:** `.github/workflows/ci.yml` — Linux full matrix gate **≥20/28** · Darwin PR **build + unit tests + Swift only** · push/nightly Darwin **28/28 target** ([docs/LINUX_CI.md](docs/LINUX_CI.md))
+- **CI:** `.github/workflows/ci.yml` — Linux full matrix gate **≥21/29** · Darwin PR **build + unit tests + Swift only** · push/nightly Darwin **29/29 target** ([docs/LINUX_CI.md](docs/LINUX_CI.md))
 
 Install guide: [docs/INSTALL.md](docs/INSTALL.md)
 
