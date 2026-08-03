@@ -33,6 +33,8 @@ pub struct RequestParams {
     pub grant_automation: Option<bool>,
     #[serde(default)]
     pub checkpoint_id: Option<i64>,
+    #[serde(default)]
+    pub approved: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -86,6 +88,9 @@ pub struct EventLine {
     pub checkpoint_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turns_truncated: Option<u32>,
+    /// `"index: tool - reason"` entries for steps blocked pending approval (PERM-02).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub risky_steps: Option<Vec<String>>,
 }
 
 impl EventLine {
@@ -115,6 +120,7 @@ impl EventLine {
             not_undone: None,
             checkpoint_id: None,
             turns_truncated: None,
+            risky_steps: None,
         }
     }
 
@@ -245,6 +251,17 @@ impl EventLine {
         e.reverted_paths = Some(reverted);
         e.not_undone = Some(not_undone);
         e.turns_truncated = Some(turns_truncated);
+        e
+    }
+
+    pub fn pending_approval(risky: &[aether_core::RiskyStep]) -> Self {
+        let mut e = Self::base("pending_approval");
+        e.risky_steps = Some(
+            risky
+                .iter()
+                .map(|r| format!("{}: {} - {}", r.index, r.tool, r.reason))
+                .collect(),
+        );
         e
     }
 }

@@ -5,8 +5,8 @@ use crate::gateway::GatewayChannel;
 use crate::session_log::SessionLogWriter;
 use crate::DaemonState;
 use aether_core::{
-    fetch_ollama_embedding, LoopConfig, LoopError, LoopRunResult, LoopStreamEvent,
-    MakerCheckerGoal, OrchestrationGraph, PromptComplexity, ReActLoopEngine,
+    evaluate_approval_gate, fetch_ollama_embedding, LoopConfig, LoopError, LoopRunResult,
+    LoopStreamEvent, MakerCheckerGoal, OrchestrationGraph, PromptComplexity, ReActLoopEngine,
     DEFAULT_MAX_LOOP_TOKENS,
 };
 use aether_db::Database;
@@ -27,6 +27,10 @@ pub struct RunTaskParams {
     pub workspace_path: Option<String>,
     pub max_iterations: Option<usize>,
     pub max_tokens: Option<usize>,
+    /// Explicit human confirmation for a plan containing risky steps (PERM-02). Automation
+    /// triggers and gateway inbound do not go through this gate — they already have their own
+    /// consent mechanism (`AutomationGrant`/`GatewayGrant`, granted once at registration time).
+    pub approved: bool,
 }
 
 const DEFAULT_MEMORY_RETRIEVAL_LIMIT: usize = 5;
@@ -219,7 +223,11 @@ async fn run_loop_task(
     };
 
     let checker_goal = OrchestrationGraph::parse_checker_goal(&params.prompt);
-    let (result, events) = {
+    enum GateOutcome {
+        Blocked(Vec<aether_core::RiskyStep>),
+        Proceed(Result<LoopRunResult, LoopError>, Vec<LoopStreamEvent>),
+    }
+    let outcome = {
         let conn = state.db.conn();
         ensure_session_and_workspace_grant(&conn, &session_id, &config.workspace)?;
         let plan = if checker_goal.is_some() && plan.is_empty() {
@@ -229,15 +237,28 @@ async fn run_loop_task(
         } else {
             plan
         };
-        execute_structured_loop(
-            &conn,
-            &mut config,
-            plan,
-            allowlist.as_ref(),
-            &skills,
-            checker_goal.as_ref(),
-            params.prompt.trim(),
-        )
+        if let Some(risky) = evaluate_approval_gate(&config.workspace, &plan, params.approved) {
+            GateOutcome::Blocked(risky)
+        } else {
+            let (result, events) = execute_structured_loop(
+                &conn,
+                &mut config,
+                plan,
+                allowlist.as_ref(),
+                &skills,
+                checker_goal.as_ref(),
+                params.prompt.trim(),
+            );
+            GateOutcome::Proceed(result, events)
+        }
+    };
+
+    let (result, events) = match outcome {
+        GateOutcome::Blocked(risky) => {
+            write_event(writer, EventLine::pending_approval(&risky)).await?;
+            return Ok(());
+        }
+        GateOutcome::Proceed(result, events) => (result, events),
     };
 
     for event in &events {
@@ -432,6 +453,11 @@ async fn run_nl_loop_task_with_replan(
             return Ok(());
         }
     };
+
+    if let Some(risky) = evaluate_approval_gate(&config.workspace, &plan, params.approved) {
+        write_event(writer, EventLine::pending_approval(&risky)).await?;
+        return Ok(());
+    }
 
     let (final_result, events, _replans) = run_structured_with_replan(
         &state.db,
