@@ -96,6 +96,7 @@ async fn handle_client(
                     workspace_path: request.params.workspace_path,
                     max_iterations: request.params.max_iterations,
                     max_tokens: request.params.max_tokens,
+                    approved: request.params.approved.unwrap_or(false),
                 };
 
                 if let Err(e) = run_task(&mut writer, &state, &params).await {

@@ -32,6 +32,10 @@ struct DaemonEvent: Identifiable, Sendable {
     let summary: String?
     let passed: Bool?
     let detail: String?
+    let revertedPaths: [String]?
+    let notUndone: [String]?
+    let checkpointId: Int64?
+    let turnsTruncated: Int?
 
     var displayLine: String {
         switch type {
@@ -112,6 +116,76 @@ final class DaemonClient: @unchecked Sendable {
         guard events.contains(where: { $0.type == "workspace_granted" }) else {
             throw DaemonClientError.invalidEvent("workspace grant was not acknowledged")
         }
+    }
+
+    struct UndoResult: Sendable {
+        let revertedPaths: [String]
+        let notUndone: [String]
+    }
+
+    func undoWrites(sessionId: String, timeoutSeconds: TimeInterval = 10) async throws -> UndoResult {
+        var params = authParams()
+        params["session_id"] = sessionId
+        let events = try await collectEvents(
+            method: "undo_writes",
+            params: params,
+            timeoutSeconds: timeoutSeconds
+        )
+        if let error = events.first(where: { $0.type == "error" }) {
+            throw DaemonClientError.invalidEvent(error.message ?? "undo failed")
+        }
+        guard let complete = events.first(where: { $0.type == "undo_complete" }) else {
+            throw DaemonClientError.invalidEvent("undo was not acknowledged")
+        }
+        return UndoResult(
+            revertedPaths: complete.revertedPaths ?? [],
+            notUndone: complete.notUndone ?? []
+        )
+    }
+
+    func createCheckpoint(sessionId: String, timeoutSeconds: TimeInterval = 10) async throws -> Int64 {
+        var params = authParams()
+        params["session_id"] = sessionId
+        let events = try await collectEvents(
+            method: "create_checkpoint",
+            params: params,
+            timeoutSeconds: timeoutSeconds
+        )
+        if let error = events.first(where: { $0.type == "error" }) {
+            throw DaemonClientError.invalidEvent(error.message ?? "checkpoint creation failed")
+        }
+        guard let created = events.first(where: { $0.type == "checkpoint_created" }),
+              let checkpointId = created.checkpointId else {
+            throw DaemonClientError.invalidEvent("checkpoint creation was not acknowledged")
+        }
+        return checkpointId
+    }
+
+    struct RewindResult: Sendable {
+        let revertedPaths: [String]
+        let notUndone: [String]
+        let turnsTruncated: Int
+    }
+
+    func rewindCheckpoint(checkpointId: Int64, timeoutSeconds: TimeInterval = 10) async throws -> RewindResult {
+        var params = authParams()
+        params["checkpoint_id"] = checkpointId
+        let events = try await collectEvents(
+            method: "rewind_checkpoint",
+            params: params,
+            timeoutSeconds: timeoutSeconds
+        )
+        if let error = events.first(where: { $0.type == "error" }) {
+            throw DaemonClientError.invalidEvent(error.message ?? "rewind failed")
+        }
+        guard let complete = events.first(where: { $0.type == "rewind_complete" }) else {
+            throw DaemonClientError.invalidEvent("rewind was not acknowledged")
+        }
+        return RewindResult(
+            revertedPaths: complete.revertedPaths ?? [],
+            notUndone: complete.notUndone ?? [],
+            turnsTruncated: complete.turnsTruncated ?? 0
+        )
     }
 
     /// Streams daemon events incrementally as JSON-lines arrive over TCP.
@@ -283,7 +357,11 @@ final class DaemonClient: @unchecked Sendable {
             action: json["action"] as? String,
             summary: json["summary"] as? String,
             passed: json["passed"] as? Bool,
-            detail: json["detail"] as? String
+            detail: json["detail"] as? String,
+            revertedPaths: json["reverted_paths"] as? [String],
+            notUndone: json["not_undone"] as? [String],
+            checkpointId: json["checkpoint_id"] as? Int64,
+            turnsTruncated: json["turns_truncated"] as? Int
         )
     }
 }

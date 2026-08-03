@@ -3,14 +3,14 @@
 **Baseline:** Phase 8.0 **closed** — Darwin **22/22 (22 hard / 0 soft)** on `main` @ `432ace9`, run
 [`30565128737`](https://github.com/knarayanareddy/forge/actions/runs/30565128737). See
 [PHASE_8_0_CLOSURE.md](./PHASE_8_0_CLOSURE.md). Phase 9 slices 9.7-9.8 (**UNDO-01**) and 9.9-9.10
-(**LOOP-04**) have since merged, and Phase 10's **HOOK-01** (`PreToolUse` hook that blocks) and
-**CKPT-01** (checkpoint + rewind) and Phase 11's **CONS-01** (consolidation apply/reject) have all
-been implemented ahead of the rest of their respective phases, bringing the harness to 27 tasks —
-all Linux-verified, next Darwin canonical run pending. A small non-numbered gap flagged during the
-post-8.0 audit — `retrieve_session_memory` was wired into `run_stream_task` (8.0b) but not the
-structured `nl:`-prefixed loop path — is also closed: `run_nl_loop_task_with_replan` now recalls
-session memory before planning, fail-open on retrieval failure, the same way `run_stream_task`
-already did.
+(**LOOP-04**) have since merged, and Phase 10's **HOOK-01** (`PreToolUse` hook that blocks),
+**CKPT-01** (checkpoint + rewind), and **PERM-02** (batched approval gate) and Phase 11's
+**CONS-01** (consolidation apply/reject) have all been implemented ahead of the rest of their
+respective phases, bringing the harness to 28 tasks — all Linux-verified, next Darwin canonical run
+pending. A small non-numbered gap flagged during the post-8.0 audit — `retrieve_session_memory` was
+wired into `run_stream_task` (8.0b) but not the structured `nl:`-prefixed loop path — is also
+closed: `run_nl_loop_task_with_replan` now recalls session memory before planning, fail-open on
+retrieval failure, the same way `run_stream_task` already did.
 **Canonical platform:** Darwin (macOS 15+ Apple Silicon)
 **Binding spec:** Master roadmap. Each phase gets its own binding `ROADMAP_PHASE_N.md` **when it starts** — this document fixes scope, order, dependencies, and harness contracts.
 **Prerequisite gate:** [Phase 8.0](./ROADMAP_PHASE_8.0.md) slices 8.0b–8.0d — **cleared**. Phase 9 slices 9.11+ may proceed.
@@ -208,8 +208,7 @@ Reach table stakes. Nothing here is novel; all of it is disqualifying by absence
 | **10.5** | Compaction with steerable instructions + thrashing guard (bounded attempts, then explicit error) | **COMPACT-01** *(probe)* |
 | **10.6** | Hook engine: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PermissionRequest, PreCompact, SubagentStart, SessionEnd; actions = shell, HTTP, LLM prompt, subagent; hooks merge across sources | prep |
 | **10.6 *(narrower scope, one hook only)*** / **10.7 *(implemented, out of order)*** | `aether_core::hooks::pre_tool_use_path_check` — a hard, non-overridable path denylist (`.env`, `id_rsa`/`id_ed25519`, `.ssh/`, `.git/config`, `.aws/credentials`/`config`) — wired into `ToolRegistry::execute`'s `fs_write`/`fs_read` arms, checked before the grant check. **Narrower than 10.6's full plan:** no hook *engine* (no `SessionStart`/`UserPromptSubmit`/`PostToolUse`/etc. lifecycle, no pluggable shell/HTTP/LLM actions, no merge-across-sources) — one concrete, always-on `PreToolUse` rule. **HOOK-01** harness: a plan that explicitly instructs writing/reading a denylisted path, in a workspace with an explicit unrestricted write grant, is still hard-blocked (both instruction and grant present, hook still wins, and the file is never created on disk); an ordinary path in the same workspace is unaffected | **+1 → 25 (implemented; Linux-verified, Darwin canonical run pending — lands alongside CKPT-01 and CONS-01, see the scoreboard projection below for the combined total)** |
-| **10.8** | Permission modes (Manual / Accept-edits / Plan / Auto) + risk-tiered tool annotations + **approval batching** UI grouped by risk (A7) | prep |
-| **10.9** | **PERM-02**: batched approval screen; zero side effects execute before approval; deletions and unseen-domain egress always require explicit confirm | **+1 → 30** |
+| **10.8-10.9 *(implemented, narrower scope, out of order)*** | `aether_core::risk::evaluate_approval_gate` classifies a plan's steps *before any tool runs* — pure and read-only (only a filesystem existence check, no `ToolRegistry` call). Two risk categories mapped onto this tool set's closest analogs of the roadmap's examples: overwriting a file that already exists (the same destructive shape as a delete — this tool set has no explicit delete action) and any `mcp_call` (the only way this agent reaches outside the workspace/local tools — the closest analog to "unseen-domain egress"). Wired into the daemon's human-facing `run_task` path (`run_loop_task` and `run_nl_loop_task_with_replan`) as a hard pre-flight gate: if the plan has risky steps and the caller hasn't set `approved: true`, the daemon returns a `pending_approval` event listing every risky step and **never calls `execute_structured_loop` at all** — not just for the risky step, for the whole plan, guaranteeing zero side effects. **Narrower than 10.8's full plan:** no permission-mode UI (Manual/Accept-edits/Plan/Auto), no risk-tiered annotations beyond the two categories above, no batching *UI* (the gate reports the full list of risky steps in one response, which a UI could batch, but no UI exists yet — see the SwiftUI gap noted elsewhere). Automation triggers and gateway inbound are intentionally NOT gated here — they already have their own consent mechanism (`AutomationGrant`/`GatewayGrant`, granted once at registration time), and gating them again would be redundant, not additional safety. **PERM-02** harness: a plan that would overwrite an existing file is blocked with the file provably unchanged, then the identical plan with `approved: true` runs and actually overwrites it; an `mcp_call` step is always risky regardless of workspace state; a plan touching only brand-new files needs no approval at all | **+1 → 28 (implemented; Linux-verified, Darwin canonical run pending)** |
 | **10.10** | Model registry TOML + HF downloader + quantization picker + settings/BYOK UI (absorbs 8.9) | prep |
 | **10.11** | User-addable MCP servers with trust flow: add by command or URL, pin on install, diff-on-update review, per-server context cost display | **MCP-02** *(probe)* |
 | **10.12** | Headless mode: `--json` NDJSON event stream, one event per state change; exit codes | **HEAD-01** *(probe)* |
@@ -224,7 +223,7 @@ Reach table stakes. Nothing here is novel; all of it is disqualifying by absence
 | "Checkpoints" | CKPT-01 restores files *and* truncates session log consistently — **shipped**, but only as an explicit checkpoint/rewind call, not automatic-before-every-step |
 | "Subagents" | SUB-01 measured parent-context saving, not a second loop call |
 | "Hooks" | HOOK-01 blocks; log-only advisory does not count — **shipped** as one hard-coded `PreToolUse` path rule, not the full hook engine (10.6) |
-| "Permission UX solved" | PERM-02 batching with zero pre-approval side effects |
+| "Permission UX solved" | PERM-02 batching with zero pre-approval side effects — the *gate* is shipped; the batching *UI* and permission modes (10.8) are not |
 | "Any MCP server works" | MCP-02 with pin + diff-on-update, not a hardcoded resolver |
 
 ---
@@ -389,9 +388,10 @@ Cheap, high-leverage, no feature dependency. Makes Forge composable rather than 
 | Phase 10 slice 10.7 *(merged, out of order)* | 25/25 | + HOOK-01 (one hard-coded `PreToolUse` path-denylist rule, not the full hook engine); Linux-verified, Darwin canonical run pending. Landed ahead of the rest of Phase 10 |
 | Phase 10 slice 10.1 *(merged, out of order)* | 26/26 | + CKPT-01 (`create_checkpoint`/`rewind_to_checkpoint`, explicit not automatic-per-step); Linux-verified, Darwin canonical run pending. Landed alongside HOOK-01 |
 | Phase 11 slice 11.10 *(merged, out of order)* | 27/27 | + CONS-01 (`apply_consolidation_run`/`reject_consolidation_run`, applies exactly the persisted review artifact); Linux-verified, Darwin canonical run pending. Landed ahead of the rest of Phase 11 — smallest fully-isolated slice, no schema migration needed |
-| Phase 8.1–8.3 | 28/28 | + INGEST-01 |
-| **Phase 9 complete** | **28/28** | + INGEST-01 (UNDO-01, LOOP-04 already merged above) |
-| **Phase 10 complete** | **30/30** | + SUB-01, PERM-02 (HOOK-01, CKPT-01 already merged above) |
+| Phase 10 slices 10.8-10.9 *(merged, out of order)* | 28/28 | + PERM-02 (`evaluate_approval_gate`, wired into the human-facing `run_task` path; no permission-mode UI or batching UI); Linux-verified, Darwin canonical run pending. Landed alongside HOOK-01, CKPT-01, CONS-01 |
+| Phase 8.1–8.3 | 29/29 | + INGEST-01 |
+| **Phase 9 complete** | **29/29** | + INGEST-01 (UNDO-01, LOOP-04 already merged above) |
+| **Phase 10 complete** | **30/30** | + SUB-01 (HOOK-01, CKPT-01, PERM-02 already merged above) |
 | **Phase 11 complete** | **33/33** | + SKILL-03, SEC-01, INJECT-01 (CONS-01 already merged above) |
 | **Phase 12 complete** | **36/36** | + SLEEP-01, RELY-01, FORENSIC-01 |
 | **Phase 13 complete** | **37/37** | + APPLE-01 |
