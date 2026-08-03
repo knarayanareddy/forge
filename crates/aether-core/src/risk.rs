@@ -117,6 +117,7 @@ mod tests {
             server: "filesystem".into(),
             tool: "write_file".into(),
             args: serde_json::json!({}),
+            secret_env: None,
         }];
         let risky = find_steps_requiring_approval(&workspace, &plan);
         assert_eq!(risky.len(), 1);

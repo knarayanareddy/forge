@@ -34,9 +34,14 @@ pub struct McpClient {
 
 impl McpClient {
     /// Load allowlist entry, verify SHA-256 pins, and spawn the MCP server over stdio.
-    pub fn spawn_verified(allowlist: &McpAllowlist, server_name: &str, extra_args: &[String]) -> Result<Self, McpError> {
+    pub fn spawn_verified(
+        allowlist: &McpAllowlist,
+        server_name: &str,
+        extra_args: &[String],
+        extra_env: &[(String, String)],
+    ) -> Result<Self, McpError> {
         let config = allowlist.verify_and_get(server_name)?;
-        Self::spawn_config(&config, extra_args)
+        Self::spawn_config(&config, extra_args, extra_env)
     }
 
     /// Production spawn: verified MCP server wrapped by the workspace Seatbelt profile.
@@ -45,22 +50,28 @@ impl McpClient {
         server_name: &str,
         extra_args: &[String],
         workspace: &Path,
+        extra_env: &[(String, String)],
     ) -> Result<Self, McpError> {
         let config = allowlist.verify_and_get(server_name)?;
-        Self::spawn_config_in_workspace(&config, extra_args, workspace)
+        Self::spawn_config_in_workspace(&config, extra_args, workspace, extra_env)
     }
 
-    pub fn spawn_config(config: &McpServerConfig, extra_args: &[String]) -> Result<Self, McpError> {
+    pub fn spawn_config(
+        config: &McpServerConfig,
+        extra_args: &[String],
+        extra_env: &[(String, String)],
+    ) -> Result<Self, McpError> {
         let mut cmd = Command::new(&config.command);
         cmd.args(&config.args);
         cmd.args(extra_args);
-        Self::spawn_command(config, cmd)
+        Self::spawn_command(config, cmd, extra_env)
     }
 
     fn spawn_config_in_workspace(
         config: &McpServerConfig,
         extra_args: &[String],
         workspace: &Path,
+        extra_env: &[(String, String)],
     ) -> Result<Self, McpError> {
         let args: Vec<&str> = config
             .args
@@ -74,10 +85,19 @@ impl McpClient {
                 config.name, e
             ))
         })?;
-        Self::spawn_command(config, cmd)
+        Self::spawn_command(config, cmd, extra_env)
     }
 
-    fn spawn_command(config: &McpServerConfig, mut cmd: Command) -> Result<Self, McpError> {
+    fn spawn_command(
+        config: &McpServerConfig,
+        mut cmd: Command,
+        extra_env: &[(String, String)],
+    ) -> Result<Self, McpError> {
+        // Applied after ProductionSandbox::command's env_clear + fixed identity, so brokered
+        // secrets (SEC-01) land in the child without inheriting the host environment.
+        for (key, value) in extra_env {
+            cmd.env(key, value);
+        }
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::null());
@@ -257,6 +277,11 @@ impl Drop for McpClient {
 }
 
 /// Grant gate + verified spawn + initialize → tools/list → tools/call.
+///
+/// `extra_env` is injected into the MCP subprocess after the sandbox clears the host
+/// environment (Phase 11 / SEC-01 brokered secrets). Values here must never be written into
+/// `arguments`, the audit `arguments_json`, or any other persisted sink — callers are responsible
+/// for logging only secret *names*.
 pub fn invoke_with_grant(
     conn: &Connection,
     session_id: &str,
@@ -266,18 +291,24 @@ pub fn invoke_with_grant(
     tool_name: &str,
     arguments: Value,
     extra_spawn_args: &[String],
+    extra_env: &[(String, String)],
 ) -> Result<(Value, McpToolsAudit), McpError> {
     let start = Instant::now();
 
     let decision = PermissionManager::check_file_access(conn, session_id, workspace_path, "mcp_call")
         .map_err(|e| McpError::SecurityViolation(format!("Grant check failed: {}", e)))?;
 
+    // Audit payloads intentionally omit extra_env values — only server/tool/path (and optional
+    // secret *name*, when the caller includes it in a separate field upstream).
+    let audit_args =
+        json!({ "server": server_name, "tool": tool_name, "path": workspace_path }).to_string();
+
     if decision != PermissionDecision::Approved {
         PermissionManager::audit_decision(
             conn,
             session_id,
             "mcp_call",
-            &json!({ "server": server_name, "tool": tool_name, "path": workspace_path }).to_string(),
+            &audit_args,
             &decision,
             Some(1),
             Some(start.elapsed().as_millis() as i64),
@@ -295,6 +326,7 @@ pub fn invoke_with_grant(
         server_name,
         extra_spawn_args,
         Path::new(workspace_path),
+        extra_env,
     )?;
     let tools_audit = client.list_tools()?;
 
@@ -339,7 +371,7 @@ pub fn invoke_with_grant(
         conn,
         session_id,
         "mcp_call",
-        &json!({ "server": server_name, "tool": tool_name, "path": workspace_path }).to_string(),
+        &audit_args,
         &PermissionDecision::Approved,
         Some(0),
         Some(start.elapsed().as_millis() as i64),

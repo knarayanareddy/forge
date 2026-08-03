@@ -243,7 +243,7 @@ Make extensibility safe and memory accountable. This is the phase that lets a ma
 | **11.3** | Static injection scanner: flag imperative instructions in skill bodies, tool descriptions, and parameter schemas | prep |
 | **11.4** | **SKILL-03**: frozen poisoned-skill corpus (≥8 cases: hidden instruction in description, rug-pull on update, over-broad manifest, credential exfil step) — 0 escapes | **+1 → 27** |
 | **11.5** | Secrets broker (A6): credentials injected at tool-invocation time, never in context; transcript and log redaction | prep |
-| **11.6** | **SEC-01**: tool authenticates using a brokered secret; secret absent from context, session log, audit log, and crash dump | **+1 → 28** |
+| **11.6 *(this PR)*** | **SEC-01**: tool authenticates using a brokered secret (`secret_env` on `mcp_call`); value injected into the MCP subprocess env at spawn and redacted from observations; secret absent from context, session log, audit log, and crash dump | **+1 → 30** |
 | **11.7** | Untrusted-data boundary: explicit delimiting of all tool output; per-session tool dependency graph | prep |
 | **11.8** | **INJECT-01**: frozen corpus where tool *results* attempt to induce unplanned tool calls — cross-call correlation flags and blocks; extends RED-01 surface | **+1 → 29** |
 | **11.9** | Consolidation apply (C5): `apply_consolidation_run(run_id)` in one transaction — `supersede_graph_node` + edge rewire + `review_pending → applied`; reject path too | prep |
@@ -390,6 +390,7 @@ Cheap, high-leverage, no feature dependency. Makes Forge composable rather than 
 | Phase 11 slice 11.10 *(merged, out of order)* | 27/27 | + CONS-01 (`apply_consolidation_run`/`reject_consolidation_run`, applies exactly the persisted review artifact); Linux-verified, Darwin canonical run pending. Landed ahead of the rest of Phase 11 — smallest fully-isolated slice, no schema migration needed |
 | Phase 10 slices 10.8-10.9 *(merged, out of order)* | 28/28 | + PERM-02 (`evaluate_approval_gate`, wired into the human-facing `run_task` path; no permission-mode UI or batching UI); Linux-verified, Darwin canonical run pending. Landed alongside HOOK-01, CKPT-01, CONS-01 |
 | Phase 10 slices 10.3-10.4 *(merged, out of order)* | 29/29 | + SUB-01 (mechanical, not LLM, distillation); Linux-verified, Darwin canonical run pending. Last non-probe Phase 10 item — only `FORK-01` (probe) remains there |
+| Phase 11 slice 11.6 *(this PR)* | 30/30 | + SEC-01 (brokered secrets: name-only plan/audit/session; env injection at MCP spawn; observation redaction); Linux-verified, Darwin canonical run pending |
 | Phase 8.1–8.3 | 30/30 | + INGEST-01 |
 | **Phase 9 complete** | **30/30** | + INGEST-01 (UNDO-01, LOOP-04 already merged above) |
 | **Phase 10 complete** | **30/30** | All non-probe Phase 10 items merged above (HOOK-01, CKPT-01, PERM-02, SUB-01); `FORK-01` stays off the scoreboard as a probe |

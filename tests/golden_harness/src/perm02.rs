@@ -125,6 +125,7 @@ pub fn test_perm02_impl(db: &Database) -> Result<(), String> {
             server: "filesystem".into(),
             tool: "write_file".into(),
             args: serde_json::json!({"path": "x.txt", "content": "y"}),
+            secret_env: None,
         },
         ToolInvocation::Done,
     ];

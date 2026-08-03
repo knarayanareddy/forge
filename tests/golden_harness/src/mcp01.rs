@@ -84,6 +84,7 @@ pub async fn test_mcp_01_impl(conn: &rusqlite::Connection) -> Result<(), String>
         "list_directory",
         json!({ "path": workspace_str }),
         &[workspace_str.clone()],
+        &[],
     );
     if denied_invoke.is_ok() {
         return Err("Expected MCP invoke without grant to be denied".into());
@@ -110,6 +111,7 @@ pub async fn test_mcp_01_impl(conn: &rusqlite::Connection) -> Result<(), String>
         "list_directory",
         json!({ "path": workspace_str }),
         &[workspace_str.clone()],
+        &[],
     )
     .map_err(|e| e.to_string())?;
 
@@ -163,6 +165,7 @@ pub async fn test_mcp_01_impl(conn: &rusqlite::Connection) -> Result<(), String>
         "list_directory",
         json!({ "path": workspace_str }),
         &[workspace_str.clone()],
+        &[],
     );
     if wrong_pin.is_ok() {
         return Err("Expected tools_hash pin mismatch to block MCP invoke".into());

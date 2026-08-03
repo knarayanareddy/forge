@@ -11,6 +11,14 @@ fn gateway_token_account(channel_id: &str) -> String {
     format!("gateway-token-{channel_id}")
 }
 
+fn named_secret_account(name: &str) -> String {
+    format!("secret-{name}")
+}
+
+fn named_secret_env_var(name: &str) -> String {
+    format!("AETHER_SECRET_{}", name.to_ascii_uppercase())
+}
+
 #[cfg(test)]
 mod test_keychain_backend {
     use super::KeychainError;
@@ -127,6 +135,29 @@ pub fn store_gateway_token(channel_id: &str, token: &str) -> Result<(), Keychain
 /// Load gateway channel token from Keychain. Returns `None` if unset.
 pub fn load_gateway_token(channel_id: &str) -> Result<Option<String>, KeychainError> {
     keychain_get(BYOK_SERVICE, &gateway_token_account(channel_id))
+}
+
+/// Store a brokered secret (Phase 11 slice 11.6 / SEC-01) under a caller-chosen name — a tool
+/// authenticates with a secret by name, and only the name ever appears in a `ToolInvocation`,
+/// the session log, or the audit log. macOS: Keychain. Non-macOS (CI, this environment's daemon):
+/// falls back to a same-named environment variable, matching the existing BYOK/auth-token
+/// platform-fallback convention — there is no Keychain to fail closed against off Darwin.
+pub fn store_named_secret(name: &str, value: &str) -> Result<(), KeychainError> {
+    if !cfg!(target_os = "macos") {
+        return Err(KeychainError::UnavailableOnPlatform);
+    }
+    keychain_set(BYOK_SERVICE, &named_secret_account(name), value)
+}
+
+/// Resolve a brokered secret by name: Keychain on macOS, `AETHER_SECRET_<NAME>` env var
+/// elsewhere. Returns `None` if genuinely unset, never a partial/empty value.
+pub fn load_named_secret(name: &str) -> Result<Option<String>, KeychainError> {
+    if !cfg!(target_os = "macos") {
+        return Ok(std::env::var(named_secret_env_var(name))
+            .ok()
+            .filter(|v| !v.is_empty()));
+    }
+    keychain_get(BYOK_SERVICE, &named_secret_account(name))
 }
 
 fn random_auth_token() -> String {
@@ -293,6 +324,52 @@ mod tests {
         store_byok_key(&test_key).expect("store on macOS");
         let loaded = load_byok_key().expect("load");
         assert_eq!(loaded.as_deref(), Some(test_key.as_str()));
+    }
+
+    #[test]
+    fn named_secret_falls_back_to_env_var_off_darwin() {
+        if cfg!(target_os = "macos") {
+            return;
+        }
+        let name = format!("test-secret-{}", std::process::id());
+        assert_eq!(load_named_secret(&name).unwrap(), None);
+
+        std::env::set_var(named_secret_env_var(&name), "shh-its-a-secret");
+        let loaded = load_named_secret(&name).unwrap();
+        std::env::remove_var(named_secret_env_var(&name));
+        assert_eq!(loaded.as_deref(), Some("shh-its-a-secret"));
+    }
+
+    #[test]
+    fn named_secret_empty_env_var_is_treated_as_unset() {
+        if cfg!(target_os = "macos") {
+            return;
+        }
+        let name = format!("test-secret-empty-{}", std::process::id());
+        std::env::set_var(named_secret_env_var(&name), "");
+        let loaded = load_named_secret(&name).unwrap();
+        std::env::remove_var(named_secret_env_var(&name));
+        assert_eq!(loaded, None);
+    }
+
+    #[test]
+    fn store_named_secret_fails_closed_off_darwin() {
+        if cfg!(target_os = "macos") {
+            return;
+        }
+        assert!(matches!(
+            store_named_secret("whatever", "value"),
+            Err(KeychainError::UnavailableOnPlatform)
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn named_secret_roundtrip_on_macos() {
+        let name = format!("test-secret-{}", std::process::id());
+        store_named_secret(&name, "sk-super-secret-value").expect("store on macOS");
+        let loaded = load_named_secret(&name).expect("load");
+        assert_eq!(loaded.as_deref(), Some("sk-super-secret-value"));
     }
 
     #[cfg(target_os = "macos")]

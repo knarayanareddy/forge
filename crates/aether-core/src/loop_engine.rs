@@ -66,6 +66,12 @@ pub enum ToolInvocation {
         tool: String,
         #[serde(default)]
         args: Value,
+        /// Name of a brokered secret to inject as an environment variable of the same name into
+        /// the MCP server subprocess for this call only (Phase 11 slice 11.6 / SEC-01). The
+        /// resolved value never enters this struct, args, the session log, or the audit log —
+        /// only the name does. Resolution happens in `ToolRegistry::execute`, right before spawn.
+        #[serde(default)]
+        secret_env: Option<String>,
     },
     SkillExecute {
         skill_id: String,
@@ -305,12 +311,32 @@ impl ToolRegistry {
                     )),
                 }
             }
-            ToolInvocation::McpCall { server, tool, args } => {
+            ToolInvocation::McpCall {
+                server,
+                tool,
+                args,
+                secret_env,
+            } => {
                 let allowlist = allowlist
                     .ok_or_else(|| "MCP allowlist not configured".to_string())?;
                 validate_mcp_arguments_in_workspace(&config.workspace, args)?;
                 let workspace_str = config.workspace.to_string_lossy().to_string();
                 let extra = vec![workspace_str.clone()];
+                // Resolve brokered secret by name only. The value is held ephemerally for the
+                // spawn env injection below and never enters args, the observation, or the audit
+                // log (Phase 11 slice 11.6 / SEC-01).
+                let (extra_env, redact_values) = match secret_env {
+                    Some(name) => {
+                        validate_secret_env_name(name)?;
+                        let value = crate::load_named_secret(name)
+                            .map_err(|e| e.to_string())?
+                            .ok_or_else(|| {
+                                format!("brokered secret '{name}' is not configured")
+                            })?;
+                        (vec![(name.clone(), value.clone())], vec![value])
+                    }
+                    None => (Vec::new(), Vec::new()),
+                };
                 match invoke_with_grant(
                     conn,
                     &config.session_id,
@@ -320,18 +346,27 @@ impl ToolRegistry {
                     tool,
                     args.clone(),
                     &extra,
+                    &extra_env,
                 ) {
-                    Ok((result, audit)) => Ok(observation(
-                        iteration,
-                        "mcp_call",
-                        true,
-                        format!(
+                    Ok((result, audit)) => {
+                        let raw = format!(
                             "tools_hash={} result={}",
                             audit.tools_hash,
                             result.to_string().chars().take(200).collect::<String>()
-                        ),
+                        );
+                        Ok(observation(
+                            iteration,
+                            "mcp_call",
+                            true,
+                            redact_secret_values(&raw, &redact_values),
+                        ))
+                    }
+                    Err(e) => Ok(observation(
+                        iteration,
+                        "mcp_call",
+                        false,
+                        redact_secret_values(&e.to_string(), &redact_values),
                     )),
-                    Err(e) => Ok(observation(iteration, "mcp_call", false, e.to_string())),
                 }
             }
             ToolInvocation::SkillExecute { skill_id, variables } => {
@@ -700,6 +735,36 @@ pub(crate) fn resolve_workspace_path(workspace: &PathBuf, rel: &str) -> Result<P
     Ok(resolved)
 }
 
+/// Brokered secret names become child-process env keys; keep them boring so a planner cannot
+/// smuggle `PATH`/`LD_PRELOAD`-style overrides through `secret_env`.
+fn validate_secret_env_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name.len() > 64 {
+        return Err("secret_env name must be 1..=64 characters".into());
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+    {
+        return Err(
+            "secret_env name must be ASCII uppercase letters, digits, or underscore".into(),
+        );
+    }
+    if name.starts_with("AETHER_") || name == "PATH" || name == "HOME" || name == "TMPDIR" {
+        return Err(format!("secret_env name '{name}' is reserved"));
+    }
+    Ok(())
+}
+
+fn redact_secret_values(text: &str, secrets: &[String]) -> String {
+    let mut out = text.to_string();
+    for secret in secrets {
+        if !secret.is_empty() && out.contains(secret) {
+            out = out.replace(secret, "[REDACTED]");
+        }
+    }
+    out
+}
+
 fn tool_name(step: &ToolInvocation) -> &str {
     match step {
         ToolInvocation::FsWrite { .. } => "fs_write",
@@ -739,10 +804,17 @@ fn estimate_invocation_tokens(step: &ToolInvocation) -> usize {
         ToolInvocation::FsRead { path } => estimate_tokens(path),
         ToolInvocation::PythonLint { source } => estimate_tokens(source),
         ToolInvocation::GitInit { branch } => estimate_tokens(branch),
-        ToolInvocation::McpCall { server, tool, args } => {
+        ToolInvocation::McpCall {
+            server,
+            tool,
+            args,
+            secret_env,
+        } => {
+            // Count the secret *name* only — never resolve or estimate from the value.
             estimate_tokens(server)
                 + estimate_tokens(tool)
                 + estimate_tokens(&args.to_string())
+                + secret_env.as_deref().map(estimate_tokens).unwrap_or(0)
         }
         ToolInvocation::SkillExecute { skill_id, variables } => {
             estimate_tokens(skill_id) + estimate_tokens(&serde_json::to_string(variables).unwrap_or_default())
