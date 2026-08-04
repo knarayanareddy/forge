@@ -152,8 +152,8 @@ jobs:
           cargo run -p golden-harness 2>&1 | tee harness.log
           PASS=$(grep 'Passed:' harness.log | tail -1 | sed -E 's/.*Passed: ([0-9]+).*/\1/')
           HARD=$(grep 'Hard green:' harness.log | tail -1 | sed -E 's/.*Hard green: ([0-9]+).*/\1/')
-          echo "Harness passed: ${PASS:-0}/36 (${HARD:-0} hard)"
-          if [[ "${PASS:-0}" -ne 36 || "${HARD:-0}" -ne 36 ]]; then
+          echo "Harness passed: ${PASS:-0}/37 (${HARD:-0} hard)"
+          if [[ "${PASS:-0}" -ne 37 || "${HARD:-0}" -ne 37 ]]; then
             echo "Darwin canonical gate requires 37/37 (37 hard / 0 soft)"
             exit 1
           fi

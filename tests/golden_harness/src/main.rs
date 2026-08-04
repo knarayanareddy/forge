@@ -143,7 +143,7 @@ const TASKS: [TaskSpec; 37] = [
     TaskSpec { name: "INGEST-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "BUDG-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "GRAPH-02", hard_on_darwin: true, fail_closed_off_darwin: true },
-    TaskSpec { name: "REG-01", hard_on_darwin: false, fail_closed_off_darwin: false },
+    TaskSpec { name: "REG-01", hard_on_darwin: true, fail_closed_off_darwin: false },
 ];
 
 fn is_darwin() -> bool {
@@ -372,6 +372,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
             }
             test_graph02_impl(db).await.map(|_| true)
         }
+        "REG-01" => test_reg01_impl().await.map(|_| true),
         other => Err(format!("Unknown task {}", other)),
     };
 

@@ -106,3 +106,25 @@ pub fn registry_search_paths() -> Vec<PathBuf> {
 }
 pub fn discover_registry_path() -> Option<PathBuf> { registry_search_paths().into_iter().find(|p| p.is_file()) }
 pub fn load_discovered_registry() -> Result<ModelRegistry, RegistryError> { discover_registry_path().ok_or(RegistryError::NotFound).and_then(|p| ModelRegistry::load_from_path(p)) }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_fixture_registry() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../models/registry.toml");
+        let registry = ModelRegistry::load_from_path(&path).expect("fixture registry");
+        assert_eq!(registry.default_profile, "ollama-local");
+        assert!(!registry.chat_profile_ids().contains(&"ollama-embed".to_string()));
+    }
+
+    #[test]
+    fn mlx_profile_not_inference_ready() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../models/registry.toml");
+        let registry = ModelRegistry::load_from_path(&path).unwrap();
+        let mlx = registry.profile("mlx-qwen-3b").unwrap();
+        assert_eq!(mlx.backend, BackendKind::Mlx);
+        assert!(!mlx.is_inference_ready());
+    }
+}

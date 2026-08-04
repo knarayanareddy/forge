@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 pub fn reg01_fixture_ready() -> Result<(), String> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../models/registry.toml");
-    ModelRegistry::load_from_path(&path).map_err(|e| e.to_string())
+    ModelRegistry::load_from_path(&path).map(|_| ()).map_err(|e| e.to_string())
 }
 
 pub async fn test_reg01_impl() -> Result<(), String> {
