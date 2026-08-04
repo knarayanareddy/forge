@@ -171,6 +171,7 @@ pub fn test_sess01_impl(db: &Database) -> Result<(), String> {
         iterations,
         summary,
         tokens_used,
+        ..
     } = &done_record.payload
     {
         if *iterations != run_a.iterations

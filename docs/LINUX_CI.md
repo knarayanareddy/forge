@@ -4,7 +4,7 @@ AetherForge treats **Darwin (macOS 15+)** as the canonical platform. Linux CI va
 
 **Related:** [ROADMAP_PHASE_6.md](./ROADMAP_PHASE_6.md) · [ROADMAP_PHASE_7.md](./ROADMAP_PHASE_7.md) · [GRAPH_V1.md](./GRAPH_V1.md) · [PHASE_6_SLICE_CHECKLIST.md](./PHASE_6_SLICE_CHECKLIST.md)
 
-## Harness matrix (37 tasks)
+## Harness matrix (38 tasks)
 
 | Task | Tier | Linux CI | Reason |
 |------|------|----------|--------|
