@@ -217,6 +217,52 @@ async fn handle_client(
                     .await?;
                 }
             }
+            "list_consolidation_pending" => match handle_list_consolidation_pending(&state) {
+                Ok(runs) => {
+                    write_event(&mut writer, EventLine::consolidation_list(runs)).await?;
+                }
+                Err(e) => {
+                    write_event(
+                        &mut writer,
+                        EventLine::error(format!("list_consolidation_pending failed: {}", e)),
+                    )
+                    .await?;
+                }
+            },
+            "apply_consolidation" => match handle_apply_consolidation(&state, &request) {
+                Ok(applied) => {
+                    let run_id = request.params.run_id.unwrap_or(0);
+                    write_event(
+                        &mut writer,
+                        EventLine::consolidation_applied(run_id, applied),
+                    )
+                    .await?;
+                }
+                Err(e) => {
+                    write_event(
+                        &mut writer,
+                        EventLine::error(format!("apply_consolidation failed: {}", e)),
+                    )
+                    .await?;
+                }
+            },
+            "reject_consolidation" => match handle_reject_consolidation(&state, &request) {
+                Ok(()) => {
+                    let run_id = request.params.run_id.unwrap_or(0);
+                    write_event(
+                        &mut writer,
+                        EventLine::consolidation_rejected(run_id),
+                    )
+                    .await?;
+                }
+                Err(e) => {
+                    write_event(
+                        &mut writer,
+                        EventLine::error(format!("reject_consolidation failed: {}", e)),
+                    )
+                    .await?;
+                }
+            },
             other => {
                 write_event(
                     &mut writer,
@@ -323,6 +369,37 @@ fn handle_undo_writes(
         .ok_or("missing session_id")?;
     let conn = state.db.conn();
     aether_permissions::undo_pending_writes(&conn, session_id)
+}
+
+fn handle_list_consolidation_pending(
+    state: &Arc<DaemonState>,
+) -> Result<Vec<aether_db::ConsolidationRunListItem>, String> {
+    state
+        .db
+        .list_consolidation_runs_by_status("review_pending")
+        .map_err(|e| e.to_string())
+}
+
+fn handle_apply_consolidation(
+    state: &Arc<DaemonState>,
+    request: &RequestLine,
+) -> Result<usize, String> {
+    let run_id = request.params.run_id.ok_or("missing run_id")?;
+    state
+        .db
+        .apply_consolidation_run(run_id)
+        .map_err(|e| e.to_string())
+}
+
+fn handle_reject_consolidation(
+    state: &Arc<DaemonState>,
+    request: &RequestLine,
+) -> Result<(), String> {
+    let run_id = request.params.run_id.ok_or("missing run_id")?;
+    state
+        .db
+        .reject_consolidation_run(run_id)
+        .map_err(|e| e.to_string())
 }
 
 async fn handle_automation_run(

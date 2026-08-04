@@ -3,7 +3,7 @@ mod consolidate_review;
 mod graph;
 mod recovery;
 
-pub use consolidate::ConsolidationRunRecord;
+pub use consolidate::{ConsolidationRunListItem, ConsolidationRunRecord};
 pub use consolidate_review::{
     format_consolidate_review, ConsolidateEdgeDiff, ConsolidateNodeDiff, ConsolidatePreview,
     EdgeAction, NodeAction,

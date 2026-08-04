@@ -35,6 +35,8 @@ pub struct RequestParams {
     pub checkpoint_id: Option<i64>,
     #[serde(default)]
     pub approved: Option<bool>,
+    #[serde(default)]
+    pub run_id: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -91,6 +93,12 @@ pub struct EventLine {
     /// `"index: tool - reason"` entries for steps blocked pending approval (PERM-02).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub risky_steps: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nodes_superseded: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runs: Option<Vec<aether_db::ConsolidationRunListItem>>,
 }
 
 impl EventLine {
@@ -121,6 +129,9 @@ impl EventLine {
             checkpoint_id: None,
             turns_truncated: None,
             risky_steps: None,
+            run_id: None,
+            nodes_superseded: None,
+            runs: None,
         }
     }
 
@@ -262,6 +273,25 @@ impl EventLine {
                 .map(|r| format!("{}: {} - {}", r.index, r.tool, r.reason))
                 .collect(),
         );
+        e
+    }
+
+    pub fn consolidation_list(runs: Vec<aether_db::ConsolidationRunListItem>) -> Self {
+        let mut e = Self::base("consolidation_list");
+        e.runs = Some(runs);
+        e
+    }
+
+    pub fn consolidation_applied(run_id: i64, nodes_superseded: usize) -> Self {
+        let mut e = Self::base("consolidation_applied");
+        e.run_id = Some(run_id);
+        e.nodes_superseded = Some(nodes_superseded);
+        e
+    }
+
+    pub fn consolidation_rejected(run_id: i64) -> Self {
+        let mut e = Self::base("consolidation_rejected");
+        e.run_id = Some(run_id);
         e
     }
 }

@@ -47,5 +47,23 @@ struct ChatView: View {
             }
             .padding()
         }
+        .sheet(isPresented: Binding(
+            get: { model.pendingApproval != nil },
+            set: { if !$0 { model.cancelPendingApproval() } }
+        )) {
+            if let pending = model.pendingApproval {
+                ApprovalPromptView(
+                    pending: pending,
+                    onApprove: {
+                        Task {
+                            await model.approvePending(sessionId: workspace.sessionId)
+                        }
+                    },
+                    onCancel: {
+                        model.cancelPendingApproval()
+                    }
+                )
+            }
+        }
     }
 }

@@ -5,10 +5,16 @@ struct AetherForgeApp: App {
     @State private var workspace = WorkspaceStore()
     @State private var model = AppModel()
     @State private var safetyModel = SafetyModel()
+    @State private var consolidationModel = ConsolidationModel()
 
     var body: some Scene {
         WindowGroup {
-            RootView(workspace: workspace, model: model, safetyModel: safetyModel)
+            RootView(
+                workspace: workspace,
+                model: model,
+                safetyModel: safetyModel,
+                consolidationModel: consolidationModel
+            )
                 .frame(minWidth: 640, minHeight: 480)
                 .task {
                     await model.ensureDaemonAndConnect()
@@ -24,6 +30,7 @@ struct RootView: View {
     @Bindable var workspace: WorkspaceStore
     @Bindable var model: AppModel
     @Bindable var safetyModel: SafetyModel
+    @Bindable var consolidationModel: ConsolidationModel
 
     var body: some View {
         TabView {
@@ -41,6 +48,14 @@ struct RootView: View {
 
             Tab("Permissions", systemImage: "lock.shield") {
                 PermissionsView(workspace: workspace)
+            }
+
+            Tab("Memory", systemImage: "brain.head.profile") {
+                ConsolidationView(model: consolidationModel)
+            }
+
+            Tab("Subagents", systemImage: "person.2") {
+                SubagentPanelView(model: model)
             }
 
             Tab("Activity", systemImage: "waveform.path.ecg") {
