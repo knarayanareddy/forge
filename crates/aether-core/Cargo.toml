@@ -21,6 +21,11 @@ aether-skills = { path = "../aether-skills" }
 aether-sandbox = { path = "../aether-sandbox" }
 keyring = { version = "3.6", features = ["apple-native"] }
 sha2 = "0.10"
+toml = "0.8"
 
 [dev-dependencies]
 aether-db = { path = "../aether-db" }
+
+[[bin]]
+name = "aether-download-model"
+path = "src/bin/aether-download-model.rs"

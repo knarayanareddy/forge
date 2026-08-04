@@ -1,4 +1,4 @@
-use aether_core::ModelRouter;
+use aether_core::{discover_registry_path, ModelRouter};
 use aether_db::Database;
 use aether_daemon::server;
 use std::path::PathBuf;
@@ -45,9 +45,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "router: BYOK via Keychain ({})",
             std::env::var("AETHER_BYOK_PROVIDER").unwrap_or_default()
         );
+    } else if let Some(reg_path) = discover_registry_path() {
+        tracing::info!("router: profile {} ({})", state.router.active_profile_label(), reg_path.display());
     } else {
-        let model = std::env::var("AETHER_CHAT_MODEL").unwrap_or_else(|_| "qwen2.5:3b".to_string());
-        tracing::info!("router: Ollama ({})", model);
+        tracing::info!("router: {}", state.router.active_profile_label());
     }
 
     server::serve(addr, state).await

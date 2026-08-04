@@ -1,0 +1,37 @@
+version = 1
+default_profile = "ollama-local"
+default_complex_profile = "ollama-complex"
+[profiles.ollama-local]
+backend = "ollama"
+endpoint = "http://localhost:11434"
+model = "qwen2.5:3b"
+context_len = 8192
+[profiles.ollama-complex]
+backend = "ollama"
+endpoint = "http://localhost:11434"
+model = "qwen2.5:7b"
+context_len = 8192
+[profiles.openai-mini]
+backend = "openai_compatible"
+provider = "openai"
+model = "gpt-4o-mini"
+context_len = 8192
+[profiles.ollama-embed]
+backend = "ollama"
+endpoint = "http://localhost:11434"
+model = "all-minilm"
+role = "embed"
+context_len = 8192
+[profiles.mlx-qwen-3b]
+backend = "mlx"
+model_path = "models/weights/mlx-qwen-3b"
+quant = "4bit"
+context_len = 8192
+hf_repo = "mlx-community/Qwen2.5-3B-Instruct-4bit"
+[profiles.gguf-qwen-3b]
+backend = "gguf"
+model_path = "models/weights/qwen2.5-3b-instruct-q4_k_m.gguf"
+quant = "q4_k_m"
+context_len = 8192
+hf_repo = "Qwen/Qwen2.5-3B-Instruct-GGUF"
+hf_file = "qwen2.5-3b-instruct-q4_k_m.gguf"

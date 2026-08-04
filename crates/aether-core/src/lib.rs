@@ -1,4 +1,6 @@
 mod graph_extract;
+mod hf_hub;
+mod model_registry;
 mod hooks;
 mod inject;
 mod keychain;
@@ -22,6 +24,13 @@ pub use inject::{
     admit_plan_against_observations, tool_result_has_injection_phrase, wrap_untrusted_tool_output,
     AdmitDecision, CorrelationFinding, ToolDepEdge, ToolDependencyGraph,
     MIN_CORRELATION_SUBSTRING, TOOL_RESULT_INJECTION_PATTERNS,
+};
+
+pub use hf_hub::{download_file, sha256_hex, DownloadPlan, HfHubError};
+pub use model_registry::{
+    discover_registry_path, load_discovered_registry, BackendKind,
+    ModelProfile, ModelRegistry, RegistryError, ENV_MODEL_PROFILE, ENV_MODEL_PROFILE_COMPLEX,
+    ENV_REGISTRY_PATH,
 };
 
 pub use risk::{evaluate_approval_gate, find_steps_requiring_approval, RiskyStep};
@@ -71,6 +80,7 @@ use thiserror::Error;
 pub enum ModelBackend {
     OllamaMlx { endpoint: String, model: String },
     LlamaCpp { model_path: String },
+    MlxLocal { model_path: String },
     ByokCloud { provider: String, api_key: String, model: String },
 }
 
@@ -83,45 +93,39 @@ pub enum PromptComplexity {
 pub struct ModelRouter {
     primary: ModelBackend,
     fallback: Option<ModelBackend>,
+    active_profile: String,
 }
 
 impl ModelRouter {
     pub fn new(primary: ModelBackend, fallback: Option<ModelBackend>) -> Self {
-        Self { primary, fallback }
+        Self { primary, fallback, active_profile: String::new() }
     }
+    fn with_active_profile(mut self, label: String) -> Self { self.active_profile = label; self }
 
-    /// Build router from env. When `AETHER_BYOK_PROVIDER` is set, loads API key from macOS Keychain.
     pub fn from_env() -> Result<Self, KeychainError> {
         if let Some(api_key) = require_byok_key_if_configured()? {
             let provider = std::env::var("AETHER_BYOK_PROVIDER").unwrap_or_else(|_| "openai".into());
             let model = std::env::var("AETHER_BYOK_MODEL").unwrap_or_else(|_| "gpt-4o-mini".into());
-            return Ok(Self::new(
-                ModelBackend::ByokCloud {
-                    provider,
-                    api_key,
-                    model,
-                },
-                None,
-            ));
+            return Ok(Self::new(ModelBackend::ByokCloud { provider, api_key, model }, None).with_active_profile("byok-env".into()));
         }
-
-        let endpoint = std::env::var("AETHER_OLLAMA_ENDPOINT")
-            .unwrap_or_else(|_| "http://localhost:11434".to_string());
-        let model = std::env::var("AETHER_CHAT_MODEL").unwrap_or_else(|_| "qwen2.5:3b".to_string());
-        let complex_model =
-            std::env::var("AETHER_CHAT_MODEL_COMPLEX").unwrap_or_else(|_| model.clone());
-
-        Ok(Self::new(
-            ModelBackend::OllamaMlx {
-                endpoint: endpoint.clone(),
-                model: model.clone(),
-            },
-            Some(ModelBackend::OllamaMlx {
-                endpoint,
-                model: complex_model,
-            }),
-        ))
+        if let Ok(registry) = load_discovered_registry() {
+            if let Ok(r) = Self::from_registry(&registry) { return Ok(r); }
+        }
+        Self::from_env_ollama_only()
     }
+    pub fn from_env_ollama_only() -> Result<Self, KeychainError> {
+        let endpoint = std::env::var("AETHER_OLLAMA_ENDPOINT").unwrap_or_else(|_| "http://localhost:11434".to_string());
+        let model = std::env::var("AETHER_CHAT_MODEL").unwrap_or_else(|_| "qwen2.5:3b".to_string());
+        let complex_model = std::env::var("AETHER_CHAT_MODEL_COMPLEX").unwrap_or_else(|_| model.clone());
+        Ok(Self::new(ModelBackend::OllamaMlx { endpoint: endpoint.clone(), model: model.clone() }, Some(ModelBackend::OllamaMlx { endpoint, model: complex_model })).with_active_profile("ollama-env".into()))
+    }
+    pub fn from_registry(registry: &ModelRegistry) -> Result<Self, RegistryError> {
+        let primary_label = registry.primary_profile_id();
+        let mut router = registry.build_router()?;
+        router.active_profile = primary_label;
+        Ok(router)
+    }
+    pub fn active_profile_label(&self) -> &str { if self.active_profile.is_empty() { "legacy" } else { &self.active_profile } }
 
     pub fn primary(&self) -> &ModelBackend {
         &self.primary
@@ -351,9 +355,8 @@ impl OllamaProvider {
                 api_key,
                 model,
             } => Self::complete_stream_byok(provider, api_key, model, prompt).await,
-            ModelBackend::LlamaCpp { .. } => Err(CompleteError::Api(
-                "LlamaCpp backend not implemented in MVP router".into(),
-            )),
+            ModelBackend::LlamaCpp { model_path } => Err(CompleteError::Api(format!("GGUF backend not wired for inference yet (registry path: {model_path})"))),
+            ModelBackend::MlxLocal { model_path } => Err(CompleteError::Api(format!("MLX backend not wired for inference yet (registry path: {model_path})"))),
         }
     }
 
@@ -372,9 +375,8 @@ impl OllamaProvider {
                 api_key,
                 model,
             } => Self::complete_json_byok(provider, api_key, model, prompt, num_predict, schema).await,
-            ModelBackend::LlamaCpp { .. } => Err(CompleteError::Api(
-                "LlamaCpp backend not implemented in MVP router".into(),
-            )),
+            ModelBackend::LlamaCpp { model_path } => Err(CompleteError::Api(format!("GGUF backend not wired for inference yet (registry path: {model_path})"))),
+            ModelBackend::MlxLocal { model_path } => Err(CompleteError::Api(format!("MLX backend not wired for inference yet (registry path: {model_path})"))),
         }
     }
 
