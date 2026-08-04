@@ -322,10 +322,23 @@ pub async fn run_structured_with_replan(
     nl_goal: &str,
 ) -> (Result<LoopRunResult, LoopError>, Vec<LoopStreamEvent>, usize) {
     let overall_max_iterations = config.max_iterations;
+    let original_plan = initial_plan.clone();
+    let trusted_context = {
+        let mut ctx = nl_goal.to_string();
+        ctx.push('\n');
+        for step in &original_plan {
+            ctx.push_str(aether_core::plan_tool_name(step));
+            ctx.push(' ');
+            ctx.push_str(&format!("{step:?}"));
+            ctx.push('\n');
+        }
+        ctx
+    };
     let mut plan = initial_plan;
     let mut turn_label = format!("nl:{nl_goal}");
     let mut replans = 0usize;
     let mut all_events = Vec::new();
+    let mut dep_graph = aether_core::ToolDependencyGraph::new();
 
     let final_result = loop {
         // Scoped so the DB mutex guard is dropped before any `.await` below — holding it across
@@ -359,22 +372,53 @@ pub async fn run_structured_with_replan(
                     .filter(|o| o.success)
                     .map(|o| o.tool.clone())
                     .collect();
+                // Failure detail is untrusted tool/verify output — delimit before the planner sees it.
+                let bounded_detail =
+                    aether_core::wrap_untrusted_tool_output(&failed_tool, &detail);
                 match aether_core::run_nl_planner_repair(
                     router,
                     nl_goal,
                     &completed_tools,
                     &failed_tool,
-                    &detail,
+                    &bounded_detail,
                     config.max_iterations,
                 )
                 .await
                 {
                     Ok(new_plan) => {
-                        plan = new_plan;
-                        turn_label = format!(
-                            "nl-replan-{replans}:{nl_goal} (after {failed_tool} failed: {detail})"
-                        );
-                        continue;
+                        // Cross-call correlation (INJECT-01): a replan induced by tool results
+                        // must not introduce steps correlated with untrusted observation content
+                        // that was absent from the original goal/plan.
+                        match aether_core::admit_plan_against_observations(
+                            &trusted_context,
+                            &original_plan,
+                            &observations,
+                            &new_plan,
+                        ) {
+                            aether_core::AdmitDecision::Allow { edges } => {
+                                dep_graph.extend(edges);
+                                plan = new_plan;
+                                turn_label = format!(
+                                    "nl-replan-{replans}:{nl_goal} (after {failed_tool} failed: {detail})"
+                                );
+                                continue;
+                            }
+                            aether_core::AdmitDecision::Deny { findings } => {
+                                let summary = findings
+                                    .iter()
+                                    .map(|f| {
+                                        format!(
+                                            "obs#{}→{}: {}",
+                                            f.observation_iteration, f.induced_tool, f.reason
+                                        )
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join("; ");
+                                break Err(LoopError::Turn(format!(
+                                    "INJECT-01 blocked replan {replans}: {summary}"
+                                )));
+                            }
+                        }
                     }
                     Err(e) => {
                         break Err(LoopError::Turn(format!(
@@ -387,6 +431,7 @@ pub async fn run_structured_with_replan(
         }
     };
 
+    let _ = dep_graph; // retained for future IPC/ foreensics exposure; correlation already enforced
     (final_result, all_events, replans)
 }
 

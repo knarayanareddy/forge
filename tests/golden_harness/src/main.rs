@@ -81,13 +81,16 @@ use skill02::test_skill02_impl;
 mod skill03;
 use skill03::test_skill03_impl;
 
+mod inject01;
+use inject01::test_inject01_impl;
+
 struct TaskSpec {
     name: &'static str,
     hard_on_darwin: bool,
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 31] = [
+const TASKS: [TaskSpec; 32] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -120,6 +123,7 @@ const TASKS: [TaskSpec; 31] = [
     TaskSpec { name: "SUB-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "SEC-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "SKILL-03", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "INJECT-01", hard_on_darwin: true, fail_closed_off_darwin: false },
 ];
 
 fn is_darwin() -> bool {
@@ -145,6 +149,11 @@ async fn main() {
     match skill03::skill03_fixture_ready() {
         Ok(n) => println!("SKILL-03 fixtures: {} frozen poisoned-skill cases loaded", n),
         Err(e) => eprintln!("Warning: SKILL-03 fixture check failed: {}", e),
+    }
+
+    match inject01::inject01_fixture_ready() {
+        Ok(n) => println!("INJECT-01 fixtures: {} frozen tool-result induction cases loaded", n),
+        Err(e) => eprintln!("Warning: INJECT-01 fixture check failed: {}", e),
     }
 
     match check01::check01_fixture_ready() {
@@ -298,6 +307,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "SUB-01" => test_sub01_impl(db).map(|_| true),
         "SEC-01" => test_sec01_impl(db).map(|_| true),
         "SKILL-03" => test_skill03_impl().map(|_| true),
+        "INJECT-01" => test_inject01_impl().map(|_| true),
         other => Err(format!("Unknown task {}", other)),
     };
 

@@ -1,3 +1,4 @@
+use crate::inject::wrap_untrusted_tool_output;
 use crate::{GitOps, LoopError, PythonLinter};
 use aether_mcp::{invoke_with_grant, McpAllowlist};
 use aether_permissions::{path_is_subpath, PermissionDecision, PermissionManager};
@@ -544,14 +545,17 @@ impl ReActLoopEngine {
                     return Err(err);
                 }
                 observations.push(obs.clone());
+                // Delimit tool output at the stream/session-log boundary (Phase 11 / INJECT-01).
+                // Internal `ToolObservation` stays raw so verify-shell matching is unaffected.
+                let bounded = wrap_untrusted_tool_output(&obs.tool, &obs.output);
                 on_event(LoopStreamEvent::Tool {
                     iteration,
                     tool: obs.tool.clone(),
-                    output: obs.output.clone(),
+                    output: bounded.clone(),
                 });
                 on_event(LoopStreamEvent::Observe {
                     iteration,
-                    summary: obs.output.clone(),
+                    summary: bounded,
                 });
                 break;
             }
@@ -565,14 +569,15 @@ impl ReActLoopEngine {
             if let Err(err) = check_token_budget(conn, config, iteration, &mut on_event) {
                 return Err(err);
             }
+            let bounded = wrap_untrusted_tool_output(&obs.tool, &obs.output);
             on_event(LoopStreamEvent::Tool {
                 iteration,
                 tool: obs.tool.clone(),
-                output: obs.output.clone(),
+                output: bounded.clone(),
             });
             on_event(LoopStreamEvent::Observe {
                 iteration,
-                summary: obs.output.clone(),
+                summary: bounded,
             });
 
             if let ToolInvocation::FsWrite { path, .. } = &step {

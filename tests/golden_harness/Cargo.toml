@@ -28,3 +28,7 @@ aether-daemon = { path = "../../crates/aether-daemon" }
 [[test]]
 name = "skill03_harness"
 path = "tests/skill03_harness.rs"
+
+[[test]]
+name = "inject01_harness"
+path = "tests/inject01_harness.rs"
