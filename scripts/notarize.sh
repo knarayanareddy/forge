@@ -1,37 +1,87 @@
 #!/usr/bin/env bash
-# Notarize a signed DMG with Apple notarytool (Phase 5).
-# Requires: Apple Developer ID Application cert, notarytool credentials.
+# Notarize signed AetherForge artifacts with Apple notarytool (Phase 8.12 / Track D.2).
 set -euo pipefail
 
-if [[ "$(uname -s)" != "Darwin" ]]; then
-  echo "notarize.sh requires macOS" >&2
-  exit 1
-fi
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=scripts/lib/distribution.sh
+source "$ROOT/scripts/lib/distribution.sh"
+
+distribution_require_darwin "notarize.sh"
+
+usage() {
+  cat <<EOF
+Usage: $0 <path-to.dmg> [path-to/AetherForge.app]
+
+Submit a signed DMG to Apple notarytool, then staple both the DMG and (optionally) the .app.
+
+Prerequisites (local maintainer machine):
+  1. Apple Developer Program membership
+  2. Developer ID Application certificate in Keychain
+  3. notarytool credentials stored once:
+       xcrun notarytool store-credentials AetherForge-notary \\
+         --apple-id "you@example.com" --team-id TEAMID --password "@keychain:AC_PASSWORD"
+
+Environment:
+  NOTARY_PROFILE          Keychain profile name (default: AetherForge-notary)
+  CODESIGN_IDENTITY       Used only for preflight cert check
+  AETHER_SKIP_NOTARIZE=1  Skip when creds/certs unavailable (CI unsigned path)
+
+CI: leave AETHER_SKIP_NOTARIZE unset and omit Apple secrets — script exits 0 with SKIP
+    when neither notary profile nor signing identity is configured.
+EOF
+}
 
 DMG="${1:-}"
+APP_BUNDLE="${2:-}"
+
 if [[ -z "$DMG" || ! -f "$DMG" ]]; then
-  echo "Usage: $0 <path-to-signed.dmg>" >&2
-  echo "" >&2
-  echo "Prerequisites:" >&2
-  echo "  1. Apple Developer Program membership" >&2
-  echo "  2. Developer ID Application certificate in Keychain" >&2
-  echo "  3. xcrun notarytool store-credentials (or NOTARY_APPLE_ID + team)" >&2
+  usage >&2
   exit 1
 fi
 
-SIGN_ID="${CODESIGN_IDENTITY:-Developer ID Application}"
+if [[ "${AETHER_SKIP_NOTARIZE:-0}" == "1" ]]; then
+  echo "Skipping notarization (AETHER_SKIP_NOTARIZE=1)."
+  exit 0
+fi
+
 PROFILE="${NOTARY_PROFILE:-AetherForge-notary}"
+SIGN_ID="$(distribution_resolve_sign_identity)"
 
-if ! security find-identity -v -p codesigning | grep -q "$SIGN_ID"; then
-  echo "No codesigning identity matching '$SIGN_ID'." >&2
-  echo "Set CODESIGN_IDENTITY or install a Developer ID Application certificate." >&2
+if ! distribution_has_sign_identity; then
+  echo "SKIP: No Developer ID Application certificate — notarization requires signing first." >&2
+  echo "      Build with AETHER_SIGN=1 ./scripts/create-dmg.sh on a machine with your cert." >&2
+  exit 0
+fi
+
+if ! distribution_notary_profile_ready; then
+  echo "SKIP: notarytool profile '$PROFILE' not found in Keychain." >&2
+  echo "      Run: xcrun notarytool store-credentials $PROFILE ..." >&2
+  exit 0
+fi
+
+if [[ -n "$APP_BUNDLE" && ! -d "$APP_BUNDLE" ]]; then
+  echo "App bundle not found: $APP_BUNDLE" >&2
   exit 1
 fi
 
-echo "==> Submitting $DMG for notarization (profile: $PROFILE)"
+echo "==> Preflight: verifying signed app inside DMG"
+AETHER_REQUIRE_SIGNED=1 "$ROOT/scripts/verify-codesign.sh" "$DMG"
+
+echo "==> Submitting DMG for notarization (profile: $PROFILE)"
 xcrun notarytool submit "$DMG" --keychain-profile "$PROFILE" --wait
 
-echo "==> Stapling ticket"
+echo "==> Stapling notarization ticket to DMG"
 xcrun stapler staple "$DMG"
+xcrun stapler validate "$DMG"
 
-echo "Notarization complete: $DMG"
+if [[ -n "$APP_BUNDLE" ]]; then
+  echo "==> Stapling notarization ticket to .app"
+  xcrun stapler staple "$APP_BUNDLE"
+  xcrun stapler validate "$APP_BUNDLE"
+fi
+
+echo ""
+echo "Notarization complete."
+echo "  DMG: $DMG"
+[[ -n "$APP_BUNDLE" ]] && echo "  App: $APP_BUNDLE"
+echo "Verify: AETHER_REQUIRE_NOTARIZED=1 ./scripts/verify-codesign.sh \"$DMG\""

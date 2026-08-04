@@ -1,0 +1,32 @@
+# Homebrew cask stub for AetherForge (Track D — maintainer copy/paste).
+#
+# After cutting a signed/notarized release:
+#   1. Upload AetherForge-VERSION.dmg to GitHub Releases (or your CDN).
+#   2. shasum -a 256 AetherForge-VERSION.dmg
+#   3. Replace __VERSION__, __SHA256__, and __URL__ below.
+#   4. Open a PR to homebrew/homebrew-cask OR host in a tap:
+#        brew tap knarayanareddy/forge
+#        cp formulas/aetherforge.rb.template Casks/aetherforge.rb  # after filling placeholders
+#
+# Unsigned DMGs work for local testing but should NOT ship via Homebrew until
+# AETHER_REQUIRE_NOTARIZED=1 ./scripts/verify-codesign.sh passes.
+
+cask "aetherforge" do
+  version "__VERSION__"
+  sha256 "__SHA256__"
+
+  url "__URL__"
+  name "AetherForge"
+  desc "Local-first agent harness with bounded orchestration"
+  homepage "https://github.com/knarayanareddy/forge"
+
+  depends_on macos: ">= :sequoia"
+
+  app "AetherForge.app"
+
+  zap trash: [
+    "~/Library/Application Support/AetherForge",
+    "~/Library/Caches/dev.aetherforge.app",
+    "~/Library/Preferences/dev.aetherforge.app.plist",
+  ]
+end

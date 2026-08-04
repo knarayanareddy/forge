@@ -61,26 +61,77 @@ Keychain entry: service `AetherForge`, account `byok-api-key`.
 
 ### DMG distribution
 
+Unsigned DMGs work today for local testing. Signed + notarized builds require an **Apple Developer Program** membership and a **Developer ID Application** certificate.
+
+#### Quick path (unsigned, no Apple creds)
+
 ```bash
-chmod +x scripts/create-dmg.sh scripts/notarize.sh
+chmod +x scripts/create-dmg.sh scripts/verify-codesign.sh
 ./scripts/create-dmg.sh
-# Output: build/dmg/AetherForge-0.1.0.dmg
+# → build/dmg/AetherForge-0.1.0.dmg
+./scripts/verify-codesign.sh build/dmg/AetherForge-0.1.0.dmg
 ```
 
-**Signing & notarization** (requires Apple Developer ID):
+Set `AETHER_VERSION=0.2.0` to override the bundle/DMG version.
 
-1. Sign the `.app` inside staging before `hdiutil create`:
-   ```bash
-   codesign --force --deep --sign "Developer ID Application: Your Name (TEAMID)" build/dmg/staging/AetherForge.app
-   ```
-2. Re-create DMG if needed, then:
-   ```bash
-   xcrun notarytool store-credentials AetherForge-notary \
-     --apple-id "you@example.com" --team-id TEAMID --password "@keychain:AC_PASSWORD"
-   ./scripts/notarize.sh build/dmg/AetherForge-0.1.0.dmg
-   ```
+#### Signed + notarized path (maintainer machine)
 
-Without a Developer certificate, use ad-hoc distribution from source (`swift run` + `cargo run`).
+| Requirement | Purpose |
+|-------------|---------|
+| Apple Developer Program | Issue Developer ID Application cert |
+| Developer ID Application cert in Keychain | Hardened Runtime code signing |
+| App-specific password + `notarytool store-credentials` | Apple notarization API |
+| Full Disk Access for Terminal/Cursor *(if codesign fails with errSecInternalComponent)* | Keychain access for signing |
+
+**One-time notarytool setup:**
+
+```bash
+xcrun notarytool store-credentials AetherForge-notary \
+  --apple-id "you@example.com" \
+  --team-id TEAMID \
+  --password "@keychain:AC_PASSWORD"
+```
+
+**Build, sign, notarize, verify:**
+
+```bash
+export AETHER_VERSION=0.1.0
+export CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+
+# Sign inside-out (never codesign --deep) + DMG
+AETHER_SIGN=1 ./scripts/create-dmg.sh
+
+DMG="build/dmg/AetherForge-${AETHER_VERSION}.dmg"
+APP="build/dmg/staging/AetherForge.app"
+
+# Staples both DMG and .app; skips gracefully if profile/cert missing
+./scripts/notarize.sh "$DMG" "$APP"
+
+# Strict gate for release candidates
+AETHER_REQUIRE_SIGNED=1 AETHER_REQUIRE_NOTARIZED=1 ./scripts/verify-codesign.sh "$DMG"
+```
+
+Entitlements live at `packaging/entitlements/AetherForge.entitlements` (Hardened Runtime + Rust/FFI helpers).
+
+#### CI / GitHub Actions
+
+- **Main CI** (`.github/workflows/ci.yml`) does not require Apple certificates.
+- **Release** (`.github/workflows/release.yml`, `workflow_dispatch`) builds an unsigned DMG by default.
+- Enable `sign_and_notarize` only after configuring repository secrets:
+  - `APPLE_CODESIGN_IDENTITY`
+  - `APPLE_NOTARY_PROFILE` (name passed to `notarytool --keychain-profile`)
+
+Without secrets, the release job still produces an unsigned artifact for smoke testing.
+
+#### Homebrew cask
+
+Fill `formulas/aetherforge.rb.template` with the released version and `shasum -a 256` of the **final** notarized DMG, then publish to a Homebrew tap.
+
+#### Sparkle updates
+
+Not wired in-app yet. See [SPARKLE.md](SPARKLE.md) for EdDSA keygen, `sign_update` vendoring, and appcast ordering.
+
+Without a Developer certificate, use ad-hoc distribution from source (`swift run` + `cargo run`) or an unsigned DMG.
 
 ### Offline consolidate (Phase 6)
 

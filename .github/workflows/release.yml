@@ -1,0 +1,81 @@
+# Release pipeline stub (Phase 8.12 / Track D.4).
+# Builds an unsigned DMG on every dispatch; signing/notarization run only when
+# Apple Developer credentials are present on the runner (local maintainer machine
+# or a self-hosted macOS runner with Keychain certs — not required on GitHub-hosted runners).
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (AETHER_VERSION / DMG filename)"
+        required: true
+        default: "0.1.0"
+      sign:
+        description: "Attempt Developer ID signing when a cert is in Keychain"
+        type: boolean
+        default: false
+      notarize:
+        description: "Attempt notarization after signing (requires NOTARY profile in Keychain)"
+        type: boolean
+        default: false
+
+jobs:
+  build-dmg:
+    name: Build DMG (Darwin)
+    runs-on: macos-15
+    env:
+      AETHER_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release DMG
+        env:
+          AETHER_SIGN: ${{ inputs.sign && '1' || '0' }}
+        run: |
+          chmod +x scripts/*.sh scripts/lib/*.sh
+          ./scripts/create-dmg.sh
+
+      - name: Notarize (optional)
+        if: inputs.notarize
+        env:
+          AETHER_SKIP_NOTARIZE: "0"
+        run: |
+          DMG="build/dmg/AetherForge-${AETHER_VERSION}.dmg"
+          APP="build/dmg/staging/AetherForge.app"
+          ./scripts/notarize.sh "$DMG" "$APP"
+
+      - name: Verify artifact
+        run: |
+          DMG="build/dmg/AetherForge-${AETHER_VERSION}.dmg"
+          if [[ "${{ inputs.sign }}" == "true" ]]; then
+            export AETHER_REQUIRE_SIGNED=1
+            if [[ "${{ inputs.notarize }}" == "true" ]]; then
+              export AETHER_REQUIRE_NOTARIZED=1
+            fi
+          fi
+          ./scripts/verify-codesign.sh "$DMG"
+
+      - name: Publish checksums
+        run: |
+          DMG="build/dmg/AetherForge-${AETHER_VERSION}.dmg"
+          shasum -a 256 "$DMG" | tee "build/dmg/AetherForge-${AETHER_VERSION}.sha256"
+          echo "## Release artifacts" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`AetherForge-${AETHER_VERSION}.dmg\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- SHA256: \`$(cut -d' ' -f1 "build/dmg/AetherForge-${AETHER_VERSION}.sha256")\`" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "${{ inputs.sign }}" != "true" ]]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "_Unsigned build — Gatekeeper will warn on first open. See docs/INSTALL.md for signing._" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: aetherforge-dmg-${{ inputs.version }}
+          path: |
+            build/dmg/AetherForge-${{ inputs.version }}.dmg
+            build/dmg/AetherForge-${{ inputs.version }}.sha256
+          if-no-files-found: error
