@@ -49,8 +49,8 @@ struct RootView: View {
                 OnboardingView(workspace: workspace)
             }
 
-            Tab("Permissions", systemImage: "lock.shield") {
-                PermissionsView(workspace: workspace)
+            Tab("Settings", systemImage: "gearshape") {
+                SettingsView(settings: settingsModel, workspace: workspace)
             }
 
             Tab("Memory", systemImage: "brain.head.profile") {
@@ -69,9 +69,6 @@ struct RootView: View {
                 SafetyView(model: safetyModel, sessionId: workspace.sessionId)
             }
 
-            Tab("Settings", systemImage: "gearshape") {
-                SettingsView(settings: settingsModel)
-            }
         }
     }
 }
