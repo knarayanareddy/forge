@@ -66,9 +66,9 @@ Unsigned DMGs work today for local testing. Signed + notarized builds require an
 #### Quick path (unsigned, no Apple creds)
 
 ```bash
-chmod +x scripts/create-dmg.sh scripts/verify-codesign.sh
+chmod +x scripts/create-dmg.sh scripts/notarize.sh scripts/sign-app.sh scripts/verify-codesign.sh
 ./scripts/create-dmg.sh
-# → build/dmg/AetherForge-0.1.0.dmg
+# → build/dmg/AetherForge-0.1.0.dmg (+ .sha256 sidecar)
 ./scripts/verify-codesign.sh build/dmg/AetherForge-0.1.0.dmg
 ```
 
@@ -111,21 +111,30 @@ APP="build/dmg/staging/AetherForge.app"
 AETHER_REQUIRE_SIGNED=1 AETHER_REQUIRE_NOTARIZED=1 ./scripts/verify-codesign.sh "$DMG"
 ```
 
-Entitlements live at `packaging/entitlements/AetherForge.entitlements` (Hardened Runtime + Rust/FFI helpers).
+Entitlements live at `packaging/entitlements/AetherForge.entitlements` (Hardened Runtime + Rust/FFI helpers). Re-sign a staged bundle alone with `./scripts/sign-app.sh build/dmg/staging/AetherForge.app`.
+
+Environment variables:
+
+| Variable | Purpose |
+|----------|---------|
+| `AETHER_VERSION` | Bundle/DMG version (default `0.1.0`) |
+| `AETHER_SIGN=1` | Sign when Developer ID cert is present; warn and continue unsigned if missing |
+| `CODESIGN_IDENTITY` | Override auto-detected Developer ID Application identity |
+| `NOTARY_PROFILE` | notarytool Keychain profile (default `AetherForge-notary`) |
+| `AETHER_SKIP_NOTARIZE=1` | Skip notarization |
+| `AETHER_REQUIRE_SIGNED=1` | Fail verify if artifact is unsigned |
+| `AETHER_REQUIRE_NOTARIZED=1` | Fail verify if not stapled / Gatekeeper rejects |
 
 #### CI / GitHub Actions
 
 - **Main CI** (`.github/workflows/ci.yml`) does not require Apple certificates.
-- **Release** (`.github/workflows/release.yml`, `workflow_dispatch`) builds an unsigned DMG by default.
-- Enable `sign_and_notarize` only after configuring repository secrets:
-  - `APPLE_CODESIGN_IDENTITY`
-  - `APPLE_NOTARY_PROFILE` (name passed to `notarytool --keychain-profile`)
-
-Without secrets, the release job still produces an unsigned artifact for smoke testing.
+- **Release** (`.github/workflows/release.yml`, `workflow_dispatch`) builds an unsigned DMG by default and uploads it as an artifact.
+- Optional workflow inputs: `sign` (Developer ID in runner Keychain), `notarize` (notarytool profile in Keychain). GitHub-hosted runners have neither — use a self-hosted macOS runner or sign locally.
+- No repository secrets are required for the default unsigned release path.
 
 #### Homebrew cask
 
-Fill `formulas/aetherforge.rb.template` with the released version and `shasum -a 256` of the **final** notarized DMG, then publish to a Homebrew tap.
+Fill `formulas/aetherforge.rb.template` with the released version, SHA256 (printed by `create-dmg.sh` or the `.sha256` sidecar), and download URL, then publish to a Homebrew tap.
 
 #### Sparkle updates
 
@@ -170,4 +179,4 @@ swift build
 
 **Ollama flake:** If ROUT-01 passes but GRAPH-01 or LOOP-02 fail, re-run after the harness pre-warm lines complete, or pull models manually (`ollama pull all-minilm qwen2.5:3b`).
 
-Related docs: [ROADMAP_PHASE_6.md](ROADMAP_PHASE_6.md) · [ROADMAP_PHASE_7.md](ROADMAP_PHASE_7.md) · [GATEWAY.md](GATEWAY.md) · [RATEL_TOOL_INDEX.md](RATEL_TOOL_INDEX.md)
+Related docs: [ROADMAP_PHASE_6.md](ROADMAP_PHASE_6.md) · [ROADMAP_PHASE_7.md](ROADMAP_PHASE_7.md) · [GATEWAY.md](GATEWAY.md) · [RATEL_TOOL_INDEX.md](RATEL_TOOL_INDEX.md) · [SPARKLE.md](SPARKLE.md)
