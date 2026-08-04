@@ -19,7 +19,7 @@ cargo run -p golden-harness --bin golden-harness
   SKILL-02 routes 3/3 book_skill questions with citation fidelity ≥ 0.9,
   AUTO-01 fires a granted automation trigger → run_task → audit_log,
   CHECK-01 rejects ≥8 frozen bad plans with 0 unverified writes,
-  GATE-01 denies inbound without GatewayGrant then round-trips with grant,
+  GATE-01/GATE-02 deny inbound without GatewayGrant then round-trip with grant (Slack + Telegram),
   PLAN-01 routes ≥9/10 diverse NL goals with required tools and no forbidden tools,
   MEM-02 proves daemon turn → semantic chunk → graph link → isolated next-turn recall,
   SB-01 proves production tool sandboxing, environment scrubbing, and network denial,
@@ -57,9 +57,9 @@ cargo run -p golden-harness --bin golden-harness
 |----------|----------------|-------------|
 | **Darwin** (Ollama + `sandbox-exec`) | **33/33 target** | 29/29 verified on `main` @ `51658d0` (run `30840008383`); SEC-01 + SKILL-03 + INJECT-01 Linux-verified pending Darwin re-run |
 | **Linux CI** (full matrix) | **24/33** | 24 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01 **FAIL-CLOSED** |
-| **Linux Ollama-independent** | **24/24** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, GATE-01, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01** |
+| **Linux Ollama-independent** | **25/25** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, GATE-01, **GATE-02**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01** |
 
-Tasks (35): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **GATE-01**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **INGEST-01**, **BUDG-01**, **GRAPH-02**
+Tasks (36): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **GATE-01**, **GATE-02**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **INGEST-01**, **BUDG-01**, **GRAPH-02**
 
 ROUT-01 runs first, warms the chat model, drains five discard streams, then records **seven**
 server-side warm TTFT samples (`load_duration + prompt_eval_duration`). It drops the lowest and
@@ -80,7 +80,7 @@ product-performance claim.
 | **4 — SwiftUI** | macOS app, TCP daemon client, workspace bookmarks | **Done** |
 | **5 — Polish** | Keychain BYOK, hybrid memory RRF, DMG/notarize scripts, Linux CI | **Done** |
 | **6 — Graph v1 + eval** | Bi-temporal graph, ingest extract, GRAPH-01/LOOP-02/RED-01/SKILL-02, consolidate offline | **Done** |
-| **7 — Orchestration** | Automation scheduler (AUTO-01), maker-checker (CHECK-01), gateway (GATE-01) | **Done — 18/18 harness** |
+| **7 — Orchestration** | Automation scheduler (AUTO-01), maker-checker (CHECK-01), gateway (GATE-01, GATE-02 Telegram/Discord) | **Done — harness extended** |
 | **8.0 — Honesty + closed loop** | IPC lockdown, NL de-harness, memory (MEM-02), production sandbox (SB-01) | **8.0a–8.0c implemented; docs/canonical SB-01 gate remain** |
 | **9 — Trust & Time** | Planner schema/repair (PLAN-01), JSONL session log (SESS-01), undo journal (UNDO-01), replan-on-verify-failure (LOOP-04) | **Slices 9.1–9.10 implemented; Darwin canonical 29/29 verified** |
 | **10 — Product Surface** | Checkpoint + rewind (CKPT-01), `PreToolUse` hook that blocks (HOOK-01), batched approval gate (PERM-02), subagent delegation (SUB-01) | **Slices 10.1, 10.3-10.4, 10.7-10.9 implemented; only FORK-01 (probe) remains in Phase 10; Darwin canonical 29/29 verified** |
@@ -101,7 +101,7 @@ See [docs/SANDBOX.md](docs/SANDBOX.md) for the production tool boundary, platfor
 - **AUTO-01:** frozen cron fixture → enqueue → `run_task` LOOP-01 mini-plan → `audit_log` with `trigger_id`
 - Optional Darwin hooks: `scripts/install-automation-hooks.sh` (launchd/cron stub)
 - **CHECK-01:** `OrchestrationGraph` + read-only `VerifierNode` deny unverified `fs_write` (0/8 bad plans escape)
-- **GATE-01:** `GatewayGrant` + `GatewayRouter` with Slack-first adapter, Telegram/Discord stubs, localhost mock — [docs/GATEWAY.md](docs/GATEWAY.md)
+- **GATE-01 / GATE-02:** `GatewayGrant` + `GatewayRouter` — Slack (GATE-01), production Telegram/Discord adapters + localhost mock (GATE-02) — [docs/GATEWAY.md](docs/GATEWAY.md)
 
 ## Layout
 

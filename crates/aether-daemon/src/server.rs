@@ -32,6 +32,32 @@ pub async fn serve(addr: String, state: Arc<DaemonState>) -> Result<(), Box<dyn 
         });
     }
 
+    if let Ok(gateway_port) = std::env::var("AETHER_GATEWAY_PORT") {
+        let gateway_addr = format!("127.0.0.1:{}", gateway_port);
+        let gateway_state = Arc::clone(&state);
+        tokio::spawn(async move {
+            if let Err(e) = crate::gateway::gateway_server::serve_gateway_webhooks(
+                gateway_addr,
+                gateway_state,
+            )
+            .await
+            {
+                tracing::error!("gateway webhook server failed: {}", e);
+            }
+        });
+    }
+
+    if let Ok(channels) = std::env::var("AETHER_TELEGRAM_LONG_POLL_CHANNELS") {
+        for channel_id in channels.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            let poll_state = Arc::clone(&state);
+            let channel_id = channel_id.to_string();
+            tokio::spawn(async move {
+                crate::gateway::telegram::run_long_poll(poll_state, channel_id).await;
+            });
+        }
+    }
+
+
     let listener = TcpListener::bind(&addr).await?;
     loop {
         let (socket, peer) = listener.accept().await?;

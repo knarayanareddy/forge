@@ -1,4 +1,6 @@
 pub mod discord;
+pub mod gateway_server;
+pub mod inbound;
 pub mod mock_server;
 pub mod slack;
 pub mod telegram;

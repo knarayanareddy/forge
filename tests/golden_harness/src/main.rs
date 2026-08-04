@@ -58,6 +58,9 @@ use check01::test_check01_impl;
 mod gate01;
 use gate01::test_gate01_impl;
 
+mod gate02;
+use gate02::test_gate02_impl;
+
 mod recovery;
 use recovery::CrashRecoveryTest;
 
@@ -99,7 +102,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 35] = [
+const TASKS: [TaskSpec; 36] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -125,6 +128,7 @@ const TASKS: [TaskSpec; 35] = [
     TaskSpec { name: "AUTO-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CHECK-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "GATE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "GATE-02", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "HOOK-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CKPT-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CONS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -198,6 +202,11 @@ async fn main() {
         Err(e) => eprintln!("Warning: GATE-01 fixture check failed: {}", e),
     }
 
+    match gate02::gate02_fixture_ready() {
+        Ok(()) => println!("GATE-02 fixtures: frozen Telegram channel loaded"),
+        Err(e) => eprintln!("Warning: GATE-02 fixture check failed: {}", e),
+    }
+
     match graph01::graph01_fixture_ready() {
         Ok(n) => println!("GRAPH-01 fixtures: {} gold queries loaded", n),
         Err(e) => eprintln!("Warning: GRAPH-01 fixture check failed: {}", e),
@@ -234,12 +243,22 @@ async fn main() {
         }
     }
 
+    let task_filter = std::env::var("AETHER_HARNESS_TASK").ok();
     let mut passed = 0u32;
     let mut hard_pass = 0u32;
     let mut soft_pass = 0u32;
-    let total = TASKS.len() as u32;
+    let tasks: Vec<&TaskSpec> = TASKS
+        .iter()
+        .filter(|spec| {
+            task_filter
+                .as_deref()
+                .map(|want| spec.name == want)
+                .unwrap_or(true)
+        })
+        .collect();
+    let total = tasks.len() as u32;
 
-    for spec in &TASKS {
+    for spec in tasks {
         let result = run_named_task(spec.name, &db).await;
         match result {
             Ok(hard) => {
@@ -327,6 +346,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "AUTO-01" => test_auto01(db).await.map(|_| true),
         "CHECK-01" => test_check01(db).await.map(|_| true),
         "GATE-01" => test_gate01(db).await.map(|_| true),
+        "GATE-02" => test_gate02(db).await.map(|_| true),
         "HOOK-01" => test_hook01_impl(db).map(|_| true),
         "CKPT-01" => test_ckpt01_impl(db).map(|_| true),
         "CONS-01" => test_cons01_impl(db).map(|_| true),
@@ -846,4 +866,8 @@ async fn test_res_01() -> Result<(), String> {
 
     CrashRecoveryTest::simulate_sigterm_recovery(&db_path)?;
     Ok(())
+}
+
+async fn test_gate02(db: &Database) -> Result<(), String> {
+    test_gate02_impl(db).await
 }

@@ -51,9 +51,9 @@ aether_core::store_gateway_token(channel_id, token)?;
 
 No outbound HTTPS in harness; optional `profiles/sandbox_gateway.sb` deferred for production Slack egress.
 
-## Telegram / Discord stubs (slice 7.10)
+## GATE-02 production adapters (Telegram / Discord)
 
-Slack is production-first for GATE-01. **Telegram** and **Discord** adapters are stubbed for payload parsing and message normalization — same grant gate as Slack, no harness task yet (optional GATE-02).
+GATE-02 adds production webhook ingress and outbound REST for **Telegram** and **Discord** on the same `GatewayGrant` gate as GATE-01.
 
 | Channel | Module | Payload field |
 |---------|--------|---------------|
@@ -66,3 +66,28 @@ All channels route through `GatewayRouter::handle_inbound` after `GatewayGrant::
 ## RED-01 extension
 
 Gateway deny path is fail-closed: missing grant, disabled channel, or unknown `channel_id` never enqueues a loop run.
+
+
+### Production webhook server
+
+Set `AETHER_GATEWAY_PORT` (e.g. `7444`) to bind `127.0.0.1` and accept:
+
+`POST /gateway/{slack|telegram|discord}/{channel_id}`
+
+Telegram verifies `X-Telegram-Bot-Api-Secret-Token` when `AETHER_TELEGRAM_WEBHOOK_SECRET` or `AETHER_GATEWAY_WEBHOOK_SECRET_{CHANNEL_ID}` is set.
+
+### Token resolution (Telegram / Discord)
+
+| Precedence | Env var |
+|------------|---------|
+| 1 | `AETHER_GATEWAY_TOKEN_{CHANNEL_ID}` (uppercase, `-` → `_`) |
+| 2 | `AETHER_TELEGRAM_BOT_TOKEN` or `AETHER_DISCORD_BOT_TOKEN` |
+| 3 | Keychain via `store_gateway_token(channel_id, token)` (Darwin) |
+
+### Telegram long poll
+
+Comma-separated gateway channel ids in `AETHER_TELEGRAM_LONG_POLL_CHANNELS` spawn background `getUpdates` loops (production egress).
+
+### Harness (GATE-02)
+
+`tests/golden_harness/src/gate02.rs` mirrors GATE-01 using the frozen Telegram fixture `gate02_telegram.json` and the localhost mock server path `/gateway/telegram/{channel_id}` — no real Telegram network in CI.
