@@ -1,9 +1,10 @@
 mod consolidate;
 mod consolidate_review;
 mod graph;
+mod graph_v2;
 mod recovery;
 
-pub use consolidate::ConsolidationRunRecord;
+pub use consolidate::{ConsolidationRunListItem, ConsolidationRunRecord};
 pub use consolidate_review::{
     format_consolidate_review, ConsolidateEdgeDiff, ConsolidateNodeDiff, ConsolidatePreview,
     EdgeAction, NodeAction,
@@ -12,6 +13,7 @@ pub use graph::{
     EntityType, GraphEdge, GraphNeighbor, GraphNode, NewGraphEdge, NewGraphNode, QueryPolicy,
     RelationType,
 };
+pub use graph_v2::{decay_edge_weight, DEFAULT_DECAY_LAMBDA};
 pub use recovery::{RecoveryManager, RecoveryReport};
 
 use rusqlite::{Connection, Result};
@@ -255,7 +257,7 @@ impl Database {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 policy_name TEXT UNIQUE NOT NULL,
                 rrf_k REAL NOT NULL DEFAULT 60.0,
-                graph_hop_depth INTEGER NOT NULL DEFAULT 1 CHECK(graph_hop_depth BETWEEN 0 AND 1),
+                graph_hop_depth INTEGER NOT NULL DEFAULT 1 CHECK(graph_hop_depth BETWEEN 0 AND 3),
                 fts_weight REAL NOT NULL DEFAULT 1.0,
                 vec_weight REAL NOT NULL DEFAULT 1.0,
                 graph_weight REAL NOT NULL DEFAULT 1.0,
@@ -477,34 +479,55 @@ impl Database {
         let seed_node_ids = self.get_node_ids_for_chunks(&seed_refs)?;
 
         let seed_node_refs: Vec<&str> = seed_node_ids.iter().map(|s| s.as_str()).collect();
-        let neighbors = self.get_one_hop_neighbors(session_id, &seed_node_refs, None)?;
 
-        let seed_score_map: std::collections::HashMap<&str, f64> = seed_node_ids
-            .iter()
-            .map(|id| (id.as_str(), 1.0))
-            .collect();
+        let node_scores: Vec<(String, f64)> = if policy.graph_hop_depth > 1 {
+            self.expand_graph_neighbors_v2(
+                session_id,
+                &seed_node_refs,
+                policy.graph_hop_depth,
+                policy.max_graph_expansion as usize,
+                graph_v2::DEFAULT_DECAY_LAMBDA,
+            )?
+        } else {
+            let neighbors = self.get_bidirectional_one_hop_neighbors(
+                session_id,
+                &seed_node_refs,
+                None,
+            )?;
 
-        // Graph RRF ranks chunks linked to 1-hop neighbors only — seed chunks already
-        // contribute via FTS/vec; re-ranking them here would double-count.
-        let mut node_scores: Vec<(String, f64)> = Vec::new();
-        for neighbor in neighbors {
-            let src_score = seed_score_map
-                .get(neighbor.edge.src_node_id.as_str())
-                .copied()
-                .unwrap_or(1.0);
-            let expanded_score = neighbor.edge.weight * src_score;
-            let entry = node_scores
+            let seed_score_map: std::collections::HashMap<&str, f64> = seed_node_ids
                 .iter()
-                .position(|(id, _)| id == &neighbor.edge.dst_node_id);
-            match entry {
-                Some(idx) => {
-                    if expanded_score > node_scores[idx].1 {
-                        node_scores[idx].1 = expanded_score;
+                .map(|id| (id.as_str(), 1.0))
+                .collect();
+
+            let mut scores: Vec<(String, f64)> = Vec::new();
+            for neighbor in neighbors {
+                let (next_id, src_id) = if seed_score_map.contains_key(neighbor.edge.src_node_id.as_str())
+                {
+                    (
+                        neighbor.edge.dst_node_id.clone(),
+                        neighbor.edge.src_node_id.as_str(),
+                    )
+                } else {
+                    (
+                        neighbor.edge.src_node_id.clone(),
+                        neighbor.edge.dst_node_id.as_str(),
+                    )
+                };
+                let src_score = seed_score_map.get(src_id).copied().unwrap_or(1.0);
+                let expanded_score = neighbor.edge.weight * src_score;
+                let entry = scores.iter().position(|(id, _)| id == &next_id);
+                match entry {
+                    Some(idx) => {
+                        if expanded_score > scores[idx].1 {
+                            scores[idx].1 = expanded_score;
+                        }
                     }
+                    None => scores.push((next_id, expanded_score)),
                 }
-                None => node_scores.push((neighbor.edge.dst_node_id.clone(), expanded_score)),
             }
-        }
+            scores
+        };
 
         let graph_ranks = if node_scores.is_empty() {
             Vec::new()

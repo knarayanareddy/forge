@@ -7,7 +7,7 @@ use crate::DaemonState;
 use aether_core::{
     evaluate_approval_gate, fetch_ollama_embedding, LoopConfig, LoopError, LoopRunResult,
     LoopStreamEvent, MakerCheckerGoal, OrchestrationGraph, PromptComplexity, ReActLoopEngine,
-    DEFAULT_MAX_LOOP_TOKENS,
+    resolve_default_max_loop_tokens,
 };
 use aether_db::Database;
 use aether_mcp::McpAllowlist;
@@ -213,7 +213,7 @@ async fn run_loop_task(
     let allowlist = load_allowlist();
     let skills = load_skills();
     let max_iterations = params.max_iterations.unwrap_or(8);
-    let max_tokens = params.max_tokens.unwrap_or(DEFAULT_MAX_LOOP_TOKENS);
+    let max_tokens = params.max_tokens.unwrap_or_else(resolve_default_max_loop_tokens);
     let mut config = LoopConfig {
         max_iterations,
         max_tokens,
@@ -450,7 +450,7 @@ async fn run_nl_loop_task_with_replan(
     let allowlist = load_allowlist();
     let skills = load_skills();
     let max_iterations = params.max_iterations.unwrap_or(8);
-    let max_tokens = params.max_tokens.unwrap_or(DEFAULT_MAX_LOOP_TOKENS);
+    let max_tokens = params.max_tokens.unwrap_or_else(resolve_default_max_loop_tokens);
     let mut config = LoopConfig {
         max_iterations,
         max_tokens,
@@ -682,7 +682,7 @@ pub fn run_automation_trigger(
     let skills = load_skills();
     let mut config = LoopConfig {
         max_iterations: 8,
-        max_tokens: DEFAULT_MAX_LOOP_TOKENS,
+        max_tokens: resolve_default_max_loop_tokens(),
         tokens_used: 0,
         session_id: trigger.session_id.clone(),
         workspace,
@@ -727,7 +727,7 @@ pub fn run_gateway_inbound(
     let skills = load_skills();
     let mut config = LoopConfig {
         max_iterations: 8,
-        max_tokens: DEFAULT_MAX_LOOP_TOKENS,
+        max_tokens: resolve_default_max_loop_tokens(),
         tokens_used: 0,
         session_id: channel.session_id.clone(),
         workspace: workspace.clone(),

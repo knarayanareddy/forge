@@ -10,8 +10,17 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// Default token cap for daemon loop tasks (`0` = unlimited).
-pub const DEFAULT_MAX_LOOP_TOKENS: usize = 0;
+/// Sane default token cap for daemon loop tasks (Phase 8.1 / BUDG-01).
+/// Override with `AETHER_MAX_LOOP_TOKENS`; set to `0` for unlimited.
+pub const DEFAULT_MAX_LOOP_TOKENS: usize = 16_384;
+
+/// Resolve the daemon default loop token budget from the environment.
+pub fn resolve_default_max_loop_tokens() -> usize {
+    std::env::var("AETHER_MAX_LOOP_TOKENS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_MAX_LOOP_TOKENS)
+}
 
 #[derive(Debug, Clone)]
 pub struct LoopConfig {
@@ -28,7 +37,7 @@ impl LoopConfig {
     pub fn new(max_iterations: usize, session_id: String, workspace: PathBuf) -> Self {
         Self {
             max_iterations,
-            max_tokens: DEFAULT_MAX_LOOP_TOKENS,
+            max_tokens: resolve_default_max_loop_tokens(),
             tokens_used: 0,
             session_id,
             workspace,

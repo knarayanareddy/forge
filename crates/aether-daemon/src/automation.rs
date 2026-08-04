@@ -178,7 +178,7 @@ impl AutomationScheduler {
                 });
                 continue;
             }
-            outcomes.push(self.fire_trigger(conn, &trigger, "cron", false)?);
+            outcomes.push(self.fire_trigger(conn, &trigger, "cron", true)?);
         }
         Ok(outcomes)
     }
@@ -615,7 +615,7 @@ mod tests {
     }
 
     #[test]
-    fn cron_tick_audits_with_grant() {
+    fn cron_tick_enqueues_with_grant() {
         let db = Database::open_in_memory().unwrap();
         let conn = db.conn();
         seed_session(&conn);
@@ -628,16 +628,85 @@ mod tests {
         let outcomes = scheduler
             .tick_cron(&conn, SystemTime::now())
             .expect("tick");
-        assert!(matches!(outcomes[0], AutomationOutcome::Audited { .. }));
+        assert!(matches!(outcomes[0], AutomationOutcome::Enqueued { .. }));
 
-        let args: String = conn
+        let pending: i64 = conn
             .query_row(
-                "SELECT arguments_json FROM audit_log WHERE tool_name = 'automation_run' AND decision = 'approved' LIMIT 1",
+                "SELECT COUNT(*) FROM automation_queue WHERE trigger_id = 'trg-cron-ok' AND status = 'pending'",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(args.contains("trg-cron-ok"));
+        assert_eq!(pending, 1);
+    }
+
+    #[test]
+    fn poller_drains_enqueued_trigger() {
+        let db = Database::open_in_memory().unwrap();
+        let conn = db.conn();
+        seed_session(&conn);
+        AutomationGrant::grant(&conn, "trg-drain", "sess-auto").unwrap();
+
+        let tmp = tempfile::tempdir().unwrap();
+        let workspace = tmp.path().to_path_buf();
+        let workspace_str = workspace.to_string_lossy().to_string();
+        conn.execute(
+            "INSERT INTO capability_grants (session_id, resource_path, permission_type)
+             VALUES ('sess-auto', ?1, 'write')",
+            rusqlite::params![workspace_str],
+        )
+        .unwrap();
+
+        let plan = serde_json::json!({
+            "loop": [
+                {"action": "fs_write", "path": "auto_poller.txt", "content": "poller-ok"},
+                {"action": "verify_contains", "path": "auto_poller.txt", "text": "poller-ok"},
+                {"action": "python_lint", "source": "def ok():\n    return 1\n"},
+                {"action": "done"}
+            ]
+        })
+        .to_string();
+
+        let trigger = AutomationTrigger {
+            trigger_id: "trg-drain".into(),
+            trigger_type: TriggerType::Cron,
+            session_id: "sess-auto".into(),
+            config: TriggerConfig {
+                interval_secs: Some(1),
+                ..Default::default()
+            },
+            task_prompt: plan,
+            workspace_path: Some(workspace_str),
+            enabled: true,
+            last_fired_at: None,
+        };
+        AutomationScheduler::register_trigger(&conn, &trigger).unwrap();
+
+        let mut scheduler = AutomationScheduler::new();
+        scheduler
+            .trigger_automation_run(&conn, &trigger, "test")
+            .expect("enqueue");
+
+        let results = AutomationScheduler::run_pending(&conn, 1, |t| {
+            crate::task_runner::run_automation_trigger(&conn, t)
+        })
+        .expect("drain");
+        assert_eq!(results.len(), 1);
+        assert!(
+            results[0].1.is_ok(),
+            "automation run failed: {:?}",
+            results[0].1
+        );
+        assert!(workspace.join("auto_poller.txt").exists());
+
+        let completed: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM automation_queue WHERE trigger_id = 'trg-drain' AND status = 'completed'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(completed, 1);
     }
 
     #[test]

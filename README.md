@@ -59,7 +59,7 @@ cargo run -p golden-harness --bin golden-harness
 | **Linux CI** (full matrix) | **24/33** | 24 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01 **FAIL-CLOSED** |
 | **Linux Ollama-independent** | **24/24** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, GATE-01, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01** |
 
-Tasks (33): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **GATE-01**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **INGEST-01**
+Tasks (35): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **GATE-01**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **INGEST-01**, **BUDG-01**, **GRAPH-02**
 
 ROUT-01 runs first, warms the chat model, drains five discard streams, then records **seven**
 server-side warm TTFT samples (`load_duration + prompt_eval_duration`). It drops the lowest and

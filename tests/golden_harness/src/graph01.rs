@@ -155,7 +155,7 @@ fn seed_session(db: &Database, session_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn seed_graph_from_fixture(db: &Database, fixture: &GraphSeedFixture) -> Result<(), String> {
+pub fn seed_graph_from_fixture(db: &Database, fixture: &GraphSeedFixture) -> Result<(), String> {
     seed_session(db, &fixture.session_id)?;
 
     let extract_str = serde_json::to_string(&fixture.extract_json)
@@ -178,7 +178,7 @@ fn seed_graph_from_fixture(db: &Database, fixture: &GraphSeedFixture) -> Result<
     Ok(())
 }
 
-async fn seed_memory_chunks(
+pub async fn seed_memory_chunks(
     db: &Database,
     fixture: &GraphSeedFixture,
 ) -> Result<HashMap<String, String>, String> {
@@ -224,7 +224,7 @@ async fn seed_memory_chunks(
     Ok(chunk_to_node)
 }
 
-fn set_graph_weight(db: &Database, weight: f64) -> Result<(), String> {
+pub fn set_graph_weight(db: &Database, weight: f64) -> Result<(), String> {
     let conn = db.conn();
     conn.execute(
         "UPDATE query_policy SET graph_weight = ?1 WHERE policy_name = 'default'",
@@ -234,7 +234,7 @@ fn set_graph_weight(db: &Database, weight: f64) -> Result<(), String> {
     Ok(())
 }
 
-fn set_graph_hop_depth(db: &Database, depth: i32) -> Result<(), String> {
+pub fn set_graph_hop_depth(db: &Database, depth: i32) -> Result<(), String> {
     let conn = db.conn();
     conn.execute(
         "UPDATE query_policy SET graph_hop_depth = ?1 WHERE policy_name = 'default'",
@@ -244,11 +244,11 @@ fn set_graph_hop_depth(db: &Database, depth: i32) -> Result<(), String> {
     Ok(())
 }
 
-fn ranked_chunk_ids(results: &[(String, String, f32)]) -> Vec<String> {
+pub fn ranked_chunk_ids(results: &[(String, String, f32)]) -> Vec<String> {
     results.iter().map(|(id, _, _)| id.clone()).collect()
 }
 
-fn recall_at_k(
+pub fn recall_at_k(
     top_chunk_ids: &[String],
     chunk_to_node: &HashMap<String, String>,
     expected_nodes: &[String],
@@ -273,7 +273,7 @@ fn recall_at_k(
     hits as f64 / expected_nodes.len() as f64
 }
 
-fn rankings_differ(a: &[String], b: &[String]) -> bool {
+pub fn rankings_differ(a: &[String], b: &[String]) -> bool {
     a != b
 }
 

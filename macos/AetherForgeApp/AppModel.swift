@@ -18,8 +18,10 @@ final class AppModel {
     var prompt: String = ""
     var isRunningTask = false
     var lastError: String?
+    var pendingApproval: PendingApproval?
 
     private let client = DaemonClient.shared
+    private var lastWorkspacePath: String?
 
     var daemonEndpoint: String {
         client.endpointDescription
@@ -46,11 +48,42 @@ final class AppModel {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
+        lastWorkspacePath = workspacePath
+        await runTask(prompt: trimmed, sessionId: sessionId, workspacePath: workspacePath, approved: false)
+    }
+
+    func approvePending(sessionId: String) async {
+        guard let pending = pendingApproval else { return }
+        pendingApproval = nil
+        await runTask(
+            prompt: pending.prompt,
+            sessionId: sessionId,
+            workspacePath: lastWorkspacePath,
+            approved: true,
+            preservePromptField: false
+        )
+    }
+
+    func cancelPendingApproval() {
+        pendingApproval = nil
+        lastResponseSummary = "Task cancelled — approval not granted."
+        connectionStatus = .connected
+        isRunningTask = false
+    }
+
+    private func runTask(
+        prompt: String,
+        sessionId: String,
+        workspacePath: String?,
+        approved: Bool,
+        preservePromptField: Bool = true
+    ) async {
         isRunningTask = true
         connectionStatus = .busy
         streamedTokens = ""
         eventLog = []
         lastError = nil
+        pendingApproval = nil
 
         do {
             try await DaemonProcessManager.shared.ensureRunningAndReady()
@@ -69,16 +102,24 @@ final class AppModel {
         }
 
         let stream = client.runTask(
-            prompt: trimmed,
+            prompt: prompt,
             sessionId: sessionId,
-            workspacePath: workspacePath
+            workspacePath: workspacePath,
+            approved: approved
         )
+
+        var blockedForApproval = false
 
         do {
             for try await event in stream {
                 eventLog.append(event)
                 if event.type == "token", let text = event.text {
                     streamedTokens.append(text)
+                }
+                if event.type == "pending_approval", let steps = event.riskySteps, !steps.isEmpty {
+                    pendingApproval = PendingApproval(prompt: prompt, riskySteps: steps)
+                    lastResponseSummary = "Waiting for approval (\(steps.count) risky step(s))."
+                    blockedForApproval = true
                 }
                 if event.type == "done" {
                     lastResponseSummary = event.content ?? "Task completed"
@@ -100,6 +141,10 @@ final class AppModel {
         }
 
         isRunningTask = false
-        prompt = ""
+        if !blockedForApproval && preservePromptField {
+            self.prompt = ""
+        } else if blockedForApproval {
+            self.prompt = prompt
+        }
     }
 }

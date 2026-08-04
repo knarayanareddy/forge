@@ -22,6 +22,18 @@ pub struct ConsolidationRunRecord {
     pub preview: ConsolidatePreview,
 }
 
+/// Summary row for UI / IPC listing of consolidation runs awaiting human review.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ConsolidationRunListItem {
+    pub run_id: i64,
+    pub status: String,
+    pub input_node_count: i64,
+    pub dedupe_count: i64,
+    pub contradiction_count: i64,
+    pub review_artifact_path: Option<String>,
+    pub started_at: String,
+}
+
 impl Database {
     /// Build a consolidate preview for `session_id` without mutating wiki-zone rows.
     pub fn consolidate_memory_preview(&self, session_id: &str) -> Result<ConsolidatePreview> {
@@ -145,6 +157,30 @@ impl Database {
             ],
         )?;
         Ok(())
+    }
+
+    /// List consolidation runs filtered by status (e.g. `review_pending` for the review UI).
+    pub fn list_consolidation_runs_by_status(&self, status: &str) -> Result<Vec<ConsolidationRunListItem>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, status, input_node_count, dedupe_count, contradiction_count,
+                    review_artifact_path, started_at
+             FROM consolidation_runs
+             WHERE status = ?1
+             ORDER BY id DESC",
+        )?;
+        let rows = stmt.query_map(params![status], |row| {
+            Ok(ConsolidationRunListItem {
+                run_id: row.get(0)?,
+                status: row.get(1)?,
+                input_node_count: row.get(2)?,
+                dedupe_count: row.get(3)?,
+                contradiction_count: row.get(4)?,
+                review_artifact_path: row.get(5)?,
+                started_at: row.get(6)?,
+            })
+        })?;
+        rows.collect()
     }
 
     /// Fetch consolidation run status (for review workflow tests).

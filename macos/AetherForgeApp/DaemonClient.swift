@@ -17,6 +17,16 @@ enum DaemonClientError: LocalizedError {
     }
 }
 
+struct ConsolidationRunItem: Identifiable, Sendable {
+    let id: Int64
+    let status: String
+    let inputNodeCount: Int64
+    let dedupeCount: Int64
+    let contradictionCount: Int64
+    let reviewArtifactPath: String?
+    let startedAt: String
+}
+
 struct DaemonEvent: Identifiable, Sendable {
     let id = UUID()
     let type: String
@@ -36,55 +46,50 @@ struct DaemonEvent: Identifiable, Sendable {
     let notUndone: [String]?
     let checkpointId: Int64?
     let turnsTruncated: Int?
+    let riskySteps: [String]?
+    let runId: Int64?
+    let nodesSuperseded: Int?
+    let consolidationRuns: [ConsolidationRunItem]?
 
     var displayLine: String {
         switch type {
-        case "token":
-            return text ?? ""
-        case "plan":
-            return "[plan \(iteration ?? 0)] \(action ?? "")"
-        case "tool":
-            return "[tool \(iteration ?? 0)] \(tool ?? "") → \(output ?? "")"
-        case "observe":
-            return "[observe \(iteration ?? 0)] \(summary ?? "")"
+        case "token": return text ?? ""
+        case "plan": return "[plan \(iteration ?? 0)] \(action ?? "")"
+        case "tool": return "[tool \(iteration ?? 0)] \(tool ?? "") → \(output ?? "")"
+        case "observe": return "[observe \(iteration ?? 0)] \(summary ?? "")"
         case "verify":
             let status = (passed ?? false) ? "PASS" : "FAIL"
             return "[verify \(iteration ?? 0)] \(status): \(detail ?? "")"
-        case "done":
-            return "✓ \(content ?? "done")"
-        case "error":
-            return "✗ \(message ?? "error")"
-        case "pong":
-            return "pong"
-        default:
-            return "[\(type)]"
+        case "done": return "✓ \(content ?? "done")"
+        case "error": return "✗ \(message ?? "error")"
+        case "pong": return "pong"
+        case "pending_approval":
+            return "⚠ approval required: \(riskySteps?.joined(separator: "; ") ?? "risky steps")"
+        case "consolidation_list":
+            return "consolidation runs: \(consolidationRuns?.count ?? 0)"
+        case "consolidation_applied":
+            return "✓ applied run #\(runId ?? 0) (\(nodesSuperseded ?? 0) nodes superseded)"
+        case "consolidation_rejected":
+            return "✗ rejected run #\(runId ?? 0)"
+        default: return "[\(type)]"
         }
     }
 }
 
 final class DaemonClient: @unchecked Sendable {
     static let shared = DaemonClient()
-
     private let endpoint: DaemonConfig.Endpoint
 
     init(endpoint: DaemonConfig.Endpoint = DaemonConfig.load()) {
         self.endpoint = endpoint
     }
 
-    var endpointDescription: String {
-        "\(endpoint.host):\(endpoint.port)"
-    }
+    var endpointDescription: String { "\(endpoint.host):\(endpoint.port)" }
 
     func ping(timeoutSeconds: TimeInterval = 3) async -> Result<DaemonEvent, DaemonClientError> {
         do {
-            let events = try await collectEvents(
-                method: "ping",
-                params: authParams(),
-                timeoutSeconds: timeoutSeconds
-            )
-            if let pong = events.first(where: { $0.type == "pong" }) {
-                return .success(pong)
-            }
+            let events = try await collectEvents(method: "ping", params: authParams(), timeoutSeconds: timeoutSeconds)
+            if let pong = events.first(where: { $0.type == "pong" }) { return .success(pong) }
             if let error = events.first(where: { $0.type == "error" }) {
                 return .failure(.invalidEvent(error.message ?? "daemon error"))
             }
@@ -96,20 +101,11 @@ final class DaemonClient: @unchecked Sendable {
         }
     }
 
-    /// Explicit grant flow after the user selects a workspace folder.
-    func grantWorkspace(
-        sessionId: String,
-        workspacePath: String,
-        timeoutSeconds: TimeInterval = 5
-    ) async throws {
+    func grantWorkspace(sessionId: String, workspacePath: String, timeoutSeconds: TimeInterval = 5) async throws {
         var params = authParams()
         params["session_id"] = sessionId
         params["workspace_path"] = workspacePath
-        let events = try await collectEvents(
-            method: "grant_workspace",
-            params: params,
-            timeoutSeconds: timeoutSeconds
-        )
+        let events = try await collectEvents(method: "grant_workspace", params: params, timeoutSeconds: timeoutSeconds)
         if let error = events.first(where: { $0.type == "error" }) {
             throw DaemonClientError.invalidEvent(error.message ?? "workspace grant failed")
         }
@@ -118,39 +114,25 @@ final class DaemonClient: @unchecked Sendable {
         }
     }
 
-    struct UndoResult: Sendable {
-        let revertedPaths: [String]
-        let notUndone: [String]
-    }
+    struct UndoResult: Sendable { let revertedPaths: [String]; let notUndone: [String] }
 
     func undoWrites(sessionId: String, timeoutSeconds: TimeInterval = 10) async throws -> UndoResult {
         var params = authParams()
         params["session_id"] = sessionId
-        let events = try await collectEvents(
-            method: "undo_writes",
-            params: params,
-            timeoutSeconds: timeoutSeconds
-        )
+        let events = try await collectEvents(method: "undo_writes", params: params, timeoutSeconds: timeoutSeconds)
         if let error = events.first(where: { $0.type == "error" }) {
             throw DaemonClientError.invalidEvent(error.message ?? "undo failed")
         }
         guard let complete = events.first(where: { $0.type == "undo_complete" }) else {
             throw DaemonClientError.invalidEvent("undo was not acknowledged")
         }
-        return UndoResult(
-            revertedPaths: complete.revertedPaths ?? [],
-            notUndone: complete.notUndone ?? []
-        )
+        return UndoResult(revertedPaths: complete.revertedPaths ?? [], notUndone: complete.notUndone ?? [])
     }
 
     func createCheckpoint(sessionId: String, timeoutSeconds: TimeInterval = 10) async throws -> Int64 {
         var params = authParams()
         params["session_id"] = sessionId
-        let events = try await collectEvents(
-            method: "create_checkpoint",
-            params: params,
-            timeoutSeconds: timeoutSeconds
-        )
+        let events = try await collectEvents(method: "create_checkpoint", params: params, timeoutSeconds: timeoutSeconds)
         if let error = events.first(where: { $0.type == "error" }) {
             throw DaemonClientError.invalidEvent(error.message ?? "checkpoint creation failed")
         }
@@ -170,11 +152,7 @@ final class DaemonClient: @unchecked Sendable {
     func rewindCheckpoint(checkpointId: Int64, timeoutSeconds: TimeInterval = 10) async throws -> RewindResult {
         var params = authParams()
         params["checkpoint_id"] = checkpointId
-        let events = try await collectEvents(
-            method: "rewind_checkpoint",
-            params: params,
-            timeoutSeconds: timeoutSeconds
-        )
+        let events = try await collectEvents(method: "rewind_checkpoint", params: params, timeoutSeconds: timeoutSeconds)
         if let error = events.first(where: { $0.type == "error" }) {
             throw DaemonClientError.invalidEvent(error.message ?? "rewind failed")
         }
@@ -188,42 +166,68 @@ final class DaemonClient: @unchecked Sendable {
         )
     }
 
-    /// Streams daemon events incrementally as JSON-lines arrive over TCP.
     func runTask(
         prompt: String,
         sessionId: String,
         workspacePath: String?,
+        approved: Bool = false,
         timeoutSeconds: TimeInterval = 120
     ) -> AsyncThrowingStream<DaemonEvent, Error> {
         var params = authParams()
         params["prompt"] = prompt
         params["session_id"] = sessionId
-        if let workspacePath, !workspacePath.isEmpty {
-            params["workspace_path"] = workspacePath
-        }
-
+        if approved { params["approved"] = true }
+        if let workspacePath, !workspacePath.isEmpty { params["workspace_path"] = workspacePath }
         return stream(method: "run_task", params: params, timeoutSeconds: timeoutSeconds)
     }
 
-    private func authParams() -> [String: Any] {
-        if let token = DaemonAuth.loadToken() {
-            return ["auth_token": token]
+    func listConsolidationPending(timeoutSeconds: TimeInterval = 10) async throws -> [ConsolidationRunItem] {
+        let events = try await collectEvents(
+            method: "list_consolidation_pending", params: authParams(), timeoutSeconds: timeoutSeconds)
+        if let error = events.first(where: { $0.type == "error" }) {
+            throw DaemonClientError.invalidEvent(error.message ?? "list failed")
         }
+        guard let list = events.first(where: { $0.type == "consolidation_list" }) else {
+            throw DaemonClientError.invalidEvent("consolidation list was not returned")
+        }
+        return list.consolidationRuns ?? []
+    }
+
+    func applyConsolidation(runId: Int64, timeoutSeconds: TimeInterval = 10) async throws -> Int {
+        var params = authParams()
+        params["run_id"] = runId
+        let events = try await collectEvents(method: "apply_consolidation", params: params, timeoutSeconds: timeoutSeconds)
+        if let error = events.first(where: { $0.type == "error" }) {
+            throw DaemonClientError.invalidEvent(error.message ?? "apply failed")
+        }
+        guard let applied = events.first(where: { $0.type == "consolidation_applied" }) else {
+            throw DaemonClientError.invalidEvent("consolidation apply was not acknowledged")
+        }
+        return applied.nodesSuperseded ?? 0
+    }
+
+    func rejectConsolidation(runId: Int64, timeoutSeconds: TimeInterval = 10) async throws {
+        var params = authParams()
+        params["run_id"] = runId
+        let events = try await collectEvents(method: "reject_consolidation", params: params, timeoutSeconds: timeoutSeconds)
+        if let error = events.first(where: { $0.type == "error" }) {
+            throw DaemonClientError.invalidEvent(error.message ?? "reject failed")
+        }
+        guard events.contains(where: { $0.type == "consolidation_rejected" }) else {
+            throw DaemonClientError.invalidEvent("consolidation reject was not acknowledged")
+        }
+    }
+
+    private func authParams() -> [String: Any] {
+        if let token = DaemonAuth.loadToken() { return ["auth_token": token] }
         return [:]
     }
 
-    private func stream(
-        method: String,
-        params: [String: Any],
-        timeoutSeconds: TimeInterval
-    ) -> AsyncThrowingStream<DaemonEvent, Error> {
+    private func stream(method: String, params: [String: Any], timeoutSeconds: TimeInterval) -> AsyncThrowingStream<DaemonEvent, Error> {
         let payload: [String: Any] = ["method": method, "params": params]
         let requestData: Data
-        do {
-            requestData = try JSONSerialization.data(withJSONObject: payload)
-        } catch {
-            return AsyncThrowingStream { $0.finish(throwing: error) }
-        }
+        do { requestData = try JSONSerialization.data(withJSONObject: payload) }
+        catch { return AsyncThrowingStream { $0.finish(throwing: error) } }
 
         return AsyncThrowingStream { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
@@ -233,18 +237,12 @@ final class DaemonClient: @unchecked Sendable {
                         return event.type != "done" && event.type != "error" && event.type != "pong"
                     }
                     continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
+                } catch { continuation.finish(throwing: error) }
             }
         }
     }
 
-    private func collectEvents(
-        method: String,
-        params: [String: Any],
-        timeoutSeconds: TimeInterval
-    ) async throws -> [DaemonEvent] {
+    private func collectEvents(method: String, params: [String: Any], timeoutSeconds: TimeInterval) async throws -> [DaemonEvent] {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
@@ -257,83 +255,52 @@ final class DaemonClient: @unchecked Sendable {
                         return event.type != "done" && event.type != "error" && event.type != "pong"
                     }
                     continuation.resume(returning: events)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+                } catch { continuation.resume(throwing: error) }
             }
         }
     }
 
-    /// Reads TCP bytes, parses complete JSON-lines, and invokes `onEvent` for each event.
-    /// Return `false` from `onEvent` to stop reading early.
-    private func streamSync(
-        requestData: Data,
-        timeoutSeconds: TimeInterval,
-        onEvent: (DaemonEvent) -> Bool
-    ) throws {
+    private func streamSync(requestData: Data, timeoutSeconds: TimeInterval, onEvent: (DaemonEvent) -> Bool) throws {
         let socketFD = try connect()
         defer { close(socketFD) }
-
-        guard var request = String(data: requestData, encoding: .utf8) else {
-            throw DaemonClientError.sendFailed
-        }
+        guard var request = String(data: requestData, encoding: .utf8) else { throw DaemonClientError.sendFailed }
         request.append("\n")
-        guard request.withCString({ write(socketFD, $0, strlen($0)) }) > 0 else {
-            throw DaemonClientError.sendFailed
-        }
+        guard request.withCString({ write(socketFD, $0, strlen($0)) }) > 0 else { throw DaemonClientError.sendFailed }
 
         var buffer = Data()
         let deadline = Date().addingTimeInterval(timeoutSeconds)
-
         while Date() < deadline {
             var chunk = [UInt8](repeating: 0, count: 4096)
             let received = recv(socketFD, &chunk, chunk.count, 0)
-            if received == 0 {
-                break
-            }
-            if received < 0 {
-                throw DaemonClientError.receiveFailed
-            }
+            if received == 0 { break }
+            if received < 0 { throw DaemonClientError.receiveFailed }
             buffer.append(contentsOf: chunk.prefix(received))
-
             while let newlineRange = buffer.firstRange(of: Data([0x0A])) {
                 let lineData = buffer.subdata(in: 0..<newlineRange.lowerBound)
                 buffer.removeSubrange(0..<newlineRange.upperBound)
                 guard let line = String(data: lineData, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                      !line.isEmpty else { continue }
-
+                    .trimmingCharacters(in: .whitespacesAndNewlines), !line.isEmpty else { continue }
                 let event = try parseEvent(line)
-                if !onEvent(event) {
-                    return
-                }
+                if !onEvent(event) { return }
             }
         }
-
         throw DaemonClientError.receiveFailed
     }
 
     private func connect() throws -> Int32 {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
-        guard fd >= 0 else {
-            throw DaemonClientError.connectFailed("socket() failed")
-        }
-
+        guard fd >= 0 else { throw DaemonClientError.connectFailed("socket() failed") }
         var addr = sockaddr_in()
         addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         addr.sin_family = sa_family_t(AF_INET)
         addr.sin_port = endpoint.port.bigEndian
         inet_pton(AF_INET, endpoint.host, &addr.sin_addr)
-
         let result = withUnsafePointer(to: &addr) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                 Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
-        guard result == 0 else {
-            close(fd)
-            throw DaemonClientError.connectFailed("\(endpoint.host):\(endpoint.port)")
-        }
+        guard result == 0 else { close(fd); throw DaemonClientError.connectFailed("\(endpoint.host):\(endpoint.port)") }
         return fd
     }
 
@@ -343,7 +310,6 @@ final class DaemonClient: @unchecked Sendable {
               let type = json["type"] as? String else {
             throw DaemonClientError.invalidEvent(line)
         }
-
         return DaemonEvent(
             type: type,
             text: json["text"] as? String,
@@ -361,7 +327,27 @@ final class DaemonClient: @unchecked Sendable {
             revertedPaths: json["reverted_paths"] as? [String],
             notUndone: json["not_undone"] as? [String],
             checkpointId: json["checkpoint_id"] as? Int64,
-            turnsTruncated: json["turns_truncated"] as? Int
+            turnsTruncated: json["turns_truncated"] as? Int,
+            riskySteps: json["risky_steps"] as? [String],
+            runId: json["run_id"] as? Int64,
+            nodesSuperseded: json["nodes_superseded"] as? Int,
+            consolidationRuns: Self.parseConsolidationRuns(json["runs"])
         )
+    }
+
+    private static func parseConsolidationRuns(_ value: Any?) -> [ConsolidationRunItem]? {
+        guard let runs = value as? [[String: Any]] else { return nil }
+        return runs.compactMap { row in
+            guard let runId = row["run_id"] as? Int64 ?? (row["run_id"] as? Int).map(Int64.init) else { return nil }
+            return ConsolidationRunItem(
+                id: runId,
+                status: row["status"] as? String ?? "",
+                inputNodeCount: row["input_node_count"] as? Int64 ?? (row["input_node_count"] as? Int).map(Int64.init) ?? 0,
+                dedupeCount: row["dedupe_count"] as? Int64 ?? (row["dedupe_count"] as? Int).map(Int64.init) ?? 0,
+                contradictionCount: row["contradiction_count"] as? Int64 ?? (row["contradiction_count"] as? Int).map(Int64.init) ?? 0,
+                reviewArtifactPath: row["review_artifact_path"] as? String,
+                startedAt: row["started_at"] as? String ?? ""
+            )
+        }
     }
 }
