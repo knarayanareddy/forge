@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "router: BYOK via Keychain ({})",
             std::env::var("AETHER_BYOK_PROVIDER").unwrap_or_default()
         );
-    } else if let Ok(reg_path) = discover_registry_path() {
+    } else if let Some(reg_path) = discover_registry_path() {
         tracing::info!("router: profile {} ({})", state.router.active_profile_label(), reg_path.display());
     } else {
         tracing::info!("router: {}", state.router.active_profile_label());

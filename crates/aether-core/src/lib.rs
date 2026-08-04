@@ -28,7 +28,7 @@ pub use inject::{
 
 pub use hf_hub::{download_file, sha256_hex, DownloadPlan, HfHubError};
 pub use model_registry::{
-    discover_registry_path, load_discovered_registry, resolve_profile_backend, BackendKind,
+    discover_registry_path, load_discovered_registry, BackendKind,
     ModelProfile, ModelRegistry, RegistryError, ENV_MODEL_PROFILE, ENV_MODEL_PROFILE_COMPLEX,
     ENV_REGISTRY_PATH,
 };
@@ -120,11 +120,10 @@ impl ModelRouter {
         Ok(Self::new(ModelBackend::OllamaMlx { endpoint: endpoint.clone(), model: model.clone() }, Some(ModelBackend::OllamaMlx { endpoint, model: complex_model })).with_active_profile("ollama-env".into()))
     }
     pub fn from_registry(registry: &ModelRegistry) -> Result<Self, RegistryError> {
-        let primary_label = std::env::var(ENV_MODEL_PROFILE).unwrap_or_else(|_| registry.default_profile.clone());
-        let primary = registry.resolve_backend(&primary_label)?;
-        let complex_label = std::env::var(ENV_MODEL_PROFILE_COMPLEX).unwrap_or_else(|_| registry.default_complex_profile.clone());
-        let fallback = if complex_label != primary_label { Some(registry.resolve_backend(&complex_label)?) } else { None };
-        Ok(Self::new(primary, fallback).with_active_profile(primary_label))
+        let primary_label = registry.primary_profile_id();
+        let mut router = registry.build_router()?;
+        router.active_profile = primary_label;
+        Ok(router)
     }
     pub fn active_profile_label(&self) -> &str { if self.active_profile.is_empty() { "legacy" } else { &self.active_profile } }
 

@@ -67,12 +67,17 @@ impl ModelRegistry {
     pub fn profile(&self, id: &str) -> Result<&ModelProfile, RegistryError> { self.profiles.get(id).ok_or_else(|| RegistryError::ProfileNotFound(id.to_string())) }
     pub fn chat_profile_ids(&self) -> Vec<String> { let mut ids: Vec<_> = self.profiles.iter().filter(|(_, p)| p.is_chat_role()).map(|(id, _)| id.clone()).collect(); ids.sort(); ids }
     pub fn resolve_backend(&self, id: &str) -> Result<ModelBackend, RegistryError> { self.profile(id)?.to_backend(id) }
-    fn primary_id(&self) -> &str { std::env::var(ENV_MODEL_PROFILE).ok().filter(|id| self.profiles.contains_key(id)).as_deref().unwrap_or(&self.default_profile) }
-    fn complex_id(&self) -> &str { std::env::var(ENV_MODEL_PROFILE_COMPLEX).ok().filter(|id| self.profiles.contains_key(id)).as_deref().or(self.default_complex_profile.as_deref()).unwrap_or_else(|| self.primary_id()) }
+    fn primary_id(&self) -> String {
+        std::env::var(ENV_MODEL_PROFILE).ok().filter(|id| self.profiles.contains_key(id)).unwrap_or_else(|| self.default_profile.clone())
+    }
+    fn complex_id(&self) -> String {
+        std::env::var(ENV_MODEL_PROFILE_COMPLEX).ok().filter(|id| self.profiles.contains_key(id)).or_else(|| self.default_complex_profile.clone()).unwrap_or_else(|| self.primary_id())
+    }
+    pub fn primary_profile_id(&self) -> String { self.primary_id() }
     pub fn build_router(&self) -> Result<ModelRouter, RegistryError> {
-        let primary = self.resolve_backend(self.primary_id())?;
+        let primary = self.resolve_backend(&self.primary_id())?;
         let cid = self.complex_id();
-        let fallback = if cid == self.primary_id() { None } else { Some(self.resolve_backend(cid)?) };
+        let fallback = if cid == self.primary_id() { None } else { Some(self.resolve_backend(&cid)?) };
         Ok(ModelRouter::new(primary, fallback))
     }
 }
@@ -86,7 +91,7 @@ impl ModelProfile {
                 if let Some(u) = &self.base_url { std::env::set_var("AETHER_BYOK_ENDPOINT", u); }
                 Ok(ModelBackend::ByokCloud { provider: self.provider.clone().unwrap_or_else(|| "openai".into()), api_key, model: self.model.clone().ok_or_else(|| RegistryError::InvalidProfile(id.into(), "missing model".into()))? })
             }
-            BackendKind::Mlx => Ok(ModelBackend::MlxLocal { model_path: self.model_path.clone().ok_or_else(|| RegistryError::InvalidProfile(id.into(), "missing model_path".into()))?, quant: self.quant.clone(), context_len: self.context_len }),
+            BackendKind::Mlx => Ok(ModelBackend::MlxLocal { model_path: self.model_path.clone().ok_or_else(|| RegistryError::InvalidProfile(id.into(), "missing model_path".into()))? }),
             BackendKind::Gguf => Ok(ModelBackend::LlamaCpp { model_path: self.model_path.clone().ok_or_else(|| RegistryError::InvalidProfile(id.into(), "missing model_path".into()))? }),
         }
     }

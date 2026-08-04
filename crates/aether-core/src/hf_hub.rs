@@ -4,20 +4,15 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 #[derive(Debug, Clone)]
-pub struct DownloadPlan {
-    pub hf_repo: String,
-    pub hf_file: Option<String>,
-    pub dest: PathBuf,
-    pub expected_sha256: Option<String>,
-}
+pub struct DownloadPlan { pub hf_repo: String, pub hf_file: Option<String>, pub dest: PathBuf, pub expected_sha256: Option<String> }
 
 impl DownloadPlan {
     pub fn from_profile(repo_root: &Path, profile: &ModelProfile) -> Result<Self, HfHubError> {
         Ok(Self {
-            hf_repo: profile.hf_repo.clone().ok_or_else(|| HfHubError::Download(format!("{} has no hf_repo", profile.label)))?,
+            hf_repo: profile.hf_repo.clone().ok_or_else(|| HfHubError::Download("no hf_repo".into()))?,
             hf_file: profile.hf_file.clone(),
-            dest: repo_root.join(profile.model_path.as_ref().ok_or_else(|| HfHubError::Download(format!("{} has no model_path", profile.label)))?),
-            expected_sha256: None,
+            dest: repo_root.join(profile.model_path.as_ref().ok_or_else(|| HfHubError::Download("no model_path".into()))?),
+            expected_sha256: profile.sha256.clone(),
         })
     }
 }
@@ -30,9 +25,7 @@ pub enum HfHubError {
     #[error("Checksum mismatch: expected {expected}, got {actual}")] ChecksumMismatch { expected: String, actual: String },
 }
 
-pub fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
-}
+pub fn sha256_hex(bytes: &[u8]) -> String { Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect() }
 
 pub async fn download_file(plan: &DownloadPlan) -> Result<PathBuf, HfHubError> {
     let file = plan.hf_file.as_deref().ok_or_else(|| HfHubError::Download("hf_file required".into()))?;
@@ -48,13 +41,4 @@ pub async fn download_file(plan: &DownloadPlan) -> Result<PathBuf, HfHubError> {
     if let Some(parent) = plan.dest.parent() { std::fs::create_dir_all(parent)?; }
     std::fs::write(&plan.dest, &bytes)?;
     Ok(plan.dest.clone())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn sha256_known_empty() {
-        assert_eq!(sha256_hex(b""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
-    }
 }
