@@ -1099,12 +1099,7 @@ mod tests {
         let mut budget_snapshots = Vec::new();
         engine
             .run_structured(&conn, &mut config, plan, None, &HashMap::new(), |event| {
-                if let LoopStreamEvent::Budget {
-                    tokens_used,
-                    max_tokens,
-                    iteration,
-                    max_iterations,
-                } = event
+                if let LoopStreamEvent::Budget { tokens_used, max_tokens, iteration, max_iterations, .. } = event
                 {
                     budget_snapshots.push((iteration, max_iterations, tokens_used, max_tokens));
                 }
