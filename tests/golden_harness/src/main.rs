@@ -372,6 +372,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
             }
             test_graph02_impl(db).await.map(|_| true)
         }
+        "REG-01" => test_reg01_impl().await.map(|_| false),
         other => Err(format!("Unknown task {}", other)),
     };
 
