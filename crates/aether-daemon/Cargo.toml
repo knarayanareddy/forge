@@ -30,6 +30,7 @@ aether-permissions = { path = "../aether-permissions" }
 aether-mcp = { path = "../aether-mcp" }
 aether-skills = { path = "../aether-skills" }
 aether-sandbox = { path = "../aether-sandbox" }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 [dev-dependencies]
 tempfile = "3.10"
