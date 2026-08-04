@@ -19,7 +19,7 @@ aether-mcp = { path = "../aether-mcp" }
 aether-permissions = { path = "../aether-permissions" }
 aether-skills = { path = "../aether-skills" }
 aether-sandbox = { path = "../aether-sandbox" }
-keyring = "3.6"
+keyring = { version = "3.6", features = ["apple-native"] }
 sha2 = "0.10"
 
 [dev-dependencies]

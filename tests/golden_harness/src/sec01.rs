@@ -11,7 +11,9 @@
 //! The fixture MCP server deliberately echoes the raw secret in its tool result so this task
 //! proves redaction, not merely that a well-behaved tool happened not to leak.
 
-use aether_core::{LoopConfig, ToolInvocation, DEFAULT_MAX_LOOP_TOKENS};
+use aether_core::{
+    delete_named_secret, store_named_secret, LoopConfig, ToolInvocation, DEFAULT_MAX_LOOP_TOKENS,
+};
 use aether_daemon::session_log::SessionLogWriter;
 use aether_daemon::task_runner::execute_structured_loop;
 use aether_db::Database;
@@ -45,6 +47,38 @@ impl Drop for EnvGuard {
         match &self.previous {
             Some(v) => std::env::set_var(&self.key, v),
             None => std::env::remove_var(&self.key),
+        }
+    }
+}
+
+/// Install a brokered secret for the harness: Keychain on Darwin (production path), env var
+/// elsewhere (CI/Linux). Restores prior state on drop so the missing-secret case stays clean.
+enum BrokeredSecretGuard {
+    Keychain {
+        name: String,
+    },
+    Env(EnvGuard),
+}
+
+impl BrokeredSecretGuard {
+    fn install(name: &str, value: &str) -> Result<Self, String> {
+        if cfg!(target_os = "macos") {
+            delete_named_secret(name).map_err(|e| e.to_string())?;
+            store_named_secret(name, value).map_err(|e| e.to_string())?;
+            Ok(Self::Keychain {
+                name: name.to_string(),
+            })
+        } else {
+            let env_key = format!("AETHER_SECRET_{}", name.to_ascii_uppercase());
+            Ok(Self::Env(EnvGuard::set(&env_key, value)))
+        }
+    }
+}
+
+impl Drop for BrokeredSecretGuard {
+    fn drop(&mut self) {
+        if let Self::Keychain { name } = self {
+            let _ = delete_named_secret(name);
         }
     }
 }
@@ -149,9 +183,9 @@ pub fn test_sec01_impl(db: &Database) -> Result<(), String> {
         format!("{:x}", hasher.finalize())
     };
 
-    // Linux/CI: brokered secrets resolve from AETHER_SECRET_<NAME>. macOS Keychain store is
-    // exercised by unit tests; the harness uses the same env fallback the daemon does off Darwin.
-    let _guard = EnvGuard::set("AETHER_SECRET_API_TOKEN", SECRET_VALUE);
+    // Darwin: brokered secrets resolve from Keychain (production path). Linux/CI: same-named
+    // `AETHER_SECRET_<NAME>` env var fallback used by the daemon off Darwin.
+    let _guard = BrokeredSecretGuard::install(SECRET_NAME, SECRET_VALUE)?;
 
     let session_id = "sess-sec01";
     let tmp = tempfile::tempdir().map_err(|e| e.to_string())?;
@@ -298,7 +332,7 @@ pub fn test_sec01_impl(db: &Database) -> Result<(), String> {
         )
         .map_err(|e| e.to_string())?;
     }
-    drop(_guard); // unset AETHER_SECRET_API_TOKEN
+    drop(_guard); // remove brokered secret before missing-secret case
     let mut missing_config = LoopConfig {
         max_iterations: 4,
         max_tokens: DEFAULT_MAX_LOOP_TOKENS,
