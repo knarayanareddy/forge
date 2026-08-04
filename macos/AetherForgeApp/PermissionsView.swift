@@ -25,8 +25,8 @@ struct PermissionsView: View {
                 LabeledContent("Session ID", value: workspace.sessionId)
             }
 
-            Section("BYOK (Keychain)") {
-                Text("Cloud API keys are stored in macOS Keychain (service AetherForge, account byok-api-key). Set AETHER_BYOK_PROVIDER=openai on the daemon to route completions through BYOK. Fail-closed on non-macOS.")
+            Section("Model & BYOK") {
+                Text("Configure model profiles and cloud API keys in the Settings tab.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

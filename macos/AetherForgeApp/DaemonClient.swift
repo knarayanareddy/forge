@@ -218,6 +218,38 @@ final class DaemonClient: @unchecked Sendable {
         }
     }
 
+    func fetchModelConfig(timeoutSeconds: TimeInterval = 5) async throws -> Bool {
+        let events = try await collectEvents(method: "get_model_config", params: authParams(), timeoutSeconds: timeoutSeconds)
+        if let error = events.first(where: { $0.type == "error" }) {
+            let message = error.message ?? ""
+            if message.contains("Unknown method") { return false }
+            throw DaemonClientError.invalidEvent(message)
+        }
+        return events.contains(where: { $0.type == "model_config" })
+    }
+
+    func storeBYOKKey(_ apiKey: String, timeoutSeconds: TimeInterval = 5) async throws -> Bool {
+        var params = authParams()
+        params["api_key"] = apiKey
+        let events = try await collectEvents(method: "store_byok_key", params: params, timeoutSeconds: timeoutSeconds)
+        if let error = events.first(where: { $0.type == "error" }) {
+            let message = error.message ?? ""
+            if message.contains("Unknown method") { return false }
+            throw DaemonClientError.invalidEvent(message)
+        }
+        return events.contains(where: { $0.type == "byok_stored" })
+    }
+
+    func deleteBYOKKey(timeoutSeconds: TimeInterval = 5) async throws -> Bool {
+        let events = try await collectEvents(method: "delete_byok_key", params: authParams(), timeoutSeconds: timeoutSeconds)
+        if let error = events.first(where: { $0.type == "error" }) {
+            let message = error.message ?? ""
+            if message.contains("Unknown method") { return false }
+            throw DaemonClientError.invalidEvent(message)
+        }
+        return events.contains(where: { $0.type == "byok_deleted" })
+    }
+
     private func authParams() -> [String: Any] {
         if let token = DaemonAuth.loadToken() { return ["auth_token": token] }
         return [:]
