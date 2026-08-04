@@ -38,6 +38,9 @@ private struct ProfileRow: View {
 struct SettingsView: View {
     @Bindable var settings: SettingsModel
 
+    @Bindable var workspace: WorkspaceStore
+
+
     var body: some View {
         Form {
             Section {
@@ -133,10 +136,29 @@ struct SettingsView: View {
                         .disabled(settings.isBusy)
                 }
 
-                Text("Keys are stored locally (service AetherForge, account byok-api-key). There is no daemon IPC for BYOK yet — the app writes Keychain directly, matching the Rust daemon loader. Set provider/model above; restart the daemon. Fail-closed on non-macOS.")
+
+                Text("Tries daemon IPC for BYOK when available; otherwise writes Keychain directly (AetherForge / byok-api-key). Restart the daemon after changes. Fail-closed on non-macOS.")
+
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+
+            Section("Workspace grant") {
+                if let path = workspace.workspacePath {
+                    Text(path).font(.callout.monospaced())
+                    Text("Bookmark persisted under Application Support. The daemon receives workspace_path on run_task.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("No workspace selected.").foregroundStyle(.secondary)
+                }
+                Button("Change Workspace…") { workspace.selectWorkspace() }
+            }
+
+            Section("Session") {
+                LabeledContent("Session ID", value: workspace.sessionId)
+            }
+
 
             Section("Daemon environment") {
                 Text(settings.daemonEnvironmentSummary.isEmpty ? "(defaults)" : settings.daemonEnvironmentSummary)
