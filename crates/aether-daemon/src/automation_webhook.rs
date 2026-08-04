@@ -128,7 +128,7 @@ async fn write_http_response(
     Ok(())
 }
 
-/// Background cron/file-watch polling loop.
+/// Background cron/file-watch polling loop; enqueues due triggers and executes pending queue rows.
 pub async fn run_automation_scheduler(state: Arc<DaemonState>) {
     let interval_secs = std::env::var("AETHER_AUTOMATION_POLL_SECS")
         .ok()
@@ -144,6 +144,11 @@ pub async fn run_automation_scheduler(state: Arc<DaemonState>) {
         }
         if let Err(e) = scheduler.poll_file_watchers(&conn) {
             tracing::warn!("automation file watch poll failed: {}", e);
+        }
+        if let Err(e) = AutomationScheduler::run_pending(&conn, 4, |trigger| {
+            crate::task_runner::run_automation_trigger(&conn, trigger)
+        }) {
+            tracing::warn!("automation queue drain failed: {}", e);
         }
     }
 }

@@ -4,6 +4,12 @@ use futures::StreamExt;
 use std::fs;
 use tempfile::tempdir;
 
+mod budg01;
+use budg01::test_budg01_impl;
+
+mod graph02;
+use graph02::test_graph02_impl;
+
 mod graph01;
 use graph01::test_graph_01_impl;
 
@@ -93,7 +99,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 33] = [
+const TASKS: [TaskSpec; 35] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -128,6 +134,8 @@ const TASKS: [TaskSpec; 33] = [
     TaskSpec { name: "SKILL-03", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "INJECT-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "INGEST-01", hard_on_darwin: true, fail_closed_off_darwin: true },
+    TaskSpec { name: "BUDG-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "GRAPH-02", hard_on_darwin: true, fail_closed_off_darwin: true },
 ];
 
 fn is_darwin() -> bool {
@@ -163,6 +171,16 @@ async fn main() {
     match ingest01::ingest01_fixture_ready() {
         Ok(n) => println!("INGEST-01 fixtures: {} expected live-extract entities loaded", n),
         Err(e) => eprintln!("Warning: INGEST-01 fixture check failed: {}", e),
+    }
+
+    match budg01::budg01_fixture_ready() {
+        Ok(()) => println!("BUDG-01 fixtures: default token cap configured"),
+        Err(e) => eprintln!("Warning: BUDG-01 fixture check failed: {}", e),
+    }
+
+    match graph02::graph02_fixture_ready() {
+        Ok(n) => println!("GRAPH-02 fixtures: {} gold queries loaded", n),
+        Err(e) => eprintln!("Warning: GRAPH-02 fixture check failed: {}", e),
     }
 
     match check01::check01_fixture_ready() {
@@ -318,6 +336,13 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "SKILL-03" => test_skill03_impl().map(|_| true),
         "INJECT-01" => test_inject01_impl().map(|_| true),
         "INGEST-01" => test_ingest01_impl(db).await.map(|_| true),
+        "BUDG-01" => test_budg01_impl().map(|_| true),
+        "GRAPH-02" => {
+            if is_darwin() {
+                ensure_ollama_embed_ready().await?;
+            }
+            test_graph02_impl(db).await.map(|_| true)
+        }
         other => Err(format!("Unknown task {}", other)),
     };
 
