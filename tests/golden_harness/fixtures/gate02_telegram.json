@@ -1,0 +1,16 @@
+{
+  "channel_id": "gate02-telegram-frozen",
+  "session_id": "sess-gate-02",
+  "channel_type": "telegram",
+  "user_text": "run gate02 task",
+  "telegram_payload": {
+    "update_id": 1001,
+    "message": { "chat": { "id": 424242 }, "text": "run gate02 task" }
+  },
+  "loop_plan": [
+    { "action": "fs_write", "path": "gate_marker.txt", "content": "GATE-02-verified" },
+    { "action": "verify_contains", "path": "gate_marker.txt", "text": "GATE-02-verified" },
+    { "action": "python_lint", "source": "def ok():\n    return 1\n" },
+    { "action": "done" }
+  ]
+}

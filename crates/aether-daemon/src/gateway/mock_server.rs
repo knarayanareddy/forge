@@ -1,12 +1,11 @@
-use crate::gateway::{GatewayChannelType, GatewayOutcome, GatewayRouter};
-use crate::task_runner::run_gateway_inbound;
+use crate::gateway::inbound;
+use crate::gateway::telegram;
+use crate::gateway::{GatewayChannelType, GatewayOutcome};
 use crate::DaemonState;
-use aether_permissions::GatewayGrant;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-/// Localhost mock Slack inbound server for GATE-01 (no real network).
 pub async fn serve_mock_gateway(
     addr: String,
     state: Arc<DaemonState>,
@@ -25,7 +24,6 @@ pub async fn serve_mock_gateway(
     }
 }
 
-/// Accept one inbound POST on a pre-bound listener (harness / unit tests).
 pub async fn accept_one_mock_request(
     listener: TcpListener,
     state: Arc<DaemonState>,
@@ -54,16 +52,13 @@ async fn handle_mock_connection(
     }
 
     let path = parts[1];
-    let channel_id = path
-        .trim_start_matches("/gateway/slack/")
-        .trim_matches('/');
-
-    if channel_id.is_empty() {
-        write_http_response(socket, 400, "Missing channel_id").await?;
+    let Some((channel_type, channel_id)) = parse_gateway_path(path) else {
+        write_http_response(socket, 400, "Missing channel type or channel_id").await?;
         return Ok(());
-    }
+    };
 
     let mut content_length = 0usize;
+    let mut webhook_secret = None;
     for line in lines.by_ref() {
         if line.is_empty() {
             break;
@@ -75,6 +70,12 @@ async fn handle_mock_connection(
                 .trim()
                 .parse()
                 .unwrap_or(0);
+        } else if lower.starts_with("x-telegram-bot-api-secret-token:") {
+            webhook_secret = Some(
+                line.split_once(':')
+                    .map(|(_, v)| v.trim().to_string())
+                    .unwrap_or_default(),
+            );
         }
     }
 
@@ -95,31 +96,16 @@ async fn handle_mock_connection(
         body.truncate(content_length);
     }
 
-    let response = {
-        let conn = state.db.conn();
-        let channel = GatewayRouter::load_channel(&conn, channel_id)?
-            .ok_or_else(|| format!("unknown channel {}", channel_id))?;
-        let user_text = crate::gateway::slack::parse_slack_payload(body.trim())?;
-        let inbound = GatewayRouter::normalize_inbound(&channel, &user_text);
-        match GatewayRouter::handle_inbound(&conn, &inbound)? {
-            GatewayOutcome::Denied { reason, .. } => Err(format!("denied: {}", reason)),
-            GatewayOutcome::Accepted {
-                normalized_prompt, ..
-            } => {
-                run_gateway_inbound(&conn, &channel, &normalized_prompt)?;
-                GatewayGrant::audit_event(
-                    &conn,
-                    &channel.session_id,
-                    channel_id,
-                    "response",
-                    &aether_permissions::PermissionDecision::Approved,
-                    &serde_json::json!({"artifact": "gate_response.txt"}),
-                )
-                .map_err(|e| e.to_string())?;
-                Ok(())
-            }
+    if channel_type == GatewayChannelType::Telegram {
+        if let Err(reason) = telegram::verify_webhook_secret(webhook_secret.as_deref(), channel_id)
+        {
+            write_http_response(socket, 403, &reason).await?;
+            return Ok(());
         }
-    };
+    }
+
+    let response =
+        inbound::handle_inbound_and_run(state, channel_type, channel_id, body.trim());
 
     match response {
         Ok(()) => write_http_response(socket, 200, "ok").await?,
@@ -127,6 +113,21 @@ async fn handle_mock_connection(
         Err(msg) => write_http_response(socket, 400, &msg).await?,
     }
     Ok(())
+}
+
+fn parse_gateway_path(path: &str) -> Option<(GatewayChannelType, &str)> {
+    let trimmed = path.trim_start_matches('/').trim_matches('/');
+    let mut parts = trimmed.split('/');
+    if parts.next()? != "gateway" {
+        return None;
+    }
+    let ty = parts.next()?;
+    let channel_id = parts.next()?;
+    if channel_id.is_empty() {
+        return None;
+    }
+    let channel_type = GatewayChannelType::parse(ty)?;
+    Some((channel_type, channel_id))
 }
 
 async fn write_http_response(
@@ -157,12 +158,21 @@ pub fn handle_mock_slack_post(
     channel_id: &str,
     body: &str,
 ) -> Result<GatewayOutcome, String> {
-    let channel = GatewayRouter::load_channel(conn, channel_id)?
-        .ok_or_else(|| format!("unknown channel {}", channel_id))?;
-    if channel.channel_type != GatewayChannelType::Slack {
-        return Err("mock server only supports slack in GATE-01".into());
-    }
-    let user_text = crate::gateway::slack::parse_slack_payload(body)?;
-    let inbound = GatewayRouter::normalize_inbound(&channel, &user_text);
-    GatewayRouter::handle_inbound(conn, &inbound)
+    inbound::handle_inbound_post(conn, GatewayChannelType::Slack, channel_id, body)
+}
+
+pub fn handle_mock_telegram_post(
+    conn: &rusqlite::Connection,
+    channel_id: &str,
+    body: &str,
+) -> Result<GatewayOutcome, String> {
+    inbound::handle_inbound_post(conn, GatewayChannelType::Telegram, channel_id, body)
+}
+
+pub fn handle_mock_discord_post(
+    conn: &rusqlite::Connection,
+    channel_id: &str,
+    body: &str,
+) -> Result<GatewayOutcome, String> {
+    inbound::handle_inbound_post(conn, GatewayChannelType::Discord, channel_id, body)
 }
