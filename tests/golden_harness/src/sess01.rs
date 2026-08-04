@@ -82,6 +82,8 @@ fn run_frozen_case(
         max_iterations: 8,
         max_tokens: DEFAULT_MAX_LOOP_TOKENS,
         tokens_used: 0,
+            provider_input_tokens: 0,
+            provider_output_tokens: 0,
         session_id: session_id.to_string(),
         workspace,
     };
@@ -169,6 +171,7 @@ pub fn test_sess01_impl(db: &Database) -> Result<(), String> {
         iterations,
         summary,
         tokens_used,
+        ..
     } = &done_record.payload
     {
         if *iterations != run_a.iterations

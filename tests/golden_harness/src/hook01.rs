@@ -41,6 +41,8 @@ pub fn test_hook01_impl(db: &Database) -> Result<(), String> {
         max_iterations: 8,
         max_tokens: DEFAULT_MAX_LOOP_TOKENS,
         tokens_used: 0,
+            provider_input_tokens: 0,
+            provider_output_tokens: 0,
         session_id: session_blocked.to_string(),
         workspace: workspace_blocked.clone(),
     };
@@ -91,6 +93,8 @@ pub fn test_hook01_impl(db: &Database) -> Result<(), String> {
         max_iterations: 8,
         max_tokens: DEFAULT_MAX_LOOP_TOKENS,
         tokens_used: 0,
+            provider_input_tokens: 0,
+            provider_output_tokens: 0,
         session_id: session_blocked.to_string(),
         workspace: workspace_blocked.clone(),
     };
@@ -126,6 +130,8 @@ pub fn test_hook01_impl(db: &Database) -> Result<(), String> {
         max_iterations: 8,
         max_tokens: DEFAULT_MAX_LOOP_TOKENS,
         tokens_used: 0,
+            provider_input_tokens: 0,
+            provider_output_tokens: 0,
         session_id: session_ok.to_string(),
         workspace: workspace_ok.clone(),
     };

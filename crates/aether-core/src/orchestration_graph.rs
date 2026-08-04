@@ -120,6 +120,8 @@ mod tests {
             max_iterations: 4,
             max_tokens: 0,
             tokens_used: 0,
+            provider_input_tokens: 0,
+            provider_output_tokens: 0,
             session_id: "exec".into(),
             workspace,
         };
