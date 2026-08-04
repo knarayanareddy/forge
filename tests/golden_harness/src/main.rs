@@ -96,6 +96,9 @@ use inject01::test_inject01_impl;
 mod ingest01;
 use ingest01::test_ingest01_impl;
 
+mod reg01;
+use reg01::test_reg01_impl;
+
 struct TaskSpec {
     name: &'static str,
     hard_on_darwin: bool,
@@ -140,6 +143,7 @@ const TASKS: [TaskSpec; 36] = [
     TaskSpec { name: "INGEST-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "BUDG-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "GRAPH-02", hard_on_darwin: true, fail_closed_off_darwin: true },
+    TaskSpec { name: "REG-01", hard_on_darwin: false, fail_closed_off_darwin: false },
 ];
 
 fn is_darwin() -> bool {
@@ -180,6 +184,11 @@ async fn main() {
     match budg01::budg01_fixture_ready() {
         Ok(()) => println!("BUDG-01 fixtures: default token cap configured"),
         Err(e) => eprintln!("Warning: BUDG-01 fixture check failed: {}", e),
+    }
+
+    match reg01::reg01_fixture_ready() {
+        Ok(()) => println!("REG-01 fixtures: models/registry.toml loaded"),
+        Err(e) => eprintln!("Warning: REG-01 fixture check failed: {}", e),
     }
 
     match graph02::graph02_fixture_ready() {
