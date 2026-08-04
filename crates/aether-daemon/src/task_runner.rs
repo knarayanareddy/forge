@@ -853,6 +853,7 @@ fn loop_event_to_line(event: &LoopStreamEvent) -> Option<EventLine> {
             max_iterations,
             tokens_used,
             max_tokens,
+            ..
         } => Some(EventLine::budget(
             *iteration,
             *max_iterations,

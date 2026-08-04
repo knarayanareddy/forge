@@ -289,6 +289,8 @@ mod tests {
                 iterations: 1,
                 summary: "wrote 5 bytes".into(),
                 tokens_used: 3,
+                provider_input_tokens: 0,
+                provider_output_tokens: 0,
             },
         ]
     }
