@@ -6,6 +6,7 @@ struct AetherForgeApp: App {
     @State private var model = AppModel()
     @State private var safetyModel = SafetyModel()
     @State private var consolidationModel = ConsolidationModel()
+    @State private var settingsModel = SettingsModel()
 
     var body: some Scene {
         WindowGroup {
@@ -13,7 +14,8 @@ struct AetherForgeApp: App {
                 workspace: workspace,
                 model: model,
                 safetyModel: safetyModel,
-                consolidationModel: consolidationModel
+                consolidationModel: consolidationModel,
+                settingsModel: settingsModel
             )
                 .frame(minWidth: 640, minHeight: 480)
                 .task {
@@ -31,6 +33,7 @@ struct RootView: View {
     @Bindable var model: AppModel
     @Bindable var safetyModel: SafetyModel
     @Bindable var consolidationModel: ConsolidationModel
+    @Bindable var settingsModel: SettingsModel
 
     var body: some View {
         TabView {
@@ -64,6 +67,10 @@ struct RootView: View {
 
             Tab("Safety", systemImage: "arrow.uturn.backward.circle") {
                 SafetyView(model: safetyModel, sessionId: workspace.sessionId)
+            }
+
+            Tab("Settings", systemImage: "gearshape") {
+                SettingsView(settings: settingsModel)
             }
         }
     }
