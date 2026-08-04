@@ -46,6 +46,11 @@ mod test_keychain_backend {
             .get(&(service.to_string(), account.to_string()))
             .cloned())
     }
+
+    pub fn delete(service: &str, account: &str) -> Result<(), KeychainError> {
+        store().remove(&(service.to_string(), account.to_string()));
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -56,6 +61,11 @@ fn test_keychain_set(service: &str, account: &str, password: &str) -> Result<(),
 #[cfg(test)]
 fn test_keychain_get(service: &str, account: &str) -> Result<Option<String>, KeychainError> {
     test_keychain_backend::get(service, account)
+}
+
+#[cfg(test)]
+fn test_keychain_delete(service: &str, account: &str) -> Result<(), KeychainError> {
+    test_keychain_backend::delete(service, account)
 }
 
 #[cfg(not(test))]
@@ -75,6 +85,17 @@ fn platform_keychain_get(service: &str, account: &str) -> Result<Option<String>,
         Ok(value) if !value.is_empty() => Ok(Some(value)),
         Ok(_) => Ok(None),
         Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(KeychainError::Access(e.to_string())),
+    }
+}
+
+#[cfg(not(test))]
+fn platform_keychain_delete(service: &str, account: &str) -> Result<(), KeychainError> {
+    let entry = keyring::Entry::new(service, account)
+        .map_err(|e| KeychainError::Access(e.to_string()))?;
+    match entry.delete_credential() {
+        Ok(()) => Ok(()),
+        Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(KeychainError::Access(e.to_string())),
     }
 }
@@ -104,6 +125,20 @@ fn keychain_get(service: &str, account: &str) -> Result<Option<String>, Keychain
     #[cfg(not(test))]
     {
         platform_keychain_get(service, account)
+    }
+}
+
+fn keychain_delete(service: &str, account: &str) -> Result<(), KeychainError> {
+    if !cfg!(target_os = "macos") {
+        return Err(KeychainError::UnavailableOnPlatform);
+    }
+    #[cfg(test)]
+    {
+        test_keychain_delete(service, account)
+    }
+    #[cfg(not(test))]
+    {
+        platform_keychain_delete(service, account)
     }
 }
 
@@ -147,6 +182,14 @@ pub fn store_named_secret(name: &str, value: &str) -> Result<(), KeychainError> 
         return Err(KeychainError::UnavailableOnPlatform);
     }
     keychain_set(BYOK_SERVICE, &named_secret_account(name), value)
+}
+
+/// Remove a brokered secret from Keychain. macOS only; no-op if absent.
+pub fn delete_named_secret(name: &str) -> Result<(), KeychainError> {
+    if !cfg!(target_os = "macos") {
+        return Err(KeychainError::UnavailableOnPlatform);
+    }
+    keychain_delete(BYOK_SERVICE, &named_secret_account(name))
 }
 
 /// Resolve a brokered secret by name: Keychain on macOS, `AETHER_SECRET_<NAME>` env var
