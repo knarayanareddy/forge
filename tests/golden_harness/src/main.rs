@@ -7,6 +7,9 @@ use tempfile::tempdir;
 mod budg01;
 use budg01::test_budg01_impl;
 
+mod cost01;
+use cost01::test_cost01_impl;
+
 mod graph02;
 use graph02::test_graph02_impl;
 
@@ -99,7 +102,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 35] = [
+const TASKS: [TaskSpec; 36] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -135,6 +138,7 @@ const TASKS: [TaskSpec; 35] = [
     TaskSpec { name: "INJECT-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "INGEST-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "BUDG-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "COST-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "GRAPH-02", hard_on_darwin: true, fail_closed_off_darwin: true },
 ];
 
@@ -171,6 +175,11 @@ async fn main() {
     match ingest01::ingest01_fixture_ready() {
         Ok(n) => println!("INGEST-01 fixtures: {} expected live-extract entities loaded", n),
         Err(e) => eprintln!("Warning: INGEST-01 fixture check failed: {}", e),
+    }
+
+    match cost01::cost01_fixture_ready() {
+        Ok(()) => println!("COST-01 fixtures: provider token usage parser ready"),
+        Err(e) => eprintln!("Warning: COST-01 fixture check failed: {}", e),
     }
 
     match budg01::budg01_fixture_ready() {
@@ -210,7 +219,9 @@ async fn main() {
 
     let db = Database::open_in_memory().expect("In-memory DB init failed");
 
-    if is_darwin() {
+    let task_filter: Vec<String> = std::env::args().skip(1).collect();
+
+    if is_darwin() && (task_filter.is_empty() || task_filter.iter().any(|n| n == "ROUT-01")) {
         let endpoint = std::env::var("AETHER_OLLAMA_ENDPOINT")
             .unwrap_or_else(|_| "http://localhost:11434".to_string());
         let chat_model =
@@ -240,6 +251,9 @@ async fn main() {
     let total = TASKS.len() as u32;
 
     for spec in &TASKS {
+        if !task_filter.is_empty() && !task_filter.iter().any(|n| n == spec.name) {
+            continue;
+        }
         let result = run_named_task(spec.name, &db).await;
         match result {
             Ok(hard) => {
@@ -337,6 +351,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "INJECT-01" => test_inject01_impl().map(|_| true),
         "INGEST-01" => test_ingest01_impl(db).await.map(|_| true),
         "BUDG-01" => test_budg01_impl().map(|_| true),
+        "COST-01" => test_cost01_impl().await.map(|hard| hard),
         "GRAPH-02" => {
             if is_darwin() {
                 ensure_ollama_embed_ready().await?;

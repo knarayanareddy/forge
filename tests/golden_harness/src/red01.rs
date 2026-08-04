@@ -541,6 +541,8 @@ fn execute_adversarial_plan(
         max_iterations: 8,
         max_tokens: 0,
         tokens_used: 0,
+        provider_input_tokens: 0,
+        provider_output_tokens: 0,
         session_id: session_id.clone(),
         workspace: workspace.clone(),
     };

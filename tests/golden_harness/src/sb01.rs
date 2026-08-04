@@ -56,6 +56,8 @@ pub fn test_sb01_impl(db: &Database) -> Result<(), String> {
         max_iterations: 8,
         max_tokens: 16_384,
         tokens_used: 0,
+        provider_input_tokens: 0,
+        provider_output_tokens: 0,
         session_id: session_id.into(),
         workspace: workspace_path.clone(),
     };

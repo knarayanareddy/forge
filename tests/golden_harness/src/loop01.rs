@@ -40,6 +40,8 @@ pub async fn test_loop_01_impl(conn: &rusqlite::Connection) -> Result<(), String
         max_iterations: 6,
         max_tokens: 0,
         tokens_used: 0,
+        provider_input_tokens: 0,
+        provider_output_tokens: 0,
         session_id: session_id.into(),
         workspace: workspace.clone(),
     };

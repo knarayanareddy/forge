@@ -1,3 +1,4 @@
+use crate::cost::{audit_loop_cost, LoopCostAttribution, ProviderTokenUsage};
 use crate::inject::wrap_untrusted_tool_output;
 use crate::{GitOps, LoopError, PythonLinter};
 use aether_mcp::{invoke_with_grant, McpAllowlist};
@@ -22,6 +23,10 @@ pub fn resolve_default_max_loop_tokens() -> usize {
         .unwrap_or(DEFAULT_MAX_LOOP_TOKENS)
 }
 
+/// Record provider-reported tokens in loop telemetry and audit (COST-01).
+pub fn record_provider_token_usage<F>(conn:&Connection,config:&mut LoopConfig,source:&str,usage:ProviderTokenUsage,iteration:Option<usize>,on_event:&mut F)->Result<(),String> where F:FnMut(LoopStreamEvent){if usage.is_empty(){return Ok(());} config.provider_input_tokens=config.provider_input_tokens.saturating_add(usage.input_tokens);config.provider_output_tokens=config.provider_output_tokens.saturating_add(usage.output_tokens);config.tokens_used=config.tokens_used.saturating_add(usage.total());let args=serde_json::json!({"source":source,"input_tokens":usage.input_tokens,"output_tokens":usage.output_tokens,"iteration":iteration,"tokens_used_after":config.tokens_used}).to_string();PermissionManager::audit_decision(conn,&config.session_id,"loop_token_usage",&args,&PermissionDecision::AutoAllowed,None,None).map_err(|e|e.to_string())?;on_event(LoopStreamEvent::ProviderTokens{source:source.to_string(),input_tokens:usage.input_tokens,output_tokens:usage.output_tokens,tokens_used:config.tokens_used,iteration});emit_budget_telemetry(config,iteration.unwrap_or(0),on_event);Ok(())}
+
+
 #[derive(Debug, Clone)]
 pub struct LoopConfig {
     pub max_iterations: usize,
@@ -29,6 +34,8 @@ pub struct LoopConfig {
     pub max_tokens: usize,
     /// Running token tally; updated by `ReActLoopEngine` during execution.
     pub tokens_used: usize,
+    pub provider_input_tokens: usize,
+    pub provider_output_tokens: usize,
     pub session_id: String,
     pub workspace: PathBuf,
 }
@@ -39,6 +46,8 @@ impl LoopConfig {
             max_iterations,
             max_tokens: resolve_default_max_loop_tokens(),
             tokens_used: 0,
+            provider_input_tokens: 0,
+            provider_output_tokens: 0,
             session_id,
             workspace,
         }
@@ -139,12 +148,23 @@ pub enum LoopStreamEvent {
         iterations: usize,
         summary: String,
         tokens_used: usize,
+        provider_input_tokens: usize,
+        provider_output_tokens: usize,
     },
     Budget {
         iteration: usize,
         max_iterations: usize,
         tokens_used: usize,
         max_tokens: usize,
+        provider_input_tokens: usize,
+        provider_output_tokens: usize,
+    },
+    ProviderTokens {
+        source: String,
+        input_tokens: usize,
+        output_tokens: usize,
+        tokens_used: usize,
+        iteration: Option<usize>,
     },
     Error {
         message: String,
@@ -655,6 +675,8 @@ impl ReActLoopEngine {
             iterations: iteration,
             summary: summary.clone(),
             tokens_used: config.tokens_used,
+            provider_input_tokens: config.provider_input_tokens,
+            provider_output_tokens: config.provider_output_tokens,
         });
 
         Ok(LoopRunResult {
@@ -852,6 +874,8 @@ where
         max_iterations: config.max_iterations,
         tokens_used: config.tokens_used,
         max_tokens: config.max_tokens,
+        provider_input_tokens: config.provider_input_tokens,
+        provider_output_tokens: config.provider_output_tokens,
     });
 }
 
@@ -930,6 +954,8 @@ mod tests {
             max_iterations: 5,
             max_tokens: 0,
             tokens_used: 0,
+            provider_input_tokens: 0,
+            provider_output_tokens: 0,
             session_id: "s1".into(),
             workspace,
         };
@@ -982,6 +1008,8 @@ mod tests {
             max_iterations: 5,
             max_tokens: 8,
             tokens_used: 0,
+            provider_input_tokens: 0,
+            provider_output_tokens: 0,
             session_id: "s-budget".into(),
             workspace,
         };
@@ -1047,6 +1075,8 @@ mod tests {
             max_iterations: 5,
             max_tokens: 0,
             tokens_used: 0,
+            provider_input_tokens: 0,
+            provider_output_tokens: 0,
             session_id: "s-tel".into(),
             workspace,
         };
@@ -1075,6 +1105,8 @@ mod tests {
                     max_tokens,
                     iteration,
                     max_iterations,
+                    provider_input_tokens: _,
+                    provider_output_tokens: _,
                 } = event
                 {
                     budget_snapshots.push((iteration, max_iterations, tokens_used, max_tokens));

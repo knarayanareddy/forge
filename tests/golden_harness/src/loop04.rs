@@ -122,6 +122,8 @@ pub async fn test_loop04_impl(db: &Database) -> Result<(), String> {
             max_iterations: 8,
             max_tokens: DEFAULT_MAX_LOOP_TOKENS,
             tokens_used: 0,
+        provider_input_tokens: 0,
+        provider_output_tokens: 0,
             session_id: session_id.clone(),
             workspace: workspace.clone(),
         };
@@ -183,6 +185,8 @@ pub async fn test_loop04_impl(db: &Database) -> Result<(), String> {
         max_iterations: 2,
         max_tokens: DEFAULT_MAX_LOOP_TOKENS,
         tokens_used: 0,
+        provider_input_tokens: 0,
+        provider_output_tokens: 0,
         session_id: session_bounded.to_string(),
         workspace: workspace_bounded,
     };

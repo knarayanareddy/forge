@@ -116,6 +116,8 @@ pub async fn test_check01_impl(conn: &rusqlite::Connection) -> Result<(), String
             max_iterations: 8,
             max_tokens: 0,
             tokens_used: 0,
+        provider_input_tokens: 0,
+        provider_output_tokens: 0,
             session_id: session_id.clone(),
             workspace: workspace.clone(),
         };
@@ -193,6 +195,8 @@ pub async fn test_check01_impl(conn: &rusqlite::Connection) -> Result<(), String
         max_iterations: 8,
         max_tokens: 0,
         tokens_used: 0,
+        provider_input_tokens: 0,
+        provider_output_tokens: 0,
         session_id: session_id.to_string(),
         workspace: workspace.clone(),
     };

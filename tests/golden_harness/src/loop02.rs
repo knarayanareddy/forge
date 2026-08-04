@@ -34,7 +34,7 @@ pub async fn test_loop_02_impl(conn: &rusqlite::Connection) -> Result<(), String
     );
 
     let max_iterations = 6usize;
-    let plan = aether_core::run_nl_planner(&router, LOOP02_EVAL_PROMPT, max_iterations)
+    let (plan, _usage) = aether_core::run_nl_planner(&router, LOOP02_EVAL_PROMPT, max_iterations)
         .await
         .map_err(|e| format!("NlPlanner failed: {}", e))?;
 
@@ -71,6 +71,8 @@ pub async fn test_loop_02_impl(conn: &rusqlite::Connection) -> Result<(), String
         max_iterations,
         max_tokens: token_budget,
         tokens_used: 0,
+        provider_input_tokens: 0,
+        provider_output_tokens: 0,
         session_id: session_id.into(),
         workspace: workspace.clone(),
     };

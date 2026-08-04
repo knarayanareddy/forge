@@ -73,7 +73,7 @@ pub async fn test_plan01_impl() -> Result<(), String> {
     let mut failures = Vec::new();
     for case in &fixture.cases {
         match run_nl_planner(&router, &case.goal, 8).await {
-            Ok(plan) => {
+            Ok((plan, _usage)) => {
                 let tools: Vec<&str> = plan.iter().map(plan_tool_name).collect();
                 let required_present = case
                     .required_tools
