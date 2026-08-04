@@ -68,6 +68,7 @@ struct RootView: View {
             Tab("Safety", systemImage: "arrow.uturn.backward.circle") {
                 SafetyView(model: safetyModel, sessionId: workspace.sessionId)
             }
+
         }
     }
 }

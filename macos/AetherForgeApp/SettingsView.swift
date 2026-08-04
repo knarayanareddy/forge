@@ -37,7 +37,9 @@ private struct ProfileRow: View {
 
 struct SettingsView: View {
     @Bindable var settings: SettingsModel
+
     @Bindable var workspace: WorkspaceStore
+
 
     var body: some View {
         Form {
@@ -134,10 +136,13 @@ struct SettingsView: View {
                         .disabled(settings.isBusy)
                 }
 
+
                 Text("Tries daemon IPC for BYOK when available; otherwise writes Keychain directly (AetherForge / byok-api-key). Restart the daemon after changes. Fail-closed on non-macOS.")
+
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
 
             Section("Workspace grant") {
                 if let path = workspace.workspacePath {
@@ -153,6 +158,7 @@ struct SettingsView: View {
             Section("Session") {
                 LabeledContent("Session ID", value: workspace.sessionId)
             }
+
 
             Section("Daemon environment") {
                 Text(settings.daemonEnvironmentSummary.isEmpty ? "(defaults)" : settings.daemonEnvironmentSummary)
