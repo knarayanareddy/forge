@@ -1,3 +1,4 @@
+use crate::cost::{audit_loop_token_usage, ProviderTokenUsage};
 use crate::inject::wrap_untrusted_tool_output;
 use crate::{GitOps, LoopError, PythonLinter};
 use aether_mcp::{invoke_with_grant, McpAllowlist};
@@ -15,6 +16,19 @@ use std::path::{Path, PathBuf};
 pub const DEFAULT_MAX_LOOP_TOKENS: usize = 16_384;
 
 /// Resolve the daemon default loop token budget from the environment.
+
+
+pub fn record_provider_token_usage<F>(conn: &Connection, config: &mut LoopConfig, source: &str, usage: ProviderTokenUsage, iteration: Option<usize>, on_event: &mut F) -> Result<(), String> where F: FnMut(LoopStreamEvent) {
+    if usage.is_empty() { return Ok(()); }
+    config.provider_input_tokens = config.provider_input_tokens.saturating_add(usage.input_tokens);
+    config.provider_output_tokens = config.provider_output_tokens.saturating_add(usage.output_tokens);
+    config.tokens_used = config.tokens_used.saturating_add(usage.total());
+    audit_loop_token_usage(conn, &config.session_id, source, usage, iteration)?;
+    on_event(LoopStreamEvent::ProviderTokens { source: source.to_string(), input_tokens: usage.input_tokens, output_tokens: usage.output_tokens, tokens_used: config.tokens_used, iteration });
+    emit_budget_telemetry(config, iteration.unwrap_or(0), on_event);
+    Ok(())
+}
+
 pub fn resolve_default_max_loop_tokens() -> usize {
     std::env::var("AETHER_MAX_LOOP_TOKENS")
         .ok()
@@ -29,6 +43,8 @@ pub struct LoopConfig {
     pub max_tokens: usize,
     /// Running token tally; updated by `ReActLoopEngine` during execution.
     pub tokens_used: usize,
+    pub provider_input_tokens: usize,
+    pub provider_output_tokens: usize,
     pub session_id: String,
     pub workspace: PathBuf,
 }
@@ -39,6 +55,8 @@ impl LoopConfig {
             max_iterations,
             max_tokens: resolve_default_max_loop_tokens(),
             tokens_used: 0,
+            provider_input_tokens: 0,
+            provider_output_tokens: 0,
             session_id,
             workspace,
         }
@@ -139,12 +157,17 @@ pub enum LoopStreamEvent {
         iterations: usize,
         summary: String,
         tokens_used: usize,
+        provider_input_tokens: usize,
+        provider_output_tokens: usize,
     },
+    ProviderTokens { source: String, input_tokens: usize, output_tokens: usize, tokens_used: usize, iteration: Option<usize>, },
     Budget {
         iteration: usize,
         max_iterations: usize,
         tokens_used: usize,
         max_tokens: usize,
+        provider_input_tokens: usize,
+        provider_output_tokens: usize,
     },
     Error {
         message: String,
@@ -651,11 +674,9 @@ impl ReActLoopEngine {
             .map(|o| o.output.clone())
             .unwrap_or_else(|| "loop finished".into());
 
-        on_event(LoopStreamEvent::Done {
-            iterations: iteration,
-            summary: summary.clone(),
-            tokens_used: config.tokens_used,
-        });
+        on_event(LoopStreamEvent::Done { iterations: iteration, summary: summary.clone(), tokens_used: config.tokens_used, provider_input_tokens: config.provider_input_tokens, provider_output_tokens: config.provider_output_tokens, });
+        let summary_usage = ProviderTokenUsage { input_tokens: config.provider_input_tokens, output_tokens: config.provider_output_tokens };
+        let _ = audit_loop_token_usage(conn, &config.session_id, "loop_structured_summary", summary_usage, None);
 
         Ok(LoopRunResult {
             iterations: iteration,
@@ -852,6 +873,8 @@ where
         max_iterations: config.max_iterations,
         tokens_used: config.tokens_used,
         max_tokens: config.max_tokens,
+        provider_input_tokens: config.provider_input_tokens,
+        provider_output_tokens: config.provider_output_tokens,
     });
 }
 
@@ -930,6 +953,8 @@ mod tests {
             max_iterations: 5,
             max_tokens: 0,
             tokens_used: 0,
+            provider_input_tokens: 0,
+            provider_output_tokens: 0,
             session_id: "s1".into(),
             workspace,
         };
@@ -982,6 +1007,8 @@ mod tests {
             max_iterations: 5,
             max_tokens: 8,
             tokens_used: 0,
+            provider_input_tokens: 0,
+            provider_output_tokens: 0,
             session_id: "s-budget".into(),
             workspace,
         };
@@ -1047,6 +1074,8 @@ mod tests {
             max_iterations: 5,
             max_tokens: 0,
             tokens_used: 0,
+            provider_input_tokens: 0,
+            provider_output_tokens: 0,
             session_id: "s-tel".into(),
             workspace,
         };

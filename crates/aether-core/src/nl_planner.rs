@@ -4,6 +4,7 @@
 //! Production validation checks schema, allowed tools, step cap, and forbidden patterns —
 //! **not** harness gold tool order (see `validate_nl_plan_gold_trajectory` for eval-only asserts).
 
+use crate::cost::ProviderTokenUsage;
 use crate::graph_extract::strip_json_fence;
 use crate::{ModelRouter, ToolInvocation};
 use serde_json::Value;
@@ -333,6 +334,9 @@ pub fn validate_nl_plan_gold_trajectory(plan: &[ToolInvocation]) -> Result<(), N
     Ok(())
 }
 
+#[derive(Debug, Clone)]
+pub struct NlPlannerResult { pub plan: Vec<ToolInvocation>, pub token_usage: ProviderTokenUsage, }
+
 /// Total planner attempts: one initial generation plus `MAX_PLAN_REPAIRS` repairs (Slice 9.3).
 const MAX_PLAN_REPAIRS: usize = 2;
 
@@ -345,17 +349,16 @@ pub async fn run_nl_planner(
     router: &ModelRouter,
     nl_goal: &str,
     max_iterations: usize,
-) -> Result<Vec<ToolInvocation>, NlPlanError> {
+ ) -> Result<NlPlannerResult, NlPlanError> {
     let schema = nl_plan_schema();
     let mut prompt = build_nl_plan_prompt(nl_goal);
     let mut last_error: Option<NlPlanError> = None;
+    let mut total_usage = ProviderTokenUsage::default();
 
     for attempt in 0..=MAX_PLAN_REPAIRS {
-        let raw = router
-            .complete_json_schema(&prompt, NL_PLAN_NUM_PREDICT, &schema)
-            .await
-            .map_err(|e| NlPlanError::Ollama(e.to_string()))?
-            .content;
+        let completion = router.complete_json_schema(&prompt, NL_PLAN_NUM_PREDICT, &schema).await.map_err(|e| NlPlanError::Ollama(e.to_string()))?;
+        if let Some(u) = completion.token_usage { total_usage.merge(u); }
+        let raw = completion.content;
         let json = strip_json_fence(&raw);
         let normalized = match normalize_nl_plan_json(&json) {
             Ok(value) => value,
@@ -374,7 +377,7 @@ pub async fn run_nl_planner(
                 Ok(plan)
             })
         {
-            Ok(plan) => return Ok(plan),
+            Ok(plan) => return Ok(NlPlannerResult { plan, token_usage: total_usage }),
             Err(e) => {
                 if attempt < MAX_PLAN_REPAIRS {
                     prompt = build_nl_repair_prompt(nl_goal, &normalized, &e);
@@ -429,18 +432,16 @@ pub async fn run_nl_planner_repair(
     failed_tool: &str,
     failure_detail: &str,
     max_iterations: usize,
-) -> Result<Vec<ToolInvocation>, NlPlanError> {
+ ) -> Result<NlPlannerResult, NlPlanError> {
     let schema = nl_plan_schema();
-    let mut prompt =
-        build_nl_verify_repair_prompt(nl_goal, completed_tools, failed_tool, failure_detail);
+    let mut prompt = build_nl_verify_repair_prompt(nl_goal, completed_tools, failed_tool, failure_detail);
     let mut last_error: Option<NlPlanError> = None;
+    let mut total_usage = ProviderTokenUsage::default();
 
     for attempt in 0..=MAX_PLAN_REPAIRS {
-        let raw = router
-            .complete_json_schema(&prompt, NL_PLAN_NUM_PREDICT, &schema)
-            .await
-            .map_err(|e| NlPlanError::Ollama(e.to_string()))?
-            .content;
+        let completion = router.complete_json_schema(&prompt, NL_PLAN_NUM_PREDICT, &schema).await.map_err(|e| NlPlanError::Ollama(e.to_string()))?;
+        if let Some(u) = completion.token_usage { total_usage.merge(u); }
+        let raw = completion.content;
         let json = strip_json_fence(&raw);
         let normalized = match normalize_nl_plan_json(&json) {
             Ok(value) => value,
@@ -454,7 +455,7 @@ pub async fn run_nl_planner_repair(
         };
 
         match validate_nl_plan(&normalized, max_iterations) {
-            Ok(plan) => return Ok(plan),
+            Ok(plan) => return Ok(NlPlannerResult { plan, token_usage: total_usage }),
             Err(e) => {
                 if attempt < MAX_PLAN_REPAIRS {
                     prompt = build_nl_repair_prompt(nl_goal, &normalized, &e);

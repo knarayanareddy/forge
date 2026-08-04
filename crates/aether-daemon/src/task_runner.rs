@@ -7,7 +7,7 @@ use crate::DaemonState;
 use aether_core::{
     evaluate_approval_gate, fetch_ollama_embedding, LoopConfig, LoopError, LoopRunResult,
     LoopStreamEvent, MakerCheckerGoal, OrchestrationGraph, PromptComplexity, ReActLoopEngine,
-    resolve_default_max_loop_tokens,
+    record_provider_token_usage, resolve_default_max_loop_tokens,
 };
 use aether_db::Database;
 use aether_mcp::McpAllowlist;
@@ -218,6 +218,8 @@ async fn run_loop_task(
         max_iterations,
         max_tokens,
         tokens_used: 0,
+        provider_input_tokens: 0,
+        provider_output_tokens: 0,
         session_id: session_id.clone(),
         workspace,
     };
@@ -385,7 +387,9 @@ pub async fn run_structured_with_replan(
                 )
                 .await
                 {
-                    Ok(new_plan) => {
+                    Ok(repair) => {
+                        let new_plan = repair.plan;
+                        { let conn = db.conn(); let mut noop = |_| {}; let _ = record_provider_token_usage(&conn, config, "nl_planner_repair", repair.token_usage, None, &mut noop); }
                         // Cross-call correlation (INJECT-01): a replan induced by tool results
                         // must not introduce steps correlated with untrusted observation content
                         // that was absent from the original goal/plan.
@@ -455,6 +459,8 @@ async fn run_nl_loop_task_with_replan(
         max_iterations,
         max_tokens,
         tokens_used: 0,
+        provider_input_tokens: 0,
+        provider_output_tokens: 0,
         session_id: session_id.clone(),
         workspace,
     };
@@ -488,7 +494,7 @@ async fn run_nl_loop_task_with_replan(
 
     let plan = match aether_core::run_nl_planner(&state.router, &planning_goal, max_iterations).await
     {
-        Ok(plan) => plan,
+        Ok(planner) => { { let conn = state.db.conn(); let mut noop = |_| {}; let _ = record_provider_token_usage(&conn, &mut config, "nl_planner", planner.token_usage, None, &mut noop); } planner.plan }
         Err(e) => {
             write_event(
                 writer,
@@ -600,6 +606,7 @@ async fn run_stream_task(
     let mut ttft_ms = 0u128;
     let mut model = String::new();
     let mut saw_first = false;
+    let mut stream_usage = None;
 
     while let Some(chunk) = stream.next().await {
         match chunk {
@@ -623,9 +630,7 @@ async fn run_stream_task(
                 }
                 full_content.push_str(&chunk.text);
 
-                if chunk.done {
-                    break;
-                }
+                if chunk.done { stream_usage = chunk.token_usage; break; }
             }
             Err(e) => {
                 write_event(writer, EventLine::error(e.to_string())).await?;
@@ -643,6 +648,7 @@ async fn run_stream_task(
         EventLine::done(full_content.clone(), ttft_ms, model),
     )
     .await?;
+    if let (Some(session_id), Some(usage)) = (&params.session_id, stream_usage) { if !usage.is_empty() { let mut stream_config = LoopConfig { max_iterations: 0, max_tokens: resolve_default_max_loop_tokens(), tokens_used: 0, provider_input_tokens: 0, provider_output_tokens: 0, session_id: session_id.clone(), workspace: resolve_workspace(params.workspace_path.as_deref()).unwrap_or_default(), }; let conn = state.db.conn(); let mut noop = |_| {}; let _ = record_provider_token_usage(&conn, &mut stream_config, "stream_completion", usage, None, &mut noop); } }
 
     if let Some(session_id) = &params.session_id {
         post_turn_ingest(
@@ -684,6 +690,8 @@ pub fn run_automation_trigger(
         max_iterations: 8,
         max_tokens: resolve_default_max_loop_tokens(),
         tokens_used: 0,
+        provider_input_tokens: 0,
+        provider_output_tokens: 0,
         session_id: trigger.session_id.clone(),
         workspace,
     };
@@ -729,6 +737,8 @@ pub fn run_gateway_inbound(
         max_iterations: 8,
         max_tokens: resolve_default_max_loop_tokens(),
         tokens_used: 0,
+        provider_input_tokens: 0,
+        provider_output_tokens: 0,
         session_id: channel.session_id.clone(),
         workspace: workspace.clone(),
     };
@@ -837,6 +847,7 @@ fn loop_event_to_line(event: &LoopStreamEvent) -> Option<EventLine> {
             passed,
             detail,
         } => Some(EventLine::verify(*iteration, *passed, detail)),
+        LoopStreamEvent::ProviderTokens { .. } => None,
         LoopStreamEvent::Budget {
             iteration,
             max_iterations,

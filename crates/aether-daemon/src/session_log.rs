@@ -15,7 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Bump when the on-disk record shape changes. Readers must reject unknown versions rather than
 /// guess — silent schema drift is exactly the kind of theater this project's docs warn against.
-pub const SESSION_LOG_SCHEMA_VERSION: u32 = 1;
+pub const SESSION_LOG_SCHEMA_VERSION: u32 = 2;
 
 /// One entry in a session's JSONL transcript. `TurnStart` brackets every other payload so a
 /// session log with N turns always contains exactly N `TurnStart` records.
@@ -27,13 +27,9 @@ pub enum SessionLogPayload {
     Tool { iteration: usize, tool: String, output: String },
     Observe { iteration: usize, summary: String },
     Verify { iteration: usize, passed: bool, detail: String },
-    Budget {
-        iteration: usize,
-        max_iterations: usize,
-        tokens_used: usize,
-        max_tokens: usize,
-    },
-    Done { iterations: usize, summary: String, tokens_used: usize },
+    Budget { iteration: usize, max_iterations: usize, tokens_used: usize, max_tokens: usize, provider_input_tokens: usize, provider_output_tokens: usize, },
+    ProviderTokens { source: String, input_tokens: usize, output_tokens: usize, tokens_used: usize, iteration: Option<usize>, },
+    Done { iterations: usize, summary: String, tokens_used: usize, provider_input_tokens: usize, provider_output_tokens: usize, },
     Error { message: String },
 }
 
@@ -66,26 +62,9 @@ impl From<&LoopStreamEvent> for SessionLogPayload {
                 passed: *passed,
                 detail: detail.clone(),
             },
-            LoopStreamEvent::Budget {
-                iteration,
-                max_iterations,
-                tokens_used,
-                max_tokens,
-            } => SessionLogPayload::Budget {
-                iteration: *iteration,
-                max_iterations: *max_iterations,
-                tokens_used: *tokens_used,
-                max_tokens: *max_tokens,
-            },
-            LoopStreamEvent::Done {
-                iterations,
-                summary,
-                tokens_used,
-            } => SessionLogPayload::Done {
-                iterations: *iterations,
-                summary: summary.clone(),
-                tokens_used: *tokens_used,
-            },
+            LoopStreamEvent::Budget { iteration, max_iterations, tokens_used, max_tokens, provider_input_tokens, provider_output_tokens, } => SessionLogPayload::Budget { iteration: *iteration, max_iterations: *max_iterations, tokens_used: *tokens_used, max_tokens: *max_tokens, provider_input_tokens: *provider_input_tokens, provider_output_tokens: *provider_output_tokens, },
+            LoopStreamEvent::ProviderTokens { source, input_tokens, output_tokens, tokens_used, iteration, } => SessionLogPayload::ProviderTokens { source: source.clone(), input_tokens: *input_tokens, output_tokens: *output_tokens, tokens_used: *tokens_used, iteration: *iteration, },
+            LoopStreamEvent::Done { iterations, summary, tokens_used, provider_input_tokens, provider_output_tokens, } => SessionLogPayload::Done { iterations: *iterations, summary: summary.clone(), tokens_used: *tokens_used, provider_input_tokens: *provider_input_tokens, provider_output_tokens: *provider_output_tokens, },
             LoopStreamEvent::Error { message } => SessionLogPayload::Error {
                 message: message.clone(),
             },

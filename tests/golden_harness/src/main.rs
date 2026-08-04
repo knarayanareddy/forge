@@ -5,6 +5,9 @@ use std::fs;
 use tempfile::tempdir;
 
 mod budg01;
+
+mod cost01;
+use cost01::test_cost01_impl;
 use budg01::test_budg01_impl;
 
 mod graph02;
@@ -105,7 +108,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 37] = [
+const TASKS: [TaskSpec; 38] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -142,6 +145,7 @@ const TASKS: [TaskSpec; 37] = [
     TaskSpec { name: "INJECT-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "INGEST-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "BUDG-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "COST-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "GRAPH-02", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "REG-01", hard_on_darwin: false, fail_closed_off_darwin: false },
 ];
@@ -184,6 +188,10 @@ async fn main() {
     match budg01::budg01_fixture_ready() {
         Ok(()) => println!("BUDG-01 fixtures: default token cap configured"),
         Err(e) => eprintln!("Warning: BUDG-01 fixture check failed: {}", e),
+    }
+    match cost01::cost01_fixture_ready() {
+        Ok(()) => println!("COST-01 fixtures: provider token usage parser ready"),
+        Err(e) => eprintln!("Warning: COST-01 fixture check failed: {}", e),
     }
 
     match reg01::reg01_fixture_ready() {
@@ -366,6 +374,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "INJECT-01" => test_inject01_impl().map(|_| true),
         "INGEST-01" => test_ingest01_impl(db).await.map(|_| true),
         "BUDG-01" => test_budg01_impl().map(|_| true),
+        "COST-01" => test_cost01_impl().await.map(|hard| hard),
         "GRAPH-02" => {
             if is_darwin() {
                 ensure_ollama_embed_ready().await?;

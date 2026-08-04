@@ -46,6 +46,8 @@ pub fn test_budg01_impl() -> Result<(), String> {
         max_iterations: 4,
         max_tokens: BUDG01_HARNESS_CAP,
         tokens_used: 0,
+            provider_input_tokens: 0,
+            provider_output_tokens: 0,
         session_id: "sess-budg01".into(),
         workspace,
     };

@@ -1,3 +1,4 @@
+mod cost;
 mod graph_extract;
 mod hf_hub;
 mod model_registry;
@@ -10,6 +11,8 @@ mod orchestration_graph;
 mod risk;
 mod subagent;
 mod verifier_node;
+
+pub use cost::{audit_loop_token_usage, ollama_token_usage, openai_token_usage, ProviderTokenUsage,};
 
 pub use graph_extract::{
     build_graph_extract_prompt, enforce_max_entities, graph_extract_schema_json,
@@ -51,13 +54,13 @@ pub use keychain::{
 
 pub use loop_engine::{
     GoalStopHook, LoopConfig, LoopRunResult, LoopStreamEvent, PythonLintVerifier, ReActLoopEngine,
-    resolve_default_max_loop_tokens, StopHook, ToolInvocation, ToolObservation, ToolRegistry,
+    record_provider_token_usage, resolve_default_max_loop_tokens, StopHook, ToolInvocation, ToolObservation, ToolRegistry,
     Verifier, DEFAULT_MAX_LOOP_TOKENS,
 };
 
 pub use nl_planner::{
     build_nl_plan_prompt, build_nl_repair_prompt, build_nl_verify_repair_prompt, nl_plan_schema,
-    normalize_nl_plan_json, plan_tool_name, run_nl_planner, run_nl_planner_repair,
+    normalize_nl_plan_json, plan_tool_name, run_nl_planner, run_nl_planner_repair, NlPlannerResult,
     validate_nl_plan, validate_nl_plan_gold_trajectory, validate_goal_coverage, NlPlanError,
     LOOP02_EVAL_PROMPT, LOOP02_GOLD_TOOL_ORDER, NL_PLAN_SCHEMA,
 };
@@ -147,6 +150,7 @@ impl ModelRouter {
         let mut content = String::new();
         let mut ttft_ms = 0u128;
         let mut model = String::new();
+        let mut token_usage = None;
 
         let mut stream = Box::pin(OllamaProvider::complete_stream_backend(backend, prompt).await?);
         while let Some(chunk) = stream.next().await {
@@ -161,6 +165,7 @@ impl ModelRouter {
             }
             content.push_str(&chunk.text);
             if chunk.done {
+                token_usage = chunk.token_usage;
                 break;
             }
         }
@@ -173,6 +178,7 @@ impl ModelRouter {
             content,
             ttft_ms,
             model,
+            token_usage,
         })
     }
 
@@ -215,6 +221,7 @@ pub struct CompletionResult {
     pub content: String,
     pub ttft_ms: u128,
     pub model: String,
+    pub token_usage: Option<ProviderTokenUsage>,
 }
 
 #[derive(Debug, Clone)]
@@ -226,6 +233,7 @@ pub struct TokenChunk {
     pub server_ttft_ms: Option<u128>,
     pub model: String,
     pub done: bool,
+    pub token_usage: Option<ProviderTokenUsage>,
 }
 
 use std::sync::OnceLock;
@@ -425,6 +433,7 @@ impl OllamaProvider {
             content: data.message.content,
             ttft_ms: start.elapsed().as_millis(),
             model: model.to_string(),
+            token_usage: ollama_token_usage(data.prompt_eval_count, data.eval_count),
         })
     }
 
@@ -499,6 +508,7 @@ impl OllamaProvider {
             content,
             ttft_ms: start.elapsed().as_millis(),
             model: model.to_string(),
+            token_usage: data.usage.as_ref().and_then(|u| openai_token_usage(Some(u.prompt_tokens), Some(u.completion_tokens))),
         })
     }
 
@@ -562,6 +572,7 @@ impl OllamaProvider {
                             server_ttft_ms,
                             model: model_name.clone(),
                             done: true,
+                            token_usage: ollama_token_usage(data.prompt_eval_count, data.eval_count),
                         };
                         return;
                     }
@@ -578,6 +589,7 @@ impl OllamaProvider {
                             server_ttft_ms: None,
                             model: model_name.clone(),
                             done: false,
+                            token_usage: None,
                         };
                     }
                 }
@@ -664,6 +676,7 @@ impl OllamaProvider {
                                 server_ttft_ms: None,
                                 model: model_name.clone(),
                                 done: false,
+                                token_usage: None,
                             };
                         }
                         if choice.finish_reason.as_deref() == Some("stop") {
@@ -673,6 +686,7 @@ impl OllamaProvider {
                                 server_ttft_ms: None,
                                 model: model_name.clone(),
                                 done: true,
+                                token_usage: data.usage.as_ref().and_then(|u| openai_token_usage(Some(u.prompt_tokens), Some(u.completion_tokens))),
                             };
                             return;
                         }
@@ -695,6 +709,8 @@ fn parse_stream_line(line: &str) -> Result<StreamChatResponse, CompleteError> {
             done: true,
             load_duration: None,
             prompt_eval_duration: None,
+            prompt_eval_count: None,
+            eval_count: None,
         });
     }
     serde_json::from_str(json).map_err(|e| CompleteError::Api(format!("SSE parse error: {}", e)))
@@ -743,6 +759,15 @@ struct OpenAiChatRequest {
 #[derive(Deserialize)]
 struct OpenAiChatResponse {
     choices: Vec<OpenAiChatChoice>,
+    usage: Option<OpenAiUsage>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiUsage {
+    prompt_tokens: u32,
+    completion_tokens: u32,
+    #[serde(default)]
+    total_tokens: u32,
 }
 
 #[derive(Deserialize)]
@@ -758,6 +783,7 @@ struct OpenAiChatMessage {
 #[derive(Deserialize)]
 struct OpenAiStreamChunk {
     choices: Vec<OpenAiStreamChoice>,
+    usage: Option<OpenAiUsage>,
 }
 
 #[derive(Deserialize)]
@@ -789,6 +815,10 @@ struct ChatRequest {
 #[derive(Deserialize)]
 struct ChatResponse {
     message: StreamMessage,
+    #[serde(default)]
+    prompt_eval_count: Option<u64>,
+    #[serde(default)]
+    eval_count: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -829,6 +859,10 @@ struct StreamChatResponse {
     load_duration: Option<u64>,
     #[serde(default)]
     prompt_eval_duration: Option<u64>,
+    #[serde(default)]
+    prompt_eval_count: Option<u64>,
+    #[serde(default)]
+    eval_count: Option<u64>,
 }
 
 #[derive(Deserialize)]
