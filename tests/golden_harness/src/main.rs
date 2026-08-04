@@ -84,13 +84,16 @@ use skill03::test_skill03_impl;
 mod inject01;
 use inject01::test_inject01_impl;
 
+mod ingest01;
+use ingest01::test_ingest01_impl;
+
 struct TaskSpec {
     name: &'static str,
     hard_on_darwin: bool,
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 32] = [
+const TASKS: [TaskSpec; 33] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -124,6 +127,7 @@ const TASKS: [TaskSpec; 32] = [
     TaskSpec { name: "SEC-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "SKILL-03", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "INJECT-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "INGEST-01", hard_on_darwin: true, fail_closed_off_darwin: true },
 ];
 
 fn is_darwin() -> bool {
@@ -154,6 +158,11 @@ async fn main() {
     match inject01::inject01_fixture_ready() {
         Ok(n) => println!("INJECT-01 fixtures: {} frozen tool-result induction cases loaded", n),
         Err(e) => eprintln!("Warning: INJECT-01 fixture check failed: {}", e),
+    }
+
+    match ingest01::ingest01_fixture_ready() {
+        Ok(n) => println!("INGEST-01 fixtures: {} expected live-extract entities loaded", n),
+        Err(e) => eprintln!("Warning: INGEST-01 fixture check failed: {}", e),
     }
 
     match check01::check01_fixture_ready() {
@@ -246,7 +255,7 @@ async fn main() {
         println!("Darwin scoreboard: {}/{} harness ({} hard / {} soft)", passed, total, hard_pass, soft_pass);
     } else {
         println!(
-            "Non-Darwin note: FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04 expected fail-closed when sandbox-exec/Ollama absent; SEC-01 is Ollama-independent"
+            "Non-Darwin note: FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01 expected fail-closed when sandbox-exec/Ollama absent; SEC-01 is Ollama-independent"
         );
     }
 }
@@ -308,6 +317,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "SEC-01" => test_sec01_impl(db).map(|_| true),
         "SKILL-03" => test_skill03_impl().map(|_| true),
         "INJECT-01" => test_inject01_impl().map(|_| true),
+        "INGEST-01" => test_ingest01_impl(db).await.map(|_| true),
         other => Err(format!("Unknown task {}", other)),
     };
 

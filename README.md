@@ -3,7 +3,7 @@
 AetherForge MVP — **Darwin canonical 29/29 verified** at `51658d0` (run
 [`30840008383`](https://github.com/knarayanareddy/forge/actions/runs/30840008383)). The harness has
 grown from that verified 29 through **SEC-01** and **SKILL-03** on `main`, and this branch adds
-**INJECT-01** (Phase 11 slices 11.7–11.8, tool-result induction correlation) for a **32/32 target**.
+**INJECT-01** (Phase 11.7–11.8) and **INGEST-01** (Phase 8.2–8.3 live Ollama graph extract) for a **33/33 target**.
 Tasks through **SUB-01** are Darwin-verified; later Phase 11 slices are Linux-verified pending
 Darwin re-run.
 
@@ -48,18 +48,18 @@ cargo run -p golden-harness --bin golden-harness
   SKILL-03 proves a frozen ≥8 poisoned-skill corpus has 0 escapes through the production
   install/admit/execute trust gate (capability manifest + content pin + injection scan), while a
   benign control skill still installs and runs,
-  and INJECT-01 proves tool *results* cannot induce unplanned tool calls — cross-call correlation
+  and INJECT-01 proves tool *results* cannot induce unplanned tool calls — cross-call correlation. **INGEST-01** proves fresh-transcript graph extract is live Ollama (not `extract_json` seed replay)
   denies replans that consume untrusted observation content absent from the original goal/plan
   (delimiters alone are not the pass condition)
 ```
 
 | Platform | Expected score | Hard / soft |
 |----------|----------------|-------------|
-| **Darwin** (Ollama + `sandbox-exec`) | **32/32 target** | 29/29 verified on `main` @ `51658d0` (run `30840008383`); SEC-01 + SKILL-03 + INJECT-01 Linux-verified pending Darwin re-run |
-| **Linux CI** (full matrix) | **24/32** | 24 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04 **FAIL-CLOSED** |
+| **Darwin** (Ollama + `sandbox-exec`) | **33/33 target** | 29/29 verified on `main` @ `51658d0` (run `30840008383`); SEC-01 + SKILL-03 + INJECT-01 Linux-verified pending Darwin re-run |
+| **Linux CI** (full matrix) | **24/33** | 24 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01 **FAIL-CLOSED** |
 | **Linux Ollama-independent** | **24/24** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, GATE-01, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01** |
 
-Tasks (32): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **GATE-01**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**
+Tasks (33): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **GATE-01**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **INGEST-01**
 
 ROUT-01 runs first, warms the chat model, drains five discard streams, then records **seven**
 server-side warm TTFT samples (`load_duration + prompt_eval_duration`). It drops the lowest and
@@ -84,7 +84,7 @@ product-performance claim.
 | **8.0 — Honesty + closed loop** | IPC lockdown, NL de-harness, memory (MEM-02), production sandbox (SB-01) | **8.0a–8.0c implemented; docs/canonical SB-01 gate remain** |
 | **9 — Trust & Time** | Planner schema/repair (PLAN-01), JSONL session log (SESS-01), undo journal (UNDO-01), replan-on-verify-failure (LOOP-04) | **Slices 9.1–9.10 implemented; Darwin canonical 29/29 verified** |
 | **10 — Product Surface** | Checkpoint + rewind (CKPT-01), `PreToolUse` hook that blocks (HOOK-01), batched approval gate (PERM-02), subagent delegation (SUB-01) | **Slices 10.1, 10.3-10.4, 10.7-10.9 implemented; only FORK-01 (probe) remains in Phase 10; Darwin canonical 29/29 verified** |
-| **11 — Memory & Supply Chain** | Consolidation, secrets, skill trust, tool-result induction | **CONS-01 Darwin-verified; SEC-01 + SKILL-03 on main; INJECT-01 on this branch (32/32 target)** |
+| **11 — Memory & Supply Chain** | Consolidation, secrets, skill trust, tool-result induction | **CONS-01 Darwin-verified; SEC-01 + SKILL-03 + INJECT-01 scoreboard complete; INGEST-01 (8.1–8.3 honesty tail) on this branch → 33/33** |
 
 See [docs/ROADMAP_PHASES_1-5.md](docs/ROADMAP_PHASES_1-5.md) for Phases 1–5 acceptance criteria.  
 See [docs/ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md) for Phase 6 binding spec.  
@@ -235,11 +235,11 @@ FFI (`aether_ffi_daemon_ipc`, `aether_daemon_default_port`) provides default hos
 - **RED-01:** ≥12 frozen adversarial cases (14 shipped); 0% forbidden-action escape
 - **SKILL-02:** book-to-skill progressive disclosure — [docs/RATEL_TOOL_INDEX.md](docs/RATEL_TOOL_INDEX.md)
 - **Consolidate offline:** `./scripts/consolidate_memory.sh` → `review_pending` until human apply
-- **CI:** `.github/workflows/ci.yml` — Linux full matrix gate **≥24/32** · Darwin PR **build + unit tests + Swift only** · push/nightly Darwin **32/32 target** ([docs/LINUX_CI.md](docs/LINUX_CI.md))
+- **CI:** `.github/workflows/ci.yml` — Linux full matrix gate **≥24/33** · Darwin PR **build + unit tests + Swift only** · push/nightly Darwin **33/33 target** ([docs/LINUX_CI.md](docs/LINUX_CI.md))
 
 Install guide: [docs/INSTALL.md](docs/INSTALL.md)
 
 ## Architecture target vs product readiness
 
 - **Spec engineering target:** 8.5+ (see v1.2.3 / v1.2.4 docs; Phase 6 memory architecture via [ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md))
-- **Last verified main baseline:** **29/29 on Darwin** (run `30840008383` @ `51658d0`) through SUB-01; **SEC-01** and **SKILL-03** merged on `main` afterward (Linux-verified). This branch adds **INJECT-01** for a **32/32** target (Linux-verified). See [docs/PHASE_8_0_CLOSURE.md](docs/PHASE_8_0_CLOSURE.md) for the Phase 8.0 22/22 closure evidence.
+- **Last verified main baseline:** **29/29 on Darwin** (run `30840008383` @ `51658d0`) through SUB-01; **SEC-01** and **SKILL-03** merged on `main` afterward (Linux-verified). **INJECT-01** completes non-probe Phase 11 scoreboard items; this branch adds **INGEST-01** for a **33/33** target (Linux-verified with Ollama). See [docs/PHASE_8_0_CLOSURE.md](docs/PHASE_8_0_CLOSURE.md) for the Phase 8.0 22/22 closure evidence.
