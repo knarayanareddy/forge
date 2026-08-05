@@ -43,9 +43,12 @@ cargo run -p golden-harness --bin golden-harness
   SKILL-03 proves a frozen ≥8 poisoned-skill corpus has 0 escapes through the production
   install/admit/execute trust gate (capability manifest + content pin + injection scan), while a
   benign control skill still installs and runs,
-  and INJECT-01 proves tool *results* cannot induce unplanned tool calls — cross-call correlation. **INGEST-01** proves fresh-transcript graph extract is live Ollama (not `extract_json` seed replay)
-  denies replans that consume untrusted observation content absent from the original goal/plan
-  (delimiters alone are not the pass condition)
+  and INJECT-01 proves tool *results* cannot induce unplanned tool calls — cross-call correlation,
+  **INGEST-01** proves fresh-transcript graph extract is live Ollama (not `extract_json` seed replay),
+  **BUDG-01** proves loop token budget enforcement,
+  **COST-01** proves provider token usage is parsed and audited,
+  **GRAPH-02** proves graph v2 multi-hop recall does not regress GRAPH-01 and changes ranking on ≥2 queries,
+  and **REG-01** (soft) proves `models/registry.toml` loads and resolves profiles
 ```
 
 | Platform | Expected score | Hard / soft |
