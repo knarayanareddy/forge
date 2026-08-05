@@ -59,7 +59,7 @@ cargo run -p golden-harness --bin golden-harness
 | **Linux CI** (full matrix) | **24/33** | 24 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01 **FAIL-CLOSED** |
 | **Linux Ollama-independent** | **25/25** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, GATE-01, **GATE-02**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01** |
 
-Tasks (41): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **GATE-01**, **GATE-02**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **INGEST-01**, **BUDG-01**, **COST-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **GRAPH-02**, **REG-01**
+Tasks (38): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **GATE-01**, **GATE-02**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **INGEST-01**, **BUDG-01**, **COST-01**, **GRAPH-02**, **REG-01**
 
 ROUT-01 runs first, warms the chat model, drains five discard streams, then records **seven**
 server-side warm TTFT samples (`load_duration + prompt_eval_duration`). It drops the lowest and
@@ -83,7 +83,7 @@ product-performance claim.
 | **7 — Orchestration** | Automation scheduler (AUTO-01), maker-checker (CHECK-01), gateway (GATE-01, GATE-02 Telegram/Discord) | **Done — harness extended** |
 | **8.0 — Honesty + closed loop** | IPC lockdown, NL de-harness, memory (MEM-02), production sandbox (SB-01) | **8.0a–8.0c implemented; docs/canonical SB-01 gate remain** |
 | **9 — Trust & Time** | Planner schema/repair (PLAN-01), JSONL session log (SESS-01), undo journal (UNDO-01), replan-on-verify-failure (LOOP-04) | **Slices 9.1–9.10 implemented; Darwin canonical 29/29 verified** |
-| **10 — Product Surface** | Checkpoint + rewind (CKPT-01), `PreToolUse` hook that blocks (HOOK-01), batched approval gate (PERM-02), subagent delegation (SUB-01) | **Slices 10.1-10.4, 10.7-10.9, 10.12 implemented; FORK-01/HEAD-01 probes landed; Darwin canonical 41/41 target** |
+| **10 — Product Surface** | Checkpoint + rewind (CKPT-01), `PreToolUse` hook that blocks (HOOK-01), batched approval gate (PERM-02), subagent delegation (SUB-01) | **Slices 10.1, 10.3-10.4, 10.7-10.9 implemented; only FORK-01 (probe) remains in Phase 10; Darwin canonical 29/29 verified** |
 | **11 — Memory & Supply Chain** | Consolidation, secrets, skill trust, tool-result induction | **CONS-01 Darwin-verified; SEC-01 + SKILL-03 + INJECT-01 scoreboard complete; INGEST-01 (8.1–8.3 honesty tail) on this branch → 33/33** |
 
 See [docs/ROADMAP_PHASES_1-5.md](docs/ROADMAP_PHASES_1-5.md) for Phases 1–5 acceptance criteria.  
