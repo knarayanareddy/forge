@@ -100,6 +100,26 @@ async fn mean_recall_at_depth(
     Ok((mean, rank_changes))
 }
 
+fn session_exists(db: &Database, session_id: &str) -> Result<bool, String> {
+    let conn = db.conn();
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sessions WHERE id = ?1",
+            rusqlite::params![session_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(count > 0)
+}
+
+fn chunk_to_node_from_fixture(fixture: &crate::graph01::GraphSeedFixture) -> HashMap<String, String> {
+    fixture
+        .memory_chunks
+        .iter()
+        .map(|c| (c.chunk_id.clone(), c.link_node_id.clone()))
+        .collect()
+}
+
 pub async fn test_graph02_impl(db: &Database) -> Result<(), String> {
     let fixture = load_graph_seed_fixture()?;
     let mut all_queries = fixture.gold_queries.clone();
@@ -113,8 +133,13 @@ pub async fn test_graph02_impl(db: &Database) -> Result<(), String> {
         ));
     }
 
-    seed_graph_from_fixture(db, &fixture)?;
-    let chunk_to_node = seed_memory_chunks(db, &fixture).await?;
+    // GRAPH-01 runs earlier in the full harness and seeds the same fixture session.
+    let chunk_to_node = if session_exists(db, &fixture.session_id)? {
+        chunk_to_node_from_fixture(&fixture)
+    } else {
+        seed_graph_from_fixture(db, &fixture)?;
+        seed_memory_chunks(db, &fixture).await?
+    };
     set_graph_weight(db, 3.0)?;
 
     let (v1_mean, _) = mean_recall_at_depth(

@@ -70,6 +70,8 @@ fn test_keychain_delete(service: &str, account: &str) -> Result<(), KeychainErro
 
 #[cfg(not(test))]
 fn platform_keychain_set(service: &str, account: &str, password: &str) -> Result<(), KeychainError> {
+    // Upsert: stale or ACL-mismatched items make set_password fail on macOS; delete first.
+    let _ = platform_keychain_delete(service, account);
     let entry = keyring::Entry::new(service, account)
         .map_err(|e| KeychainError::Access(e.to_string()))?;
     entry

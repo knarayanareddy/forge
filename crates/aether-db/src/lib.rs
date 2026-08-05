@@ -481,52 +481,18 @@ impl Database {
         let seed_node_refs: Vec<&str> = seed_node_ids.iter().map(|s| s.as_str()).collect();
 
         let node_scores: Vec<(String, f64)> = if policy.graph_hop_depth > 1 {
-            self.expand_graph_neighbors_v2(
+            let one_hop = self.expand_graph_neighbors_v1(session_id, &seed_node_refs)?;
+            let multi_hop = self.expand_graph_neighbors_v2(
                 session_id,
                 &seed_node_refs,
                 policy.graph_hop_depth,
                 policy.max_graph_expansion as usize,
                 graph_v2::DEFAULT_DECAY_LAMBDA,
-            )?
-        } else {
-            let neighbors = self.get_bidirectional_one_hop_neighbors(
-                session_id,
-                &seed_node_refs,
-                None,
             )?;
-
-            let seed_score_map: std::collections::HashMap<&str, f64> = seed_node_ids
-                .iter()
-                .map(|id| (id.as_str(), 1.0))
-                .collect();
-
-            let mut scores: Vec<(String, f64)> = Vec::new();
-            for neighbor in neighbors {
-                let (next_id, src_id) = if seed_score_map.contains_key(neighbor.edge.src_node_id.as_str())
-                {
-                    (
-                        neighbor.edge.dst_node_id.clone(),
-                        neighbor.edge.src_node_id.as_str(),
-                    )
-                } else {
-                    (
-                        neighbor.edge.src_node_id.clone(),
-                        neighbor.edge.dst_node_id.as_str(),
-                    )
-                };
-                let src_score = seed_score_map.get(src_id).copied().unwrap_or(1.0);
-                let expanded_score = neighbor.edge.weight * src_score;
-                let entry = scores.iter().position(|(id, _)| id == &next_id);
-                match entry {
-                    Some(idx) => {
-                        if expanded_score > scores[idx].1 {
-                            scores[idx].1 = expanded_score;
-                        }
-                    }
-                    None => scores.push((next_id, expanded_score)),
-                }
-            }
-            scores
+            // 2-hop must not regress 1-hop recall (GRAPH-02): keep the best score per node.
+            graph_v2::merge_node_scores(&one_hop, &multi_hop)
+        } else {
+            self.expand_graph_neighbors_v1(session_id, &seed_node_refs)?
         };
 
         let graph_ranks = if node_scores.is_empty() {

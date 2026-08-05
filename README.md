@@ -1,19 +1,14 @@
 # forge
 
-AetherForge MVP — **Darwin canonical 29/29 verified** at `51658d0` (run
-[`30840008383`](https://github.com/knarayanareddy/forge/actions/runs/30840008383)). The harness has
-grown from that verified 29 through **SEC-01** and **SKILL-03** on `main`, and this branch adds
-**INJECT-01** (Phase 11.7–11.8) and **INGEST-01** (Phase 8.2–8.3 live Ollama graph extract) for a **33/33 target**.
-Tasks through **SUB-01** are Darwin-verified; later Phase 11 slices are Linux-verified pending
-Darwin re-run.
+AetherForge MVP — **Darwin canonical 38/38 verified** at `164ce2c` (local canonical run after
+SEC-01 keychain upsert + GRAPH-02 1-hop recall floor). The harness covers all **38 tasks**
+including **GATE-02**, **COST-01**, and **REG-01** (soft green on Darwin).
 
 ## Harness score (Darwin, canonical)
 
 ```text
 cargo run -p golden-harness --bin golden-harness
-→ 32/32 harness target (Darwin canonical 29/29 verified at 51658d0, run 30840008383; SEC-01,
-  SKILL-03, and INJECT-01 added after and are Linux-verified pending Darwin re-run) when ROUT-01
-  median warm TTFT ≤ 200ms,
+→ 38/38 harness (37 hard / 1 soft) when ROUT-01 median warm TTFT ≤ 200ms,
   GRAPH-01 recall@3 ≥ 1.0, LOOP-02 NL plan through verify shell (gold trajectory in harness eval only),
   RED-01 blocks all frozen adversarial cases (≥12, currently 14),
   SKILL-02 routes 3/3 book_skill questions with citation fidelity ≥ 0.9,
@@ -55,9 +50,9 @@ cargo run -p golden-harness --bin golden-harness
 
 | Platform | Expected score | Hard / soft |
 |----------|----------------|-------------|
-| **Darwin** (Ollama + `sandbox-exec`) | **33/33 target** | 29/29 verified on `main` @ `51658d0` (run `30840008383`); SEC-01 + SKILL-03 + INJECT-01 Linux-verified pending Darwin re-run |
-| **Linux CI** (full matrix) | **24/33** | 24 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01 **FAIL-CLOSED** |
-| **Linux Ollama-independent** | **25/25** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, GATE-01, **GATE-02**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01** |
+| **Darwin** (Ollama + `sandbox-exec`) | **38/38** | 37 hard / 1 soft (REG-01 soft green) |
+| **Linux CI** (full matrix) | **27/38** | 26 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01, GRAPH-02 **FAIL-CLOSED** |
+| **Linux Ollama-independent** | **27/27** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, GATE-01, **GATE-02**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **BUDG-01**, **COST-01**, **REG-01** |
 
 Tasks (38): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **GATE-01**, **GATE-02**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **INGEST-01**, **BUDG-01**, **COST-01**, **GRAPH-02**, **REG-01**
 

@@ -41,20 +41,27 @@ AetherForge treats **Darwin (macOS 15+)** as the canonical platform. Linux CI va
 | **SEC-01** | hard | PASS | Brokered secret injected at MCP spawn; value absent from plan/context, session log, audit log, and crash dump; no Ollama dependency |
 | **SKILL-03** | hard | PASS | Poisoned-skill corpus (≥8) blocked by install/admit/execute trust gate (manifest + pin + injection scan); no Ollama dependency |
 | **INJECT-01** | hard | PASS | Tool-result induction corpus (≥8) blocked by cross-call correlation (`admit_plan_against_observations`); no Ollama dependency |
+| **INGEST-01** | hard | **FAIL-CLOSED** | Live Ollama `graph_extract` on fresh transcript; no seed replay |
+| **BUDG-01** | hard | PASS | Token budget cap enforced in loop engine; no Ollama dependency |
+| **COST-01** | hard | PASS | Provider token accounting across loop and daemon paths; no Ollama dependency |
+| **GRAPH-02** | hard | **FAIL-CLOSED** | Graph v2 multi-hop recall delta over GRAPH-01 baseline; requires Ollama embeddings |
+| **REG-01** | soft | PASS‡ | Model registry load + routing smoke; soft on Darwin (hard off Darwin) |
 
 \* MCP-01 fails if `@modelcontextprotocol/server-filesystem` is not installed — install via `npm install -g` in CI.
+
+‡ REG-01 is **soft green** on Darwin (registry smoke only); counted in pass total but not in hard-green gate.
 
 ## Expected scores
 
 | Environment | Expected harness | Hard / soft | Notes |
 |-------------|------------------|-------------|-------|
-| Darwin + Ollama + sandbox-exec | **34/34 target** | **32 hard / 0 soft** | Canonical Darwin 29/29 green on `main` @ `51658d0` (run `30840008383`); SEC-01 + SKILL-03 + INJECT-01 Linux-verified pending Darwin re-run |
-| Linux (default CI) | **25/34** | 24 hard / 0 soft† | FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01 fail-closed |
-| Linux + Ollama + MCP | **30/33** | 29 hard / 0 soft† | FS-02, SB-01, and OS-gated LOOP-02 fail closed |
+| Darwin + Ollama + sandbox-exec | **38/38 target** | **37 hard / 1 soft** | Canonical Darwin 38/38 green on `main` @ `164ce2c` (local run after SEC-01 keychain upsert + GRAPH-02 1-hop floor) |
+| Linux (default CI) | **27/38** | 26 hard / 0 soft† | FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01, GRAPH-02 fail-closed |
+| Linux + Ollama + MCP | **32/38** | 31 hard / 0 soft† | FS-02, SB-01, and OS-gated tasks fail closed |
 
-† Fail-closed tasks print `FAIL-CLOSED` and do not inflate the pass count — the harness reports **Passed: 25 / 34** on default Linux CI, not 33/33.
+† Fail-closed tasks print `FAIL-CLOSED` and do not inflate the pass count — the harness reports explicit partial scores on Linux, not 38/38.
 
-**Do not claim 34/34 on Linux.** Nine tasks require unavailable/default-disabled prerequisites; they must show explicit `FAIL-CLOSED`, never silent skip.
+**Do not claim 38/38 on Linux.** Eleven tasks require unavailable/default-disabled prerequisites; they must show explicit `FAIL-CLOSED`, never silent skip.
 
 ## CI workflow tiers
 
@@ -62,9 +69,9 @@ GitHub Actions (`.github/workflows/ci.yml`):
 
 | Trigger | Linux job | Darwin job |
 |---------|-----------|------------|
-| **Pull request** | Full harness · gate ≥ 25/34 | **Build + unit tests + Swift only** — no golden harness |
-| **Push to `main`** | Full harness · gate ≥ 25/34 | Full harness · gate **34/34 (33 hard)** |
-| **Nightly schedule / manual** | Full harness · gate ≥ 25/34 | Full harness · gate **34/34 (33 hard)** |
+| **Pull request** | Full harness · gate ≥ 27/38 | **Build + unit tests + Swift only** — no golden harness |
+| **Push to `main`** | Full harness · gate ≥ 27/38 | Full harness · gate **38/38 (37 hard / 1 soft)** |
+| **Nightly schedule / manual** | Full harness · gate ≥ 27/38 | Full harness · gate **38/38 (37 hard / 1 soft)** |
 
 ### PR fast path (Linux Ollama-independent tasks)
 
@@ -72,7 +79,7 @@ PRs validate the Ollama-independent core without blocking on cold-model flake. T
 
 FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, UNDO-01, AUTO-01, CHECK-01, GATE-01, GATE-02, HOOK-01, CKPT-01, CONS-01, PERM-02, SUB-01, SEC-01, SKILL-03, INJECT-01.
 
-Linux PR jobs still run the **full 36-task harness** (25 pass + 11 fail-closed) and gate on ≥ 24/33. **Darwin PR jobs do not run the golden harness** — they run `cargo build`, `cargo test`, MCP allowlist scan, and Swift build only. Merge to `main` or nightly runs enforce **34/34 on Darwin**.
+Linux PR jobs still run the **full 38-task harness** (27 pass + 11 fail-closed) and gate on ≥ 27/38. **Darwin PR jobs do not run the golden harness** — they run `cargo build`, `cargo test`, MCP allowlist scan, and Swift build only. Merge to `main` or nightly runs enforce **38/38 on Darwin**.
 
 Steps on every job:
 
@@ -112,9 +119,9 @@ Setting `AETHER_BYOK_PROVIDER` on non-macOS causes daemon startup to **fail clos
 ## Local reproduction
 
 ```bash
-# Full Darwin gate (includes INJECT-01 — 33/33)
+# Full Darwin gate (38 tasks — 37 hard / 1 soft)
 cargo run -p golden-harness
-# → Darwin scoreboard: 33/33 harness (32 hard / 0 soft)
+# → Darwin scoreboard: 38/38 harness (37 hard / 1 soft)
 
 # Simulate Linux fail-closed (unset Ollama, non-Darwin only)
 # On macOS, FS-02 still passes if sandbox-exec exists.
