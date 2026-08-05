@@ -1,7 +1,7 @@
 # forge
 
-AetherForge MVP — **Darwin canonical 38/38 verified** at `164ce2c` (local canonical run after
-SEC-01 keychain upsert + GRAPH-02 1-hop recall floor). The harness covers all **38 tasks**
+AetherForge MVP — **Darwin canonical 38/38 verified** at `6caa521` (local canonical run:
+SEC-01 Keychain upsert + round-trip, GRAPH-02 1-hop recall floor). The harness covers all **38 tasks**
 including **GATE-02**, **COST-01**, and **REG-01** (soft green on Darwin).
 
 ## Harness score (Darwin, canonical)
