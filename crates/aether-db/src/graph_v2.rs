@@ -34,6 +34,24 @@ fn current_day_index() -> f64 {
     2026.0 * 365.25 + 8.0 * 30.0 + 4.0
 }
 
+/// Merge node score lists, keeping the maximum score per node id.
+pub fn merge_node_scores(a: &[(String, f64)], b: &[(String, f64)]) -> Vec<(String, f64)> {
+    let mut merged: HashMap<String, f64> = HashMap::new();
+    for (id, score) in a.iter().chain(b.iter()) {
+        merged
+            .entry(id.clone())
+            .and_modify(|existing| {
+                if *score > *existing {
+                    *existing = *score;
+                }
+            })
+            .or_insert(*score);
+    }
+    let mut out: Vec<(String, f64)> = merged.into_iter().collect();
+    out.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    out
+}
+
 impl Database {
     /// Bidirectional 1-hop neighbors (outgoing + incoming edges).
     pub fn get_bidirectional_one_hop_neighbors(
@@ -132,6 +150,52 @@ impl Database {
             });
         }
         Ok(neighbors)
+    }
+
+    /// 1-hop bidirectional expansion from seed nodes (Phase 6 graph RRF).
+    pub fn expand_graph_neighbors_v1(
+        &self,
+        session_id: &str,
+        seed_node_ids: &[&str],
+    ) -> Result<Vec<(String, f64)>> {
+        if seed_node_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let neighbors = self.get_bidirectional_one_hop_neighbors(session_id, seed_node_ids, None)?;
+
+        let seed_score_map: HashMap<&str, f64> = seed_node_ids
+            .iter()
+            .map(|id| (*id, 1.0))
+            .collect();
+
+        let mut scores: Vec<(String, f64)> = Vec::new();
+        for neighbor in neighbors {
+            let (next_id, src_id) = if seed_score_map.contains_key(neighbor.edge.src_node_id.as_str())
+            {
+                (
+                    neighbor.edge.dst_node_id.clone(),
+                    neighbor.edge.src_node_id.as_str(),
+                )
+            } else {
+                (
+                    neighbor.edge.src_node_id.clone(),
+                    neighbor.edge.dst_node_id.as_str(),
+                )
+            };
+            let src_score = seed_score_map.get(src_id).copied().unwrap_or(1.0);
+            let expanded_score = neighbor.edge.weight * src_score;
+            let entry = scores.iter().position(|(id, _)| id == &next_id);
+            match entry {
+                Some(idx) => {
+                    if expanded_score > scores[idx].1 {
+                        scores[idx].1 = expanded_score;
+                    }
+                }
+                None => scores.push((next_id, expanded_score)),
+            }
+        }
+        Ok(scores)
     }
 
     /// Bounded multi-hop expansion with path-score product and recency decay (Phase 11.13).

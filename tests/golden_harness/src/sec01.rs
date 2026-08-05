@@ -12,7 +12,8 @@
 //! proves redaction, not merely that a well-behaved tool happened not to leak.
 
 use aether_core::{
-    delete_named_secret, store_named_secret, LoopConfig, ToolInvocation, DEFAULT_MAX_LOOP_TOKENS,
+    delete_named_secret, load_named_secret, store_named_secret, LoopConfig, ToolInvocation,
+    DEFAULT_MAX_LOOP_TOKENS, BYOK_SERVICE,
 };
 use aether_daemon::session_log::SessionLogWriter;
 use aether_daemon::task_runner::execute_structured_loop;
@@ -60,11 +61,34 @@ enum BrokeredSecretGuard {
     Env(EnvGuard),
 }
 
+fn force_delete_keychain_secret(name: &str) {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let account = format!("secret-{name}");
+    let _ = Command::new("security")
+        .args([
+            "delete-generic-password",
+            "-s",
+            BYOK_SERVICE,
+            "-a",
+            &account,
+        ])
+        .output();
+}
+
 impl BrokeredSecretGuard {
     fn install(name: &str, value: &str) -> Result<Self, String> {
         if cfg!(target_os = "macos") {
+            force_delete_keychain_secret(name);
             delete_named_secret(name).map_err(|e| e.to_string())?;
             store_named_secret(name, value).map_err(|e| e.to_string())?;
+            let loaded = load_named_secret(name).map_err(|e| e.to_string())?;
+            if loaded.as_deref() != Some(value) {
+                return Err(
+                    "SEC-01 brokered secret Keychain round-trip failed after store".into(),
+                );
+            }
             Ok(Self::Keychain {
                 name: name.to_string(),
             })
