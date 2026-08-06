@@ -9,6 +9,9 @@ source "$ROOT/scripts/lib/distribution.sh"
 
 APP_NAME="AetherForge"
 VERSION="${AETHER_VERSION:-0.1.0}"
+SPARKLE_FEED_URL="${AETHER_SPARKLE_FEED_URL:-https://github.com/knarayanareddy/forge/releases/download/v${VERSION}/appcast.xml}"
+SPARKLE_PUBLIC_KEY="${AETHER_SPARKLE_PUBLIC_KEY:-}"
+SPARKLE_AUTO_CHECK="${AETHER_SPARKLE_AUTO_CHECK:-false}"
 BUILD_DIR="$ROOT/build/dmg"
 STAGING="$BUILD_DIR/staging"
 APP_BUNDLE="$STAGING/${APP_NAME}.app"
@@ -103,6 +106,9 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <key>CFBundleVersion</key><string>${VERSION}</string>
   <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>SUFeedURL</key><string>${SPARKLE_FEED_URL}</string>
+  <key>SUEnableAutomaticChecks</key><${SPARKLE_AUTO_CHECK}/>
+  <key>SUPublicEDKey</key><string>${SPARKLE_PUBLIC_KEY}</string>
 </dict>
 </plist>
 PLIST

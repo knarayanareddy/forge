@@ -12,6 +12,9 @@ let package = Package(
             targets: ["AetherForgeApp"]
         )
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0")
+    ],
     targets: [
         .target(
             name: "AetherFFI",
@@ -27,7 +30,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "AetherForgeApp",
-            dependencies: ["AetherFFI"],
+            dependencies: [
+                "AetherFFI",
+                .product(name: "Sparkle", package: "Sparkle")
+            ],
             path: "macos/AetherForgeApp"
         )
     ]

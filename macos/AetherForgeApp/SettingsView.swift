@@ -39,10 +39,24 @@ struct SettingsView: View {
     @Bindable var settings: SettingsModel
 
     @Bindable var workspace: WorkspaceStore
-
+    @ObservedObject var sparkle: SparkleUpdateController
 
     var body: some View {
         Form {
+            Section("Updates (Sparkle)") {
+                LabeledContent("Feed configured") {
+                    Label(sparkle.feedConfigured ? "Ready" : "Stub — needs EdDSA keys",
+                          systemImage: sparkle.feedConfigured ? "arrow.triangle.2.circlepath.circle.fill" : "exclamationmark.triangle")
+                        .foregroundStyle(sparkle.feedConfigured ? .green : .orange)
+                }
+                Button("Check for Updates…") { sparkle.checkForUpdates() }
+                if let summary = sparkle.lastCheckSummary {
+                    Text(summary).font(.caption).foregroundStyle(.secondary)
+                }
+                Text("Automatic checks stay off until a signed appcast ships. See docs/SPARKLE.md.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             Section {
                 Text("Choose model profiles from the registry TOML and configure BYOK keys in Keychain. Changes apply after daemon restart.")
                     .font(.caption)

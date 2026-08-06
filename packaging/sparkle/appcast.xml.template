@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>AetherForge</title>
+    <link>https://github.com/knarayanareddy/forge</link>
+    <item>
+      <title>Version __VERSION__</title>
+      <sparkle:version>__VERSION__</sparkle:version>
+      <sparkle:shortVersionString>__VERSION__</sparkle:shortVersionString>
+      <pubDate>__RFC822_DATE__</pubDate>
+      <enclosure url="__DMG_URL__" sparkle:edSignature="__ED_SIGNATURE__" length="__BYTE_LENGTH__" type="application/octet-stream"/>
+    </item>
+  </channel>
+</rss>

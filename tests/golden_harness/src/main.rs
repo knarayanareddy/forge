@@ -111,13 +111,16 @@ use ingest01::test_ingest01_impl;
 mod reg01;
 use reg01::test_reg01_impl;
 
+mod dist01;
+use dist01::test_dist01_impl;
+
 struct TaskSpec {
     name: &'static str,
     hard_on_darwin: bool,
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 41] = [
+const TASKS: [TaskSpec; 42] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -160,6 +163,7 @@ const TASKS: [TaskSpec; 41] = [
     TaskSpec { name: "FORK-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "HEAD-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CACHE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "DIST-01", hard_on_darwin: true, fail_closed_off_darwin: true },
 ];
 
 fn is_darwin() -> bool {
@@ -410,6 +414,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
             test_graph02_impl(db).await.map(|_| true)
         }
         "REG-01" => test_reg01_impl().await.map(|_| false),
+        "DIST-01" => test_dist01_impl().map(|_| true),
         other => Err(format!("Unknown task {}", other)),
     };
 
