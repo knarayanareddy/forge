@@ -8,8 +8,6 @@ pub use user_registry::{
     pin_filesystem_server, McpToolChange, McpToolsDiff, UserMcpEntry, UserMcpRegistry,
 };
 
-pub use user_registry::{pin_filesystem_server, McpToolChange, McpToolsDiff, UserMcpEntry, UserMcpRegistry};
-
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;

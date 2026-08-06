@@ -12,6 +12,7 @@ mod nl_planner;
 mod orchestration_graph;
 mod risk;
 mod subagent;
+mod tool_reliability;
 mod verifier_node;
 
 pub use cost::{audit_loop_token_usage, ollama_token_usage, openai_token_usage, ProviderTokenUsage,};
@@ -29,8 +30,9 @@ pub use compaction::{
 };
 
 pub use hooks::{
-    post_tool_use_scrub_output, pre_tool_use_path_check, HookDecision, HookEngine, HookPhase,
-    DEFAULT_DENY_PATH_PATTERNS, DEFAULT_DENY_PROMPT_PATTERNS, DEFAULT_REDACT_OUTPUT_PATTERNS,
+    enforce_user_prompt_submit, post_tool_use_scrub_output, pre_tool_use_path_check, HookDecision,
+    HookEngine, HookPhase, DEFAULT_DENY_PATH_PATTERNS, DEFAULT_DENY_PROMPT_PATTERNS,
+    DEFAULT_REDACT_OUTPUT_PATTERNS,
 };
 
 pub use inject::{
@@ -52,6 +54,11 @@ pub use model_registry::{
 };
 
 pub use risk::{evaluate_approval_gate, find_steps_requiring_approval, RiskyStep};
+
+pub use tool_reliability::{
+    evaluate_profile_reliability, rank_profiles_by_reliability, score_tool_response,
+    FrozenToolResponse, ToolCallCase,
+};
 
 pub use subagent::{
     run_subagent_read_task, SubagentFileSummary, SubagentResult, MAX_DISTILLED_CHARS,

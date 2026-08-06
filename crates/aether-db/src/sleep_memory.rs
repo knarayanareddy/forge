@@ -19,7 +19,14 @@ pub fn run_sleep_memory_cycle(db: &Database, session_id: &str) -> Result<SleepCy
     let chunks: Vec<(String, String)> = {
         let conn = db.conn();
         let mut stmt = conn.prepare("SELECT chunk_id, chunk_text FROM semantic_memory ORDER BY id")?;
-        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?.collect::<Result<Vec<_>, _>>()?
+        let mut out = Vec::new();
+        let mut rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            out.push(row?);
+        }
+        out
     };
     let mut links_added = 0usize;
     for (chunk_id, chunk_text) in &chunks {
