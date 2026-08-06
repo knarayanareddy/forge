@@ -91,7 +91,7 @@ See [docs/ROADMAP_PHASE_7.md](docs/ROADMAP_PHASE_7.md) for Phase 7 orchestration
 See [docs/ROADMAP_PHASE_8.0.md](docs/ROADMAP_PHASE_8.0.md) for the Phase 8.0 honesty wedge (**closed** — Darwin 22/22 verified) and [docs/PHASE_8_0_CLOSURE.md](docs/PHASE_8_0_CLOSURE.md) for the closure evidence.
 See [docs/PHASE_8_0_CLOSURE.md](docs/PHASE_8_0_CLOSURE.md) for code-grounded closure evidence and remaining gates.
 See [docs/ROADMAP_PHASES_9-13.md](docs/ROADMAP_PHASES_9-13.md) for the Phases 9–13 product wedge (planner robustness, session log, undo, table stakes, supply chain, local-first differentiators) plus parallel distribution and interop tracks.  
-See [docs/ROADMAP_REMAINING.md](docs/ROADMAP_REMAINING.md) for the **authoritative remaining-work checklist** (P0–P2, Track D/E, merge playbook).
+See [docs/ROADMAP_REMAINING.md](docs/ROADMAP_REMAINING.md) for **project closure status** and the authoritative remaining-work checklist (P0–P2, Track D/E, 48-task harness).
 See [docs/SANDBOX.md](docs/SANDBOX.md) for the production tool boundary, platform behavior, and SB-01 contract.
 
 ## Phase 7 — Orchestration + gateway (complete)
