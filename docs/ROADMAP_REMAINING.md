@@ -1,6 +1,6 @@
 # AetherForge — 1.0 Project Closure
 
-**Status:** **1.0 engineering complete** · **2026-08-06** · **main @ `355b101`** (PRs #46–#48 merged)  
+**Status:** **1.0 engineering complete** · **2026-08-06** · **main @ `7486762`** (PR #49 merged)  
 **Harness registry:** `tests/golden_harness/src/main.rs` — **51 tasks** (41 hard / 10 soft)
 
 See also: [ROADMAP_PHASES_9-13.md](./ROADMAP_PHASES_9-13.md), [INSTALL.md](./INSTALL.md), [SPARKLE.md](./SPARKLE.md), [LINUX_CI.md](./LINUX_CI.md).
@@ -32,7 +32,7 @@ All planned 1.0 engineering slices are on `main`. The golden harness registry is
 | Metric | Value |
 |--------|-------|
 | **Harness registry** | **51 tasks** (41 hard / 10 soft) |
-| **main HEAD** | `355b101` — Merge PR #48 (SEC-01 Keychain hardening) atop #47 closure + #46 wave-6 |
+| **main HEAD** | `7486762` — Merge PR #49 (final closure docs + harness flake hardening) |
 | **Darwin CI gate** | Push/nightly **51/51** (`.github/workflows/ci.yml`) |
 | **Last cited full Darwin run** | **38/38 @ `6caa521`** (PR #39); tasks 39–51 merged afterward — fresh **51/51** local cite recommended |
 | **Scoreboard script** | `./scripts/check-doc-scoreboard.sh` — **PASS** |

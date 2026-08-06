@@ -61,7 +61,7 @@ cargo run -p golden-harness --bin golden-harness
 
 | Baseline | Value |
 |----------|-------|
-| **Registry @ main** | **51 tasks** (41 hard / 10 soft) · **`355b101`** (PRs #46–#48) |
+| **Registry @ main** | **51 tasks** (41 hard / 10 soft) · **`7486762`** (PR #49) |
 | **Last cited full Darwin run** | **38/38 @ `6caa521`** (PR #39) — tasks 39–51 (FORK/HEAD/CACHE, DIST-01, wave-5/6 probes) merged afterward |
 | **CI gate** | Push/nightly Darwin **51/51** — [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
 | **Wave 6 probes** | MEM-03, MCPS-01, OFFLINE-01 soft-green @ `608ac77` (PR #46) |
@@ -256,6 +256,6 @@ Install guide: [docs/INSTALL.md](docs/INSTALL.md)
 
 ## Architecture target vs product readiness
 
-- **1.0 engineering:** **complete** @ main `355b101` — 51-task harness, DIST-01, wave-6 probes (MEM-03, MCPS-01, OFFLINE-01), SEC-01 Keychain hardening (#48)
+- **1.0 engineering:** **complete** @ main `7486762` — 51-task harness, DIST-01, wave-6 probes, final closure docs (PR #49)
 - **Spec engineering target:** 8.5+ achieved on scoped MVP ([ROADMAP_PHASES_9-13.md](docs/ROADMAP_PHASES_9-13.md))
 - **Shippable product blockers:** Apple Developer ID + notarized DMG + Sparkle EdDSA + SwiftUI E2E ([ROADMAP_REMAINING.md](docs/ROADMAP_REMAINING.md))
