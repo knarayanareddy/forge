@@ -114,13 +114,22 @@ use reg01::test_reg01_impl;
 mod dist01;
 use dist01::test_dist01_impl;
 
+mod sleep01;
+use sleep01::test_sleep01_impl;
+
+mod rely01;
+use rely01::test_rely01_impl;
+
+mod forensic01;
+use forensic01::test_forensic01_impl;
+
 struct TaskSpec {
     name: &'static str,
     hard_on_darwin: bool,
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 42] = [
+const TASKS: [TaskSpec; 45] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -160,6 +169,9 @@ const TASKS: [TaskSpec; 42] = [
     TaskSpec { name: "COST-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "GRAPH-02", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "REG-01", hard_on_darwin: false, fail_closed_off_darwin: false },
+    TaskSpec { name: "SLEEP-01", hard_on_darwin: false, fail_closed_off_darwin: false },
+    TaskSpec { name: "RELY-01", hard_on_darwin: false, fail_closed_off_darwin: false },
+    TaskSpec { name: "FORENSIC-01", hard_on_darwin: false, fail_closed_off_darwin: false },
     TaskSpec { name: "FORK-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "HEAD-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CACHE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -224,6 +236,21 @@ async fn main() {
     match cache01::cache01_fixture_ready() {
         Ok(()) => println!("CACHE-01 fixtures: prefix-cache helpers ready"),
         Err(e) => eprintln!("Warning: CACHE-01 fixture check failed: {}", e),
+    }
+
+    match sleep01::sleep01_fixture_ready() {
+        Ok(n) => println!("SLEEP-01 fixtures: {} held-out queries loaded", n),
+        Err(e) => eprintln!("Warning: SLEEP-01 fixture check failed: {}", e),
+    }
+
+    match rely01::rely01_fixture_ready() {
+        Ok(n) => println!("RELY-01 fixtures: {} frozen tool-call cases loaded", n),
+        Err(e) => eprintln!("Warning: RELY-01 fixture check failed: {}", e),
+    }
+
+    match forensic01::forensic01_fixture_ready() {
+        Ok(n) => println!("FORENSIC-01 fixtures: {} labeled trajectories loaded", n),
+        Err(e) => eprintln!("Warning: FORENSIC-01 fixture check failed: {}", e),
     }
 
     match reg01::reg01_fixture_ready() {
@@ -414,7 +441,13 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
             test_graph02_impl(db).await.map(|_| true)
         }
         "REG-01" => test_reg01_impl().await.map(|_| false),
+        "FORK-01" => test_fork01_impl(db).map(|hard| hard),
+        "HEAD-01" => test_head01_impl().map(|hard| hard),
+        "CACHE-01" => test_cache01_impl().await.map(|hard| hard),
         "DIST-01" => test_dist01_impl().map(|_| true),
+        "SLEEP-01" => async { test_sleep01_impl(db).map(|_| false) }.await,
+        "RELY-01" => async { test_rely01_impl().map(|_| false) }.await,
+        "FORENSIC-01" => async { test_forensic01_impl(db).map(|_| false) }.await,
         other => Err(format!("Unknown task {}", other)),
     };
 

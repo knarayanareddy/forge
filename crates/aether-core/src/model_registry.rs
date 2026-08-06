@@ -13,7 +13,7 @@ pub const ENV_MODEL_PROFILE_COMPLEX: &str = "AETHER_MODEL_PROFILE_COMPLEX";
 #[serde(rename_all = "snake_case")]
 pub enum BackendKind { Ollama, #[serde(alias = "openai_compatible")] OpenAiCompatible, Mlx, Gguf }
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct ModelProfile {
     pub backend: BackendKind,
     #[serde(default)] pub endpoint: Option<String>,
@@ -28,6 +28,7 @@ pub struct ModelProfile {
     #[serde(default)] pub hf_file: Option<String>,
     #[serde(default)] pub sha256: Option<String>,
     #[serde(default)] pub role: Option<String>,
+    #[serde(default)] pub tool_reliability: Option<f64>,
 }
 
 impl ModelProfile {
@@ -35,7 +36,7 @@ impl ModelProfile {
     pub fn is_inference_ready(&self) -> bool { matches!(self.backend, BackendKind::Ollama | BackendKind::OpenAiCompatible) }
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct ModelRegistry {
     pub version: u32,
     pub default_profile: String,

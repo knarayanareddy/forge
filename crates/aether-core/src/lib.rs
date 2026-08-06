@@ -3,6 +3,7 @@ mod graph_extract;
 mod hf_hub;
 mod model_registry;
 mod prefix_cache;
+mod sleep_compute;
 mod hooks;
 mod inject;
 mod keychain;
@@ -11,6 +12,7 @@ mod nl_planner;
 mod orchestration_graph;
 mod risk;
 mod subagent;
+mod tool_reliability;
 mod verifier_node;
 
 pub use cost::{audit_loop_token_usage, ollama_token_usage, openai_token_usage, ProviderTokenUsage,};
@@ -40,6 +42,21 @@ pub use model_registry::{
     discover_registry_path, load_discovered_registry, BackendKind,
     ModelProfile, ModelRegistry, RegistryError, ENV_MODEL_PROFILE, ENV_MODEL_PROFILE_COMPLEX,
     ENV_REGISTRY_PATH,
+};
+
+pub use sleep_compute::{
+    mean_recall_at_k, recall_at_k, run_sleep_memory_cycle, HeldOutQuery, SleepComputeError,
+    SleepCycleInput, SleepCycleResult, SleepSourceChunk, SLEEP01_MIN_RECALL_DELTA,
+    SLEEP01_RECALL_K,
+};
+
+pub use tool_reliability::{
+    discover_reliability_fixture, evaluate_profile_reliability, load_reliability_corpus,
+    load_registry_reliability_check, profiles_with_reliability, rank_profiles_by_reliability,
+    registry_reliability_matches_corpus, score_profile_from_outcomes, score_tool_response,
+    verify_ranking, FrozenToolResponse, ProfileReliability, ProfileScore, ReliabilityError,
+    ToolCallCase, ToolCaseOutcome, ToolCaseSpec, ToolReliabilityCorpus,
+    DEFAULT_RELIABILITY_FIXTURE,
 };
 
 pub use risk::{evaluate_approval_gate, find_steps_requiring_approval, RiskyStep};
