@@ -7,6 +7,32 @@ use std::time::{Duration, Instant};
 pub struct CrashRecoveryTest;
 
 impl CrashRecoveryTest {
+    fn res_crash_child_path() -> Result<std::path::PathBuf, String> {
+        use std::path::PathBuf;
+
+        let beside = std::env::current_exe()
+            .map_err(|e| e.to_string())?
+            .parent()
+            .ok_or("current_exe has no parent")?
+            .join("res-crash-child");
+        if beside.is_file() {
+            return Ok(beside);
+        }
+
+        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        for profile in ["debug", "release"] {
+            let candidate = manifest.join(format!("../../target/{profile}/res-crash-child"));
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
+        }
+
+        Err(format!(
+            "res-crash-child not found — run `cargo build -p golden-harness --bins` (expected beside {})",
+            beside.display()
+        ))
+    }
+
     /// Spawns a child process that inserts a pending undo_journal entry, sends SIGTERM
     /// during the in-flight mutation, then verifies RecoveryManager on restart.
     pub fn simulate_sigterm_recovery(db_path: &Path) -> Result<(), String> {
@@ -14,11 +40,7 @@ impl CrashRecoveryTest {
             std::fs::remove_file(db_path).map_err(|e| e.to_string())?;
         }
 
-        let child_bin = std::env::current_exe()
-            .map_err(|e| e.to_string())?
-            .parent()
-            .ok_or("current_exe has no parent")?
-            .join("res-crash-child");
+        let child_bin = Self::res_crash_child_path()?;
 
         let mut child = Command::new(&child_bin)
             .arg(db_path)

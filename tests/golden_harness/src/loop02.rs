@@ -6,6 +6,9 @@ use aether_core::{
 };
 use std::collections::HashMap;
 use std::fs;
+use std::time::Duration;
+
+const LOOP02_MAX_ATTEMPTS: usize = 3;
 
 pub async fn test_loop_02_impl(conn: &rusqlite::Connection) -> Result<(), String> {
     if std::env::consts::OS != "macos" {
@@ -34,8 +37,31 @@ pub async fn test_loop_02_impl(conn: &rusqlite::Connection) -> Result<(), String
     );
 
     let max_iterations = 6usize;
-    let planner = aether_core::run_nl_planner(&router, LOOP02_EVAL_PROMPT, max_iterations).await.map_err(|e| format!("NlPlanner failed: {}", e))?;
-    let plan = planner.plan;
+    let mut last_err = String::new();
+    let mut plan = Vec::new();
+    for attempt in 1..=LOOP02_MAX_ATTEMPTS {
+        if attempt > 1 {
+            OllamaProvider::health_check(&endpoint)
+                .await
+                .map_err(|e| format!("Ollama offline before LOOP-02 retry: {}", e))?;
+            OllamaProvider::warm_chat_model(&endpoint, &chat_model, 1)
+                .await
+                .map_err(|e| format!("Chat model re-warm failed: {}", e))?;
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+        match aether_core::run_nl_planner(&router, LOOP02_EVAL_PROMPT, max_iterations).await {
+            Ok(planner) => {
+                plan = planner.plan;
+                break;
+            }
+            Err(e) => {
+                last_err = format!("attempt {attempt}: NlPlanner failed: {e}");
+                if attempt == LOOP02_MAX_ATTEMPTS {
+                    return Err(last_err);
+                }
+            }
+        }
+    }
 
     validate_nl_plan_gold_trajectory(&plan)
         .map_err(|e| format!("LOOP-02 gold trajectory (harness): {}", e))?;
