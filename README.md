@@ -1,7 +1,7 @@
 # forge
 
-AetherForge MVP — **Darwin canonical 38/38 verified** at `6caa521` (local canonical run:
-SEC-01 Keychain upsert + round-trip, GRAPH-02 1-hop recall floor). The harness covers all **38 tasks**
+AetherForge MVP — **Darwin canonical 38/38 verified** at `31a0a4c` (local canonical run 2026-08-06:
+37 hard / 1 soft REG-01; ROUT-01 median warm TTFT 165ms). The harness covers all **38 tasks**
 including **GATE-02**, **COST-01**, and **REG-01** (soft green on Darwin).
 
 ## Harness score (Darwin, canonical)
@@ -63,7 +63,7 @@ ROUT-01 runs first, warms the chat model, drains five discard streams, then reco
 server-side warm TTFT samples (`load_duration + prompt_eval_duration`). It drops the lowest and
 highest sample and takes the median of the remaining five, retrying at most three rounds. The
 local product target is **≤200ms**. GitHub's shared `macos-15` runner uses an explicitly looser
-**550ms CI stability gate** via `AETHER_ROUT_TTFT_MS`; that infrastructure allowance is not a
+**700ms CI stability gate** via `AETHER_ROUT_TTFT_MS`; that infrastructure allowance is not a
 product-performance claim.
 
 **Ollama flake honesty:** GRAPH-01 and LOOP-02 may fail on cold Ollama even when ROUT-01 passes — re-run after warmup or check `Note: Ollama unreachable` lines in harness output.
