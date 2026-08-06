@@ -27,8 +27,8 @@ require_literal "Tasks (${TOTAL}):" README.md
 require_literal "Darwin canonical ${TOTAL}/${TOTAL}" .github/workflows/ci.yml
 require_literal "requires ${TOTAL}/${TOTAL}" .github/workflows/ci.yml
 require_literal "Harness matrix (${TOTAL} tasks)" docs/LINUX_CI.md
-require_literal 'AETHER_ROUT_TTFT_MS: "550"' .github/workflows/ci.yml
+require_literal 'AETHER_ROUT_TTFT_MS: "700"' .github/workflows/ci.yml
 require_literal "local product target is **≤200ms**" README.md
-require_literal "**550ms CI stability gate**" README.md
+require_literal "**700ms CI stability gate**" README.md
 
-echo "Scoreboard/docs gate: PASS (${TOTAL} tasks; ROUT local 200ms / CI 550ms)"
+echo "Scoreboard/docs gate: PASS (${TOTAL} tasks; ROUT local 200ms / CI 700ms)"

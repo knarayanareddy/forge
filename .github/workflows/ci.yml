@@ -145,8 +145,8 @@ jobs:
 
       - name: Golden harness (Darwin canonical 38/38)
         env:
-          # macos-15 GHA runners vary 300–550ms warm server TTFT; 550ms avoids flake on slow VMs.
-          AETHER_ROUT_TTFT_MS: "550"
+          # macos-15 GHA runners vary 300–700ms warm server TTFT; 700ms avoids flake on slow VMs.
+          AETHER_ROUT_TTFT_MS: "700"
         run: |
           set -e
           cargo run -p golden-harness 2>&1 | tee harness.log

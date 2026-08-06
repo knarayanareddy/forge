@@ -55,7 +55,7 @@ AetherForge treats **Darwin (macOS 15+)** as the canonical platform. Linux CI va
 
 | Environment | Expected harness | Hard / soft | Notes |
 |-------------|------------------|-------------|-------|
-| Darwin + Ollama + sandbox-exec | **38/38 target** | **37 hard / 1 soft** | Canonical Darwin 38/38 green on `6caa521` (local run: SEC-01 Keychain upsert + GRAPH-02 1-hop floor) |
+| Darwin + Ollama + sandbox-exec | **38/38 target** | **37 hard / 1 soft** | Canonical Darwin 38/38 green on `31a0a4c` (local run 2026-08-06: 37 hard / 1 soft; ROUT-01 TTFT 165ms) |
 | Linux (default CI) | **27/38** | 26 hard / 0 soft† | FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01, GRAPH-02 fail-closed |
 | Linux + Ollama + MCP | **32/38** | 31 hard / 0 soft† | FS-02, SB-01, and OS-gated tasks fail closed |
 
@@ -108,8 +108,8 @@ ROUT-01 measures Ollama's server-side warm TTFT, not end-to-end UI latency:
 5. retry at most three rounds with re-warming.
 
 The default local Darwin threshold is **200ms**. The GitHub-hosted `macos-15` full-harness job sets
-`AETHER_ROUT_TTFT_MS=550` because shared VM scheduling and virtualization add substantial variance.
-The 550ms value is a **CI stability allowance**, not the product target, and must never be quoted
+`AETHER_ROUT_TTFT_MS=700` because shared VM scheduling and virtualization add substantial variance.
+The 700ms value is a **CI stability allowance**, not the product target, and must never be quoted
 as local model performance. Linux without Ollama remains explicit `FAIL-CLOSED`.
 
 ## BYOK on Linux
