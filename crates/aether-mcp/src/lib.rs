@@ -1,8 +1,11 @@
 mod runtime;
 mod tool_index;
+mod user_registry;
 
 pub use runtime::{invoke_with_grant, McpClient, McpToolInfo, McpToolsAudit};
 pub use tool_index::ToolIndex;
+
+pub use user_registry::{pin_filesystem_server, McpToolChange, McpToolsDiff, UserMcpEntry, UserMcpRegistry};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -21,7 +24,7 @@ pub enum McpError {
     SecurityViolation(String),
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct McpServerConfig {
     pub name: String,
     pub version: String,
@@ -166,7 +169,7 @@ fn verify_file_hash(path: &Path, expected: &str, label: &str) -> Result<(), McpE
     Ok(())
 }
 
-fn sha256_file(path: &Path) -> Result<String, McpError> {
+pub(crate) fn sha256_file(path: &Path) -> Result<String, McpError> {
     let mut file = fs::File::open(path)?;
     let mut hasher = Sha256::new();
     std::io::copy(&mut file, &mut hasher)?;

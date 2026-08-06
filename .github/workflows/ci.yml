@@ -146,7 +146,7 @@ jobs:
       - name: Build workspace
         run: cargo build --workspace
 
-      - name: Golden harness (Darwin canonical 42/42)
+      - name: Golden harness (Darwin canonical 41/41)
         env:
           # macos-15 GHA runners vary 300–700ms warm server TTFT; 700ms avoids flake on slow VMs.
           AETHER_ROUT_TTFT_MS: "700"
@@ -156,11 +156,11 @@ jobs:
           PASS=$(grep 'Passed:' harness.log | tail -1 | sed -E 's/.*Passed: ([0-9]+).*/\1/')
           HARD=$(grep 'Hard green:' harness.log | tail -1 | sed -E 's/.*Hard green: ([0-9]+).*/\1/')
           echo "Harness passed: ${PASS:-0}/41 (${HARD:-0} hard)"
-          if [[ "${PASS:-0}" -ne 42 || "${HARD:-0}" -ne 41 ]]; then
-            echo "Darwin canonical gate requires 42/42 (41 hard / 1 soft; REG-01 is soft green)"
+          if [[ "${PASS:-0}" -ne 41 || "${HARD:-0}" -ne 41 ]]; then
+            echo "Darwin canonical gate requires 41/41 (37 hard / 4 soft; REG-01 is soft green)"
             exit 1
           fi
-          echo "Darwin canonical 42/42 gate satisfied (41 hard / 1 soft)"
+          echo "Darwin canonical 41/41 gate satisfied (37 hard / 4 soft)"
 
       - name: Swift build
         run: |

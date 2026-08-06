@@ -237,9 +237,7 @@ impl ToolRegistry {
             ToolInvocation::FsWrite { path, content } => {
                 let full = resolve_workspace_path(&config.workspace, path)?;
                 let full_str = full.to_string_lossy().to_string();
-                if let crate::HookDecision::Deny(reason) = crate::pre_tool_use_path_check(&full) {
-                    return Err(reason);
-                }
+                crate::hooks::HookEngine::production().enforce_pre_tool_use(&full)?;
                 let decision = PermissionManager::check_file_access(
                     conn,
                     &config.session_id,
@@ -268,9 +266,7 @@ impl ToolRegistry {
             ToolInvocation::FsRead { path } => {
                 let full = resolve_workspace_path(&config.workspace, path)?;
                 let full_str = full.to_string_lossy().to_string();
-                if let crate::HookDecision::Deny(reason) = crate::pre_tool_use_path_check(&full) {
-                    return Err(reason);
-                }
+                crate::hooks::HookEngine::production().enforce_pre_tool_use(&full)?;
                 let decision = PermissionManager::check_file_access(
                     conn,
                     &config.session_id,
@@ -446,10 +442,7 @@ impl ToolRegistry {
             ToolInvocation::SubagentTask { paths } => {
                 for path in paths {
                     let full = resolve_workspace_path(&config.workspace, path)?;
-                    if let crate::HookDecision::Deny(reason) = crate::pre_tool_use_path_check(&full)
-                    {
-                        return Err(reason);
-                    }
+                    crate::hooks::HookEngine::production().enforce_pre_tool_use(&full)?;
                     let full_str = full.to_string_lossy().to_string();
                     let decision = PermissionManager::check_file_access(
                         conn,
@@ -815,12 +808,8 @@ fn tool_name(step: &ToolInvocation) -> &str {
 }
 
 fn observation(iteration: usize, tool: &str, success: bool, output: String) -> ToolObservation {
-    ToolObservation {
-        iteration,
-        tool: tool.to_string(),
-        success,
-        output,
-    }
+    let output = if success { crate::hooks::enforce_post_tool_use(&output) } else { output };
+    ToolObservation { iteration, tool: tool.to_string(), success, output }
 }
 
 /// Conservative byte-length estimate (~4 bytes per token).
