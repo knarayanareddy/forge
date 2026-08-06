@@ -1,8 +1,8 @@
-//! HOOK-02 — minimal hook engine beyond PreToolUse denylist (UserPromptSubmit + PostToolUse).
+//! HOOK-02 — minimal hook engine beyond PreToolUse denylist.
 
 use aether_core::{
-    post_tool_use_scrub_output, HookDecision, HookEngine, LoopConfig, LoopError,
-    ToolInvocation, DEFAULT_MAX_LOOP_TOKENS,
+    post_tool_use_scrub_output, HookDecision, HookEngine, LoopConfig, ToolInvocation,
+    DEFAULT_MAX_LOOP_TOKENS,
 };
 use aether_daemon::task_runner::execute_structured_loop;
 use aether_db::Database;

@@ -3,7 +3,7 @@ mod consolidate_review;
 mod graph;
 mod graph_v2;
 mod recovery;
-
+mod sleep_memory;
 pub use consolidate::{ConsolidationRunListItem, ConsolidationRunRecord};
 pub use consolidate_review::{
     format_consolidate_review, ConsolidateEdgeDiff, ConsolidateNodeDiff, ConsolidatePreview,
@@ -15,7 +15,7 @@ pub use graph::{
 };
 pub use graph_v2::{decay_edge_weight, DEFAULT_DECAY_LAMBDA};
 pub use recovery::{RecoveryManager, RecoveryReport};
-
+pub use sleep_memory::{mean_recall_at_k, recall_at_k_chunks, run_sleep_memory_cycle, SleepCycleReport, SLEEP01_RECALL_DELTA};
 use rusqlite::{Connection, Result};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
