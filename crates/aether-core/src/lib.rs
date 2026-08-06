@@ -12,7 +12,6 @@ mod nl_planner;
 mod orchestration_graph;
 mod risk;
 mod subagent;
-mod tool_reliability;
 mod verifier_node;
 
 pub use cost::{audit_loop_token_usage, ollama_token_usage, openai_token_usage, ProviderTokenUsage,};
@@ -57,11 +56,6 @@ pub use risk::{evaluate_approval_gate, find_steps_requiring_approval, RiskyStep}
 pub use subagent::{
     run_subagent_read_task, SubagentFileSummary, SubagentResult, MAX_DISTILLED_CHARS,
     MAX_SUBAGENT_FILES,
-};
-
-pub use tool_reliability::{
-    evaluate_profile_reliability, rank_profiles_by_reliability, score_tool_response,
-    FrozenToolResponse, ToolCallCase,
 };
 
 pub use keychain::{
