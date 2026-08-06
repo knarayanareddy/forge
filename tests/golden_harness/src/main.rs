@@ -6,15 +6,6 @@ use tempfile::tempdir;
 
 mod budg01;
 
-mod fork01;
-use fork01::test_fork01_impl;
-
-mod head01;
-use head01::test_head01_impl;
-
-mod cache01;
-use cache01::test_cache01_impl;
-
 mod cost01;
 use cost01::test_cost01_impl;
 use budg01::test_budg01_impl;
@@ -111,8 +102,14 @@ use ingest01::test_ingest01_impl;
 mod reg01;
 use reg01::test_reg01_impl;
 
-mod dist01;
-use dist01::test_dist01_impl;
+mod mcp02;
+use mcp02::test_mcp02_impl;
+
+mod compact01;
+use compact01::test_compact01_impl;
+
+mod hook02;
+use hook02::test_hook02_impl;
 
 struct TaskSpec {
     name: &'static str,
@@ -120,7 +117,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 42] = [
+const TASKS: [TaskSpec; 41] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -160,10 +157,9 @@ const TASKS: [TaskSpec; 42] = [
     TaskSpec { name: "COST-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "GRAPH-02", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "REG-01", hard_on_darwin: false, fail_closed_off_darwin: false },
-    TaskSpec { name: "FORK-01", hard_on_darwin: true, fail_closed_off_darwin: false },
-    TaskSpec { name: "HEAD-01", hard_on_darwin: true, fail_closed_off_darwin: false },
-    TaskSpec { name: "CACHE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
-    TaskSpec { name: "DIST-01", hard_on_darwin: true, fail_closed_off_darwin: true },
+    TaskSpec { name: "MCP-02", hard_on_darwin: false, fail_closed_off_darwin: false },
+    TaskSpec { name: "COMPACT-01", hard_on_darwin: false, fail_closed_off_darwin: false },
+    TaskSpec { name: "HOOK-02", hard_on_darwin: false, fail_closed_off_darwin: false },
 ];
 
 fn is_darwin() -> bool {
@@ -211,19 +207,14 @@ async fn main() {
     }
 
 
-    match fork01::fork01_fixture_ready() {
-        Ok(()) => println!("FORK-01 fixtures: session fork helpers ready"),
-        Err(e) => eprintln!("Warning: FORK-01 fixture check failed: {}", e),
+    match mcp02::mcp02_fixture_ready() {
+        Ok(()) => println!("MCP-02 fixtures: user MCP registry + filesystem MCP ready"),
+        Err(e) => eprintln!("Warning: MCP-02 fixture check failed: {}", e),
     }
 
-    match head01::head01_fixture_ready() {
-        Ok(()) => println!("HEAD-01 fixtures: headless NDJSON helpers ready"),
-        Err(e) => eprintln!("Warning: HEAD-01 fixture check failed: {}", e),
-    }
-
-    match cache01::cache01_fixture_ready() {
-        Ok(()) => println!("CACHE-01 fixtures: prefix-cache helpers ready"),
-        Err(e) => eprintln!("Warning: CACHE-01 fixture check failed: {}", e),
+    match compact01::compact01_fixture_ready() {
+        Ok(()) => println!("COMPACT-01 fixtures: context compaction helpers ready"),
+        Err(e) => eprintln!("Warning: COMPACT-01 fixture check failed: {}", e),
     }
 
     match reg01::reg01_fixture_ready() {
@@ -414,7 +405,9 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
             test_graph02_impl(db).await.map(|_| true)
         }
         "REG-01" => test_reg01_impl().await.map(|_| false),
-        "DIST-01" => test_dist01_impl().map(|_| true),
+        "MCP-02" => test_mcp02_impl(&db.conn()).await,
+        "COMPACT-01" => async { Ok(test_compact01_impl()?) }.await,
+        "HOOK-02" => async { Ok(test_hook02_impl(db)?) }.await,
         other => Err(format!("Unknown task {}", other)),
     };
 

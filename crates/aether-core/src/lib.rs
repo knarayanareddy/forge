@@ -3,6 +3,7 @@ mod graph_extract;
 mod hf_hub;
 mod model_registry;
 mod prefix_cache;
+mod context_compact;
 mod hooks;
 mod inject;
 mod keychain;
@@ -22,7 +23,8 @@ pub use graph_extract::{
     PreparedGraphNode, Provenance, GRAPH_EXTRACT_SCHEMA_PATH,
 };
 
-pub use hooks::{pre_tool_use_path_check, HookDecision, DEFAULT_DENY_PATH_PATTERNS};
+pub use context_compact::{compact_context, compact_turns, mechanical_summarize, CompactRequest, CompactionError, CompactionResult, ContextTurn};
+pub use hooks::{enforce_post_tool_use, enforce_user_prompt_submit, post_tool_use_scrub_output, pre_tool_use_path_check, HookDecision, HookEngine, HookPhase, DEFAULT_DENY_PATH_PATTERNS, DEFAULT_DENY_PROMPT_PATTERNS, DEFAULT_REDACT_OUTPUT_PATTERNS};
 
 pub use inject::{
     admit_plan_against_observations, tool_result_has_injection_phrase, wrap_untrusted_tool_output,

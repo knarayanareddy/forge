@@ -5,7 +5,7 @@ use crate::gateway::GatewayChannel;
 use crate::session_log::SessionLogWriter;
 use crate::DaemonState;
 use aether_core::{
-    evaluate_approval_gate, fetch_ollama_embedding, LoopConfig, LoopError, LoopRunResult,
+    enforce_user_prompt_submit, evaluate_approval_gate, fetch_ollama_embedding, LoopConfig, LoopError, LoopRunResult,
     LoopStreamEvent, MakerCheckerGoal, OrchestrationGraph, PromptComplexity, ReActLoopEngine,
     record_provider_token_usage, resolve_default_max_loop_tokens,
 };
@@ -140,6 +140,10 @@ pub fn execute_structured_loop(
     checker_goal: Option<&MakerCheckerGoal>,
     prompt: &str,
 ) -> (Result<LoopRunResult, LoopError>, Vec<LoopStreamEvent>) {
+    if let Err(reason) = enforce_user_prompt_submit(prompt) {
+        return (Err(LoopError::Turn(reason)), Vec::new());
+    }
+
     let max_iterations = config.max_iterations;
     let mut events = Vec::new();
 
