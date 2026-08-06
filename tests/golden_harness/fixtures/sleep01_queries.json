@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "session_id": "sess-sleep-01",
+  "extract_json": {
+    "nodes": [
+      {
+        "id": "node-zephyr",
+        "entity_type": "project",
+        "canonical_name": "Zephyr-7",
+        "aliases": [
+          "Zephyr"
+        ],
+        "provenance": "extracted",
+        "evidence_text": "z"
+      },
+      {
+        "id": "node-bridge",
+        "entity_type": "concept",
+        "canonical_name": "sleep bridge",
+        "aliases": [],
+        "provenance": "extracted",
+        "evidence_text": "b"
+      },
+      {
+        "id": "node-codex",
+        "entity_type": "file",
+        "canonical_name": "AetherForge codex",
+        "aliases": [],
+        "provenance": "extracted",
+        "evidence_text": "c"
+      }
+    ],
+    "edges": [
+      {
+        "src_node_id": "node-zephyr",
+        "dst_node_id": "node-bridge",
+        "relation_type": "related_to",
+        "weight": 2.0,
+        "provenance": "extracted",
+        "evidence_text": "e"
+      },
+      {
+        "src_node_id": "node-bridge",
+        "dst_node_id": "node-codex",
+        "relation_type": "implements",
+        "weight": 1.5,
+        "provenance": "extracted",
+        "evidence_text": "e"
+      }
+    ]
+  },
+  "memory_chunks": [
+    {
+      "chunk_id": "sleep-chk-noise",
+      "source_uri": "m://n",
+      "text": "Generic platform runtime overview for services",
+      "link_node_id": "node-zephyr",
+      "link_confidence": 0.9,
+      "embedding_hint": [
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "chunk_id": "sleep-chk-doc1",
+      "source_uri": "m://d1",
+      "text": "Platform runtime overview documentation index",
+      "link_node_id": "",
+      "link_confidence": 0.0,
+      "embedding_hint": [
+        0.92,
+        0.25
+      ]
+    },
+    {
+      "chunk_id": "sleep-chk-doc2",
+      "source_uri": "m://d2",
+      "text": "Runtime overview notes for platform services",
+      "link_node_id": "",
+      "link_confidence": 0.0,
+      "embedding_hint": [
+        0.88,
+        0.3
+      ]
+    },
+    {
+      "chunk_id": "sleep-chk-bridge",
+      "source_uri": "m://b",
+      "text": "The Zephyr-7 release uses the sleep bridge for offline recall during idle windows",
+      "link_node_id": "",
+      "link_confidence": 0.0,
+      "embedding_hint": [
+        0.05,
+        0.95
+      ]
+    },
+    {
+      "chunk_id": "sleep-chk-codex",
+      "source_uri": "m://c",
+      "text": "AetherForge codex chapter on sleep-time memory compute and graph chunk links",
+      "link_node_id": "",
+      "link_confidence": 0.0,
+      "embedding_hint": [
+        0.1,
+        0.9
+      ]
+    }
+  ],
+  "held_out_queries": [
+    {
+      "id": "sq-bridge",
+      "query": "platform runtime overview",
+      "query_embedding_hint": [
+        1.0,
+        0.0
+      ],
+      "expected_chunk_ids": [
+        "sleep-chk-bridge"
+      ],
+      "k": 3
+    },
+    {
+      "id": "sq-codex",
+      "query": "platform runtime overview services",
+      "query_embedding_hint": [
+        0.95,
+        0.05
+      ],
+      "expected_chunk_ids": [
+        "sleep-chk-codex",
+        "sleep-chk-bridge"
+      ],
+      "k": 3
+    }
+  ]
+}

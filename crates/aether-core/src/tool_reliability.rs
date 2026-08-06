@@ -271,6 +271,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn q8_outranks_q4_fixture() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/golden_harness/fixtures/rely01_tool_calls.json");
+        let raw = std::fs::read_to_string(&path).expect("rely01 fixture");
+        let fixture: ToolReliabilityCorpus = serde_json::from_str(&raw).expect("parse");
+        let q4 = fixture.profiles.get("q4").expect("q4");
+        let q8 = fixture.profiles.get("q8").expect("q8");
+        assert!(
+            evaluate_profile_reliability(&fixture.cases, q8)
+                > evaluate_profile_reliability(&fixture.cases, q4),
+            "q8 must outscore q4"
+        );
+    }
+
+    #[test]
     fn complex_outranks_local_fixture() {
         let corpus = load_reliability_corpus(&discover_reliability_fixture()).expect("fixture");
         verify_ranking(&corpus).expect("ranking");

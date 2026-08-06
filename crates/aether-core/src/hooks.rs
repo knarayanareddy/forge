@@ -1,86 +1,92 @@
-//! PreToolUse hooks (Phase 10 slice 10.7 / HOOK-01).
-//!
-//! A hook is a hard override evaluated *before* a tool runs, on top of (not instead of) grant
-//! checks: even an explicit user grant and an explicit prompt instruction telling the agent to
-//! touch a denylisted path cannot make a hook allow it. This is the anti-theater bar this slice
-//! has to clear — a hook that only logs an advisory warning is not a hook, it is a comment.
-//!
-//! Scope: one concrete hook (a path denylist covering common secret/credential file shapes),
-//! wired into the two tools that carry a concrete filesystem path (`fs_write`, `fs_read`). The
-//! roadmap's fuller hook engine (`SessionStart`/`UserPromptSubmit`/`PostToolUse`/etc., pluggable
-//! shell/HTTP/LLM actions, hooks merging across sources) is Phase 10 slice 10.6, not implemented
-//! here — this slice only proves `PreToolUse` can genuinely block.
+//! Hook engine (Phase 10 slices 10.6–10.7 / HOOK-01+).
 
 use std::path::Path;
 
-/// Case-insensitive substring patterns matched against the resolved (canonicalized) target path.
-/// No grant and no prompt instruction can override a match — see module docs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HookPhase {
+    UserPromptSubmit,
+    PreToolUse,
+    PostToolUse,
+}
+
 pub const DEFAULT_DENY_PATH_PATTERNS: &[&str] = &[
-    ".env",
-    "id_rsa",
-    "id_ed25519",
-    ".ssh/",
-    ".git/config",
-    ".aws/credentials",
-    ".aws/config",
+    ".env", "id_rsa", "id_ed25519", ".ssh/", ".git/config", ".aws/credentials", ".aws/config",
+];
+
+pub const DEFAULT_REDACT_OUTPUT_PATTERNS: &[&str] = &[
+    "SECRET_KEY=", "API_KEY=", "password=", "Bearer ",
+];
+
+pub const DEFAULT_DENY_PROMPT_PATTERNS: &[&str] = &[
+    "ignore all safety", "dump secrets", "ignore previous instructions",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HookDecision {
-    Allow,
-    Deny(String),
+pub enum HookDecision { Allow, Deny(String) }
+
+#[derive(Debug, Clone)]
+enum HookRule {
+    DenyPathPatterns { patterns: &'static [&'static str] },
+    RedactOutputPatterns { patterns: &'static [&'static str] },
+    DenyPromptPatterns { patterns: &'static [&'static str] },
 }
 
-/// Evaluate the `PreToolUse` hook against a resolved filesystem path. Call this with the fully
-/// resolved (workspace-joined) path, not the raw tool argument, so a path that only *looks* safe
-/// before resolution can't slip through.
+#[derive(Debug, Clone, Default)]
+pub struct HookEngine { rules: Vec<(HookPhase, HookRule)> }
+
+impl HookEngine {
+    pub fn production() -> Self {
+        Self { rules: vec![
+            (HookPhase::UserPromptSubmit, HookRule::DenyPromptPatterns { patterns: DEFAULT_DENY_PROMPT_PATTERNS }),
+            (HookPhase::PreToolUse, HookRule::DenyPathPatterns { patterns: DEFAULT_DENY_PATH_PATTERNS }),
+            (HookPhase::PostToolUse, HookRule::RedactOutputPatterns { patterns: DEFAULT_REDACT_OUTPUT_PATTERNS }),
+        ]}
+    }
+    pub fn run_user_prompt_submit(&self, prompt: &str) -> HookDecision {
+        let lower = prompt.to_ascii_lowercase();
+        for (phase, rule) in &self.rules {
+            if *phase != HookPhase::UserPromptSubmit { continue; }
+            if let HookRule::DenyPromptPatterns { patterns } = rule {
+                for pattern in *patterns {
+                    if lower.contains(pattern) {
+                        return HookDecision::Deny(format!("UserPromptSubmit hook blocked prompt matching {pattern:?}"));
+                    }
+                }
+            }
+        }
+        HookDecision::Allow
+    }
+    pub fn run_pre_tool_use(&self, resolved_path: &Path) -> HookDecision { pre_tool_use_path_check(resolved_path) }
+    pub fn run_post_tool_use(&self, output: &str) -> String { scrub_output_patterns(output, DEFAULT_REDACT_OUTPUT_PATTERNS) }
+}
+
+fn scrub_output_patterns(output: &str, patterns: &[&str]) -> String {
+    let mut out = output.to_string();
+    for pattern in patterns {
+        while let Some(idx) = out.find(pattern) {
+            let value_start = idx + pattern.len();
+            let value_end = out[value_start..].find(|c: char| c.is_whitespace()).map(|i| value_start + i).unwrap_or(out.len());
+            out.replace_range(idx..value_end, "[REDACTED]");
+        }
+    }
+    out
+}
+
 pub fn pre_tool_use_path_check(resolved_path: &Path) -> HookDecision {
     let path_str = resolved_path.to_string_lossy().to_ascii_lowercase();
     for pattern in DEFAULT_DENY_PATH_PATTERNS {
         if path_str.contains(pattern) {
-            return HookDecision::Deny(format!(
-                "PreToolUse hook blocked access to a sensitive path matching {pattern:?}: {}",
-                resolved_path.display()
-            ));
+            return HookDecision::Deny(format!("PreToolUse hook blocked access to a sensitive path matching {pattern:?}: {}", resolved_path.display()));
         }
     }
     HookDecision::Allow
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::path::PathBuf;
-
-    #[test]
-    fn blocks_dotenv_regardless_of_casing() {
-        let decision = pre_tool_use_path_check(&PathBuf::from("/workspace/project/.ENV"));
-        assert!(matches!(decision, HookDecision::Deny(_)));
-    }
-
-    #[test]
-    fn blocks_ssh_private_key() {
-        let decision = pre_tool_use_path_check(&PathBuf::from("/home/user/.ssh/id_rsa"));
-        assert!(matches!(decision, HookDecision::Deny(_)));
-    }
-
-    #[test]
-    fn blocks_git_config() {
-        let decision = pre_tool_use_path_check(&PathBuf::from("/workspace/repo/.git/config"));
-        assert!(matches!(decision, HookDecision::Deny(_)));
-    }
-
-    #[test]
-    fn allows_ordinary_workspace_file() {
-        let decision = pre_tool_use_path_check(&PathBuf::from("/workspace/project/notes.txt"));
-        assert_eq!(decision, HookDecision::Allow);
-    }
-
-    #[test]
-    fn deny_reason_names_the_matched_pattern() {
-        match pre_tool_use_path_check(&PathBuf::from("/workspace/.env")) {
-            HookDecision::Deny(reason) => assert!(reason.contains(".env")),
-            HookDecision::Allow => panic!("expected deny"),
-        }
+pub fn enforce_user_prompt_submit(prompt: &str) -> Result<(), String> {
+    match HookEngine::production().run_user_prompt_submit(prompt) {
+        HookDecision::Deny(reason) => Err(reason), HookDecision::Allow => Ok(()),
     }
 }
+
+pub fn enforce_post_tool_use(output: &str) -> String { HookEngine::production().run_post_tool_use(output) }
+pub fn post_tool_use_scrub_output(output: &str) -> String { enforce_post_tool_use(output) }

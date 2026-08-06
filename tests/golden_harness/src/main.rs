@@ -123,13 +123,22 @@ use rely01::test_rely01_impl;
 mod forensic01;
 use forensic01::test_forensic01_impl;
 
+mod mcp02;
+use mcp02::test_mcp02_impl;
+
+mod compact01;
+use compact01::test_compact01_impl;
+
+mod hook02;
+use hook02::test_hook02_impl;
+
 struct TaskSpec {
     name: &'static str,
     hard_on_darwin: bool,
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 45] = [
+const TASKS: [TaskSpec; 48] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -176,6 +185,9 @@ const TASKS: [TaskSpec; 45] = [
     TaskSpec { name: "HEAD-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CACHE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "DIST-01", hard_on_darwin: true, fail_closed_off_darwin: true },
+    TaskSpec { name: "MCP-02", hard_on_darwin: false, fail_closed_off_darwin: false },
+    TaskSpec { name: "COMPACT-01", hard_on_darwin: false, fail_closed_off_darwin: false },
+    TaskSpec { name: "HOOK-02", hard_on_darwin: false, fail_closed_off_darwin: false },
 ];
 
 fn is_darwin() -> bool {
@@ -251,6 +263,16 @@ async fn main() {
     match forensic01::forensic01_fixture_ready() {
         Ok(n) => println!("FORENSIC-01 fixtures: {} labeled trajectories loaded", n),
         Err(e) => eprintln!("Warning: FORENSIC-01 fixture check failed: {}", e),
+    }
+
+    match mcp02::mcp02_fixture_ready() {
+        Ok(()) => println!("MCP-02 fixtures: user MCP registry + filesystem MCP ready"),
+        Err(e) => eprintln!("Warning: MCP-02 fixture check failed: {}", e),
+    }
+
+    match compact01::compact01_fixture_ready() {
+        Ok(()) => println!("COMPACT-01 fixtures: context compaction helpers ready"),
+        Err(e) => eprintln!("Warning: COMPACT-01 fixture check failed: {}", e),
     }
 
     match reg01::reg01_fixture_ready() {
@@ -445,9 +467,9 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "HEAD-01" => test_head01_impl().map(|hard| hard),
         "CACHE-01" => test_cache01_impl().await.map(|hard| hard),
         "DIST-01" => test_dist01_impl().map(|_| true),
-        "SLEEP-01" => async { test_sleep01_impl(db).map(|_| false) }.await,
-        "RELY-01" => async { test_rely01_impl().map(|_| false) }.await,
-        "FORENSIC-01" => async { test_forensic01_impl(db).map(|_| false) }.await,
+        "MCP-02" => test_mcp02_impl(&db.conn()).await,
+        "COMPACT-01" => async { Ok(test_compact01_impl()?) }.await,
+        "HOOK-02" => async { Ok(test_hook02_impl(db)?) }.await,
         other => Err(format!("Unknown task {}", other)),
     };
 

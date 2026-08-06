@@ -1,9 +1,9 @@
+mod compaction;
 mod cost;
 mod graph_extract;
 mod hf_hub;
 mod model_registry;
 mod prefix_cache;
-mod sleep_compute;
 mod hooks;
 mod inject;
 mod keychain;
@@ -24,7 +24,16 @@ pub use graph_extract::{
     PreparedGraphNode, Provenance, GRAPH_EXTRACT_SCHEMA_PATH,
 };
 
-pub use hooks::{pre_tool_use_path_check, HookDecision, DEFAULT_DENY_PATH_PATTERNS};
+pub use compaction::{
+    compact_turns, mechanical_summarize, CompactRequest, CompactResult, CompactionError,
+    ContextTurn,
+};
+
+pub use hooks::{
+    enforce_user_prompt_submit, post_tool_use_scrub_output, pre_tool_use_path_check, HookDecision,
+    HookEngine, HookPhase, DEFAULT_DENY_PATH_PATTERNS, DEFAULT_DENY_PROMPT_PATTERNS,
+    DEFAULT_REDACT_OUTPUT_PATTERNS,
+};
 
 pub use inject::{
     admit_plan_against_observations, tool_result_has_injection_phrase, wrap_untrusted_tool_output,
@@ -44,11 +53,6 @@ pub use model_registry::{
     ENV_REGISTRY_PATH,
 };
 
-pub use sleep_compute::{
-    mean_recall_at_k, recall_at_k, run_sleep_memory_cycle, HeldOutQuery, SleepComputeError,
-    SleepCycleInput, SleepCycleResult, SleepSourceChunk, SLEEP01_MIN_RECALL_DELTA,
-    SLEEP01_RECALL_K,
-};
 
 pub use tool_reliability::{
     discover_reliability_fixture, evaluate_profile_reliability, load_reliability_corpus,

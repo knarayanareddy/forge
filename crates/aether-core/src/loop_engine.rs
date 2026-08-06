@@ -237,7 +237,7 @@ impl ToolRegistry {
             ToolInvocation::FsWrite { path, content } => {
                 let full = resolve_workspace_path(&config.workspace, path)?;
                 let full_str = full.to_string_lossy().to_string();
-                if let crate::HookDecision::Deny(reason) = crate::pre_tool_use_path_check(&full) {
+                if let crate::HookDecision::Deny(reason) = crate::HookEngine::production().run_pre_tool_use(&full) {
                     return Err(reason);
                 }
                 let decision = PermissionManager::check_file_access(
@@ -268,7 +268,7 @@ impl ToolRegistry {
             ToolInvocation::FsRead { path } => {
                 let full = resolve_workspace_path(&config.workspace, path)?;
                 let full_str = full.to_string_lossy().to_string();
-                if let crate::HookDecision::Deny(reason) = crate::pre_tool_use_path_check(&full) {
+                if let crate::HookDecision::Deny(reason) = crate::HookEngine::production().run_pre_tool_use(&full) {
                     return Err(reason);
                 }
                 let decision = PermissionManager::check_file_access(
@@ -446,8 +446,7 @@ impl ToolRegistry {
             ToolInvocation::SubagentTask { paths } => {
                 for path in paths {
                     let full = resolve_workspace_path(&config.workspace, path)?;
-                    if let crate::HookDecision::Deny(reason) = crate::pre_tool_use_path_check(&full)
-                    {
+                    if let crate::HookDecision::Deny(reason) = crate::HookEngine::production().run_pre_tool_use(&full) {
                         return Err(reason);
                     }
                     let full_str = full.to_string_lossy().to_string();
@@ -579,7 +578,10 @@ impl ReActLoopEngine {
                 observations.push(obs.clone());
                 // Delimit tool output at the stream/session-log boundary (Phase 11 / INJECT-01).
                 // Internal `ToolObservation` stays raw so verify-shell matching is unaffected.
-                let bounded = wrap_untrusted_tool_output(&obs.tool, &obs.output);
+                let bounded = crate::post_tool_use_scrub_output(&wrap_untrusted_tool_output(
+                &obs.tool,
+                &obs.output,
+            ));
                 on_event(LoopStreamEvent::Tool {
                     iteration,
                     tool: obs.tool.clone(),
@@ -601,7 +603,10 @@ impl ReActLoopEngine {
             if let Err(err) = check_token_budget(conn, config, iteration, &mut on_event) {
                 return Err(err);
             }
-            let bounded = wrap_untrusted_tool_output(&obs.tool, &obs.output);
+            let bounded = crate::post_tool_use_scrub_output(&wrap_untrusted_tool_output(
+                &obs.tool,
+                &obs.output,
+            ));
             on_event(LoopStreamEvent::Tool {
                 iteration,
                 tool: obs.tool.clone(),
