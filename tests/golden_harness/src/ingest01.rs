@@ -11,7 +11,7 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
 pub const INGEST01_FIXTURE_PATH: &str = "tests/golden_harness/fixtures/ingest01_transcript.json";
-pub const INGEST01_MAX_ATTEMPTS: usize = 3;
+pub const INGEST01_MAX_ATTEMPTS: usize = 5;
 pub const INGEST01_RECALL_K: usize = 1;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -183,6 +183,10 @@ pub async fn test_ingest01_impl(db: &Database) -> Result<(), String> {
     let mut node_count = 0i64;
 
     for attempt in 1..=INGEST01_MAX_ATTEMPTS {
+        if attempt > 1 {
+            // Ollama can drop connections after long harness runs; re-check before each retry.
+            ensure_ollama_ready().await?;
+        }
         clear_session_graph_and_memory(db, &fixture.session_id)?;
         match ingest_turn_with_graph_extract(
             db,
