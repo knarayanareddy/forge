@@ -18,6 +18,9 @@ private struct ProfileRow: View {
                 }
             }
             Text(profile.summaryLine).font(.callout).foregroundStyle(.secondary)
+            if let reliability = profile.reliabilityLabel {
+                Text(reliability).font(.caption).foregroundStyle(.secondary)
+            }
             if let description = profile.description {
                 Text(description).font(.caption).foregroundStyle(.secondary)
             }
@@ -69,14 +72,14 @@ struct SettingsView: View {
                 } else {
                     Picker("Primary", selection: $settings.selectedPrimaryProfile) {
                         ForEach(settings.chatProfiles) { profile in
-                            Text(profile.id).tag(profile.id)
+                            Text(profilePickerLabel(profile)).tag(profile.id)
                         }
                     }
                     .disabled(settings.isBusy)
 
                     Picker("Complex routing", selection: $settings.selectedComplexProfile) {
                         ForEach(settings.chatProfiles) { profile in
-                            Text(profile.id).tag(profile.id)
+                            Text(profilePickerLabel(profile)).tag(profile.id)
                         }
                     }
                     .disabled(settings.isBusy)
@@ -194,5 +197,12 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .padding()
         .task { await settings.refresh() }
+    }
+
+    private func profilePickerLabel(_ profile: ModelProfileEntry) -> String {
+        if let reliability = profile.reliabilityLabel {
+            return "\(profile.id) (\(reliability))"
+        }
+        return profile.id
     }
 }

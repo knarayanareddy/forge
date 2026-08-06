@@ -1,0 +1,331 @@
+{
+  "schema_version": 1,
+  "min_accuracy": 0.8,
+  "cases": [
+    {
+      "id": "forensic-01-missing-grant",
+      "human_label": "missing_grant",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-01",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": { "kind": "turn_start", "prompt": "write marker" }
+        },
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-01",
+          "turn_index": 1,
+          "seq": 1,
+          "unix_ms": 2,
+          "payload": {
+            "kind": "error",
+            "message": "Workspace write grant required for /tmp/forge-ws"
+          }
+        }
+      ]
+    },
+    {
+      "id": "forensic-02-missing-grant-permission",
+      "human_label": "missing_grant",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-02",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": { "kind": "turn_start", "prompt": "read secret" }
+        },
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-02",
+          "turn_index": 1,
+          "seq": 1,
+          "unix_ms": 2,
+          "payload": {
+            "kind": "error",
+            "message": "Permission denied: capability grant missing for /etc/passwd"
+          }
+        }
+      ]
+    },
+    {
+      "id": "forensic-03-context-budget",
+      "human_label": "context_exhaustion",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-03",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": { "kind": "turn_start", "prompt": "long task" }
+        },
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-03",
+          "turn_index": 1,
+          "seq": 1,
+          "unix_ms": 2,
+          "payload": {
+            "kind": "budget",
+            "iteration": 3,
+            "max_iterations": 8,
+            "tokens_used": 8192,
+            "max_tokens": 8192,
+            "provider_input_tokens": 7000,
+            "provider_output_tokens": 1192
+          }
+        },
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-03",
+          "turn_index": 1,
+          "seq": 2,
+          "unix_ms": 3,
+          "payload": {
+            "kind": "error",
+            "message": "Token budget exceeded: 8192 / 8192"
+          }
+        }
+      ]
+    },
+    {
+      "id": "forensic-04-context-length",
+      "human_label": "context_exhaustion",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-04",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": { "kind": "turn_start", "prompt": "huge context" }
+        },
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-04",
+          "turn_index": 1,
+          "seq": 1,
+          "unix_ms": 2,
+          "payload": {
+            "kind": "error",
+            "message": "context length exhausted before planner could finish"
+          }
+        }
+      ]
+    },
+    {
+      "id": "forensic-05-schema-failure",
+      "human_label": "schema_failure",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-05",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": { "kind": "turn_start", "prompt": "plan task" }
+        },
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-05",
+          "turn_index": 1,
+          "seq": 1,
+          "unix_ms": 2,
+          "payload": {
+            "kind": "error",
+            "message": "NL plan schema validation failed: invalid json decode error"
+          }
+        }
+      ]
+    },
+    {
+      "id": "forensic-06-malformed-plan",
+      "human_label": "schema_failure",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-06",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": { "kind": "turn_start", "prompt": "repair plan" }
+        },
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-06",
+          "turn_index": 1,
+          "seq": 1,
+          "unix_ms": 2,
+          "payload": {
+            "kind": "error",
+            "message": "malformed plan json parse at loop[2]"
+          }
+        }
+      ]
+    },
+    {
+      "id": "forensic-07-bad-tool-output",
+      "human_label": "bad_tool_output",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-07",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": { "kind": "turn_start", "prompt": "verify file" }
+        },
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-07",
+          "turn_index": 1,
+          "seq": 1,
+          "unix_ms": 2,
+          "payload": {
+            "kind": "verify",
+            "iteration": 2,
+            "passed": false,
+            "detail": "verify_contains failed: expected forge in hello.txt"
+          }
+        }
+      ]
+    },
+    {
+      "id": "forensic-08-lint-failed",
+      "human_label": "bad_tool_output",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-08",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": { "kind": "turn_start", "prompt": "lint snippet" }
+        },
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-08",
+          "turn_index": 1,
+          "seq": 1,
+          "unix_ms": 2,
+          "payload": {
+            "kind": "verify",
+            "iteration": 3,
+            "passed": false,
+            "detail": "python_lint failed: SyntaxError on line 1"
+          }
+        }
+      ]
+    },
+    {
+      "id": "forensic-09-wrong-tool",
+      "human_label": "wrong_tool",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-09",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": { "kind": "turn_start", "prompt": "write hello" }
+        },
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-09",
+          "turn_index": 1,
+          "seq": 1,
+          "unix_ms": 2,
+          "payload": {
+            "kind": "error",
+            "message": "unknown tool requested: shell_exec"
+          }
+        }
+      ]
+    },
+    {
+      "id": "forensic-10-forbidden-tool",
+      "human_label": "wrong_tool",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-10",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": { "kind": "turn_start", "prompt": "run curl" }
+        },
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-10",
+          "turn_index": 1,
+          "seq": 1,
+          "unix_ms": 2,
+          "payload": {
+            "kind": "plan",
+            "iteration": 1,
+            "action": "forbidden tool curl detected in plan"
+          }
+        }
+      ]
+    },
+    {
+      "id": "forensic-11-unknown-error",
+      "human_label": "unknown",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-11",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": { "kind": "turn_start", "prompt": "mystery" }
+        },
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-11",
+          "turn_index": 1,
+          "seq": 1,
+          "unix_ms": 2,
+          "payload": {
+            "kind": "error",
+            "message": "daemon internal fault: channel closed unexpectedly"
+          }
+        }
+      ]
+    },
+    {
+      "id": "forensic-12-unknown-done",
+      "human_label": "unknown",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-12",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": { "kind": "turn_start", "prompt": "noop" }
+        },
+        {
+          "schema_version": 2,
+          "session_id": "sess-f01-12",
+          "turn_index": 1,
+          "seq": 1,
+          "unix_ms": 2,
+          "payload": {
+            "kind": "done",
+            "iterations": 0,
+            "summary": "empty trajectory",
+            "tokens_used": 0,
+            "provider_input_tokens": 0,
+            "provider_output_tokens": 0
+          }
+        }
+      ]
+    }
+  ]
+}

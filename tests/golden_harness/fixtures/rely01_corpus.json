@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "cases": [
+    { "id": "rely-01", "tool_name": "fs_write", "expect_success": true },
+    { "id": "rely-02", "tool_name": "verify_contains", "expect_success": true },
+    { "id": "rely-03", "tool_name": "python_lint", "expect_success": true },
+    { "id": "rely-04", "tool_name": "fs_write", "expect_success": true },
+    { "id": "rely-05", "tool_name": "verify_contains", "expect_success": true },
+    { "id": "rely-06", "tool_name": "done", "expect_success": true }
+  ],
+  "profiles": {
+    "ollama-local": {
+      "rely-01": { "tool_name": "fs_write", "success": true, "arguments_match": true },
+      "rely-02": { "tool_name": "verify_contains", "success": true, "arguments_match": true },
+      "rely-03": { "tool_name": "python_lint", "success": true, "arguments_match": true },
+      "rely-04": { "tool_name": "fs_write", "success": true, "arguments_match": true },
+      "rely-05": { "tool_name": "fs_read", "success": false, "arguments_match": false },
+      "rely-06": { "tool_name": "shell_exec", "success": false, "arguments_match": false }
+    },
+    "ollama-complex": {
+      "rely-01": { "tool_name": "fs_write", "success": true, "arguments_match": true },
+      "rely-02": { "tool_name": "verify_contains", "success": true, "arguments_match": true },
+      "rely-03": { "tool_name": "python_lint", "success": true, "arguments_match": true },
+      "rely-04": { "tool_name": "fs_write", "success": true, "arguments_match": true },
+      "rely-05": { "tool_name": "verify_contains", "success": true, "arguments_match": true },
+      "rely-06": { "tool_name": "done", "success": true, "arguments_match": true }
+    }
+  }
+}

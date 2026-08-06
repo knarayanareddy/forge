@@ -57,7 +57,7 @@ jobs:
           HARD=$(grep 'Hard green:' harness.log | tail -1 | sed -E 's/.*Hard green: ([0-9]+).*/\1/')
           echo "Harness passed: ${PASS:-0}/45 (${HARD:-0} hard)"
           if [[ "${PASS:-0}" -lt 30 ]]; then
-            echo "Expected at least 30/45 on Linux (FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01, GRAPH-02, DIST-01 fail-closed without Darwin/Ollama)"
+            echo "Expected at least 30/48 on Linux (FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01, GRAPH-02, DIST-01 fail-closed without Darwin/Ollama)"
             exit 1
           fi
 
@@ -146,7 +146,7 @@ jobs:
       - name: Build workspace
         run: cargo build --workspace
 
-      - name: Golden harness (Darwin canonical 45/45)
+      - name: Golden harness (Darwin canonical 48/48)
         env:
           # macos-15 GHA runners vary 300–700ms warm server TTFT; 700ms avoids flake on slow VMs.
           AETHER_ROUT_TTFT_MS: "700"
@@ -155,12 +155,12 @@ jobs:
           cargo run -p golden-harness 2>&1 | tee harness.log
           PASS=$(grep 'Passed:' harness.log | tail -1 | sed -E 's/.*Passed: ([0-9]+).*/\1/')
           HARD=$(grep 'Hard green:' harness.log | tail -1 | sed -E 's/.*Hard green: ([0-9]+).*/\1/')
-          echo "Harness passed: ${PASS:-0}/45 (${HARD:-0} hard)"
-          if [[ "${PASS:-0}" -ne 45 || "${HARD:-0}" -ne 42 ]]; then
-            echo "Darwin canonical gate requires 45/45 (42 hard / 3 soft; REG-01, COMPACT-01, HOOK-02 are soft green)"
+          echo "Harness passed: ${PASS:-0}/48 (${HARD:-0} hard)"
+          if [[ "${PASS:-0}" -ne 48 || "${HARD:-0}" -ne 42 ]]; then
+            echo "Darwin canonical gate requires 48/48 (42 hard / 6 soft; REG-01, SLEEP-01, RELY-01, FORENSIC-01, COMPACT-01, HOOK-02 are soft green)"
             exit 1
           fi
-          echo "Darwin canonical 45/45 gate satisfied (42 hard / 3 soft)"
+          echo "Darwin canonical 48/48 gate satisfied (42 hard / 6 soft)"
 
       - name: Swift build
         run: |

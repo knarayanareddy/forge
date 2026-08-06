@@ -36,6 +36,7 @@
         "dst_node_id": "node-bridge",
         "relation_type": "related_to",
         "weight": 2.0,
+        "provenance": "extracted",
         "evidence_text": "e"
       },
       {
@@ -43,6 +44,7 @@
         "dst_node_id": "node-codex",
         "relation_type": "implements",
         "weight": 1.5,
+        "provenance": "extracted",
         "evidence_text": "e"
       }
     ]

@@ -53,12 +53,17 @@ pub use model_registry::{
     ENV_REGISTRY_PATH,
 };
 
-pub use risk::{evaluate_approval_gate, find_steps_requiring_approval, RiskyStep};
 
 pub use tool_reliability::{
-    evaluate_profile_reliability, rank_profiles_by_reliability, score_tool_response,
-    FrozenToolResponse, ToolCallCase,
+    discover_reliability_fixture, evaluate_profile_reliability, load_reliability_corpus,
+    load_registry_reliability_check, profiles_with_reliability, rank_profiles_by_reliability,
+    registry_reliability_matches_corpus, score_profile_from_outcomes, score_tool_response,
+    verify_ranking, FrozenToolResponse, ProfileReliability, ProfileScore, ReliabilityError,
+    ToolCallCase, ToolCaseOutcome, ToolCaseSpec, ToolReliabilityCorpus,
+    DEFAULT_RELIABILITY_FIXTURE,
 };
+
+pub use risk::{evaluate_approval_gate, find_steps_requiring_approval, RiskyStep};
 
 pub use subagent::{
     run_subagent_read_task, SubagentFileSummary, SubagentResult, MAX_DISTILLED_CHARS,

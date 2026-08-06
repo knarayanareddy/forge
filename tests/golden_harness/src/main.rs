@@ -114,6 +114,15 @@ use reg01::test_reg01_impl;
 mod dist01;
 use dist01::test_dist01_impl;
 
+mod sleep01;
+use sleep01::test_sleep01_impl;
+
+mod rely01;
+use rely01::test_rely01_impl;
+
+mod forensic01;
+use forensic01::test_forensic01_impl;
+
 mod mcp02;
 use mcp02::test_mcp02_impl;
 
@@ -129,7 +138,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 45] = [
+const TASKS: [TaskSpec; 48] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -169,6 +178,9 @@ const TASKS: [TaskSpec; 45] = [
     TaskSpec { name: "COST-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "GRAPH-02", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "REG-01", hard_on_darwin: false, fail_closed_off_darwin: false },
+    TaskSpec { name: "SLEEP-01", hard_on_darwin: false, fail_closed_off_darwin: false },
+    TaskSpec { name: "RELY-01", hard_on_darwin: false, fail_closed_off_darwin: false },
+    TaskSpec { name: "FORENSIC-01", hard_on_darwin: false, fail_closed_off_darwin: false },
     TaskSpec { name: "FORK-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "HEAD-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CACHE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -236,6 +248,21 @@ async fn main() {
     match cache01::cache01_fixture_ready() {
         Ok(()) => println!("CACHE-01 fixtures: prefix-cache helpers ready"),
         Err(e) => eprintln!("Warning: CACHE-01 fixture check failed: {}", e),
+    }
+
+    match sleep01::sleep01_fixture_ready() {
+        Ok(n) => println!("SLEEP-01 fixtures: {} held-out queries loaded", n),
+        Err(e) => eprintln!("Warning: SLEEP-01 fixture check failed: {}", e),
+    }
+
+    match rely01::rely01_fixture_ready() {
+        Ok(n) => println!("RELY-01 fixtures: {} frozen tool-call cases loaded", n),
+        Err(e) => eprintln!("Warning: RELY-01 fixture check failed: {}", e),
+    }
+
+    match forensic01::forensic01_fixture_ready() {
+        Ok(n) => println!("FORENSIC-01 fixtures: {} labeled trajectories loaded", n),
+        Err(e) => eprintln!("Warning: FORENSIC-01 fixture check failed: {}", e),
     }
 
     match mcp02::mcp02_fixture_ready() {

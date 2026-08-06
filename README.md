@@ -1,14 +1,14 @@
 # forge
 
-AetherForge MVP — **Darwin canonical 38/38 verified** at `31a0a4c` (local canonical run 2026-08-06:
-37 hard / 1 soft REG-01; ROUT-01 median warm TTFT 165ms). The harness covers all **45 tasks**
-including **GATE-02**, **COST-01**, and **REG-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **DIST-01**, **MCP-02**, **COMPACT-01**, **HOOK-02** (REG-01, COMPACT-01, HOOK-02 soft green on Darwin).
+AetherForge MVP — **Darwin canonical 48/48 target** (42 hard / 6 soft: REG-01, SLEEP-01, RELY-01, FORENSIC-01, COMPACT-01, HOOK-02).
+The harness covers all **48 tasks**
+in including **GATE-02**, **COST-01**, **REG-01**, **SLEEP-01**, **RELY-01**, **FORENSIC-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **DIST-01**, **MCP-02**, **COMPACT-01**, **HOOK-02**, **MCP-02**, **COMPACT-01**, and **HOOK-02**.
 
 ## Harness score (Darwin, canonical)
 
 ```text
 cargo run -p golden-harness --bin golden-harness
-→ 45/45 harness (42 hard / 3 soft) when ROUT-01 median warm TTFT ≤ 200ms,
+→ 48/48 harness (42 hard / 6 soft) when ROUT-01 median warm TTFT ≤ 200ms,
   GRAPH-01 recall@3 ≥ 1.0, LOOP-02 NL plan through verify shell (gold trajectory in harness eval only),
   RED-01 blocks all frozen adversarial cases (≥12, currently 14),
   SKILL-02 routes 3/3 book_skill questions with citation fidelity ≥ 0.9,
@@ -49,19 +49,16 @@ cargo run -p golden-harness --bin golden-harness
   **COST-01** proves provider token usage is parsed and audited,
   **GRAPH-02** proves graph v2 multi-hop recall does not regress GRAPH-01 and changes ranking on ≥2 queries,
   **DIST-01** proves verify-codesign + spctl gates on Darwin release artifacts,
-  **MCP-02** proves user-addable MCP with pin-on-install, diff-on-update review, and merged allowlist,
-  **COMPACT-01** proves context compaction with steerable instructions and thrashing guard,
-  **HOOK-02** proves UserPromptSubmit deny patterns and PostToolUse secret scrub in the loop,
-  and **REG-01**, **FORK-01**, **HEAD-01**, **CACHE-01** (soft/hard mix as documented below)
+  and **REG-01**, **SLEEP-01**, **RELY-01**, **FORENSIC-01** (soft) prove registry load, sleep recall delta, tool reliability ranking, and failure forensics
 ```
 
 | Platform | Expected score | Hard / soft |
 |----------|----------------|-------------|
-| **Darwin** (Ollama + `sandbox-exec`) | **45/45** | 42 hard / 3 soft (REG-01, COMPACT-01, HOOK-02 soft green) |
-| **Linux CI** (full matrix) | **33/45** | 29 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01, GRAPH-02, DIST-01 **FAIL-CLOSED** |
-| **Linux Ollama-independent** | **33/33** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, GATE-01, **GATE-02**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **BUDG-01**, **COST-01**, **REG-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **COMPACT-01**, **HOOK-02** |
+| **Darwin** (Ollama + `sandbox-exec`) | **48/48** | 42 hard / 6 soft (REG-01, SLEEP-01, RELY-01, FORENSIC-01, COMPACT-01, HOOK-02 soft green) |
+| **Linux CI** (full matrix) | **33/48** | 29 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01, GRAPH-02, DIST-01 **FAIL-CLOSED** |
+| **Linux Ollama-independent** | **36/36** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, GATE-01, **GATE-02**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **BUDG-01**, **COST-01**, **REG-01**, **SLEEP-01**, **RELY-01**, **FORENSIC-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **DIST-01**, **MCP-02**, **COMPACT-01**, **HOOK-02** |
 
-Tasks (45): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **GATE-01**, **GATE-02**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **INGEST-01**, **BUDG-01**, **COST-01**, **GRAPH-02**, **REG-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **DIST-01**, **MCP-02**, **COMPACT-01**, **HOOK-02**
+Tasks (48): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **GATE-01**, **GATE-02**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **INGEST-01**, **BUDG-01**, **COST-01**, **GRAPH-02**, **REG-01**, **SLEEP-01**, **RELY-01**, **FORENSIC-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **DIST-01**
 
 ROUT-01 runs first, warms the chat model, drains five discard streams, then records **seven**
 server-side warm TTFT samples (`load_duration + prompt_eval_duration`). It drops the lowest and

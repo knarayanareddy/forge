@@ -9,6 +9,7 @@ struct ModelProfileEntry: Identifiable, Sendable {
     let contextLen: Int?
     let role: String?
     let description: String?
+    let toolReliability: Double?
 
     var isChatProfile: Bool { role != "embed" }
 
@@ -27,6 +28,11 @@ struct ModelProfileEntry: Identifiable, Sendable {
         default:
             return backend
         }
+    }
+
+    var reliabilityLabel: String? {
+        guard let toolReliability else { return nil }
+        return String(format: "Tool reliability: %.0f%%", toolReliability * 100)
     }
 }
 
@@ -154,7 +160,8 @@ enum ModelRegistryLoader {
                 provider: fields["provider"],
                 contextLen: fields["context_len"].flatMap(Int.init),
                 role: fields["role"],
-                description: fields["description"]
+                description: fields["description"],
+                toolReliability: fields["tool_reliability"].flatMap(Double.init)
             )
         }.sorted { $0.id < $1.id }
 

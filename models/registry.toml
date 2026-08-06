@@ -6,11 +6,13 @@ backend = "ollama"
 endpoint = "http://localhost:11434"
 model = "qwen2.5:3b"
 context_len = 8192
+tool_reliability = 0.667
 [profiles.ollama-complex]
 backend = "ollama"
 endpoint = "http://localhost:11434"
 model = "qwen2.5:7b"
 context_len = 8192
+tool_reliability = 1.0
 [profiles.openai-mini]
 backend = "openai_compatible"
 provider = "openai"
