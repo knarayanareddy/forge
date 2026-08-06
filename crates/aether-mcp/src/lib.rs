@@ -1,7 +1,9 @@
+mod forge_server;
 mod runtime;
 mod tool_index;
 mod user_registry;
 
+pub use forge_server::{forge_mcp_handle_request, run_forge_mcp_stdio, ForgeMcpServer};
 pub use runtime::{invoke_with_grant, McpClient, McpToolInfo, McpToolsAudit};
 pub use tool_index::ToolIndex;
 pub use user_registry::{

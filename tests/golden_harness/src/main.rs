@@ -132,13 +132,22 @@ use compact01::test_compact01_impl;
 mod hook02;
 use hook02::test_hook02_impl;
 
+mod mem03;
+use mem03::test_mem03_impl;
+
+mod mcps01;
+use mcps01::test_mcps01_impl;
+
+mod offline01;
+use offline01::test_offline01_impl;
+
 struct TaskSpec {
     name: &'static str,
     hard_on_darwin: bool,
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 48] = [
+const TASKS: [TaskSpec; 51] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -188,6 +197,9 @@ const TASKS: [TaskSpec; 48] = [
     TaskSpec { name: "MCP-02", hard_on_darwin: false, fail_closed_off_darwin: false },
     TaskSpec { name: "COMPACT-01", hard_on_darwin: false, fail_closed_off_darwin: false },
     TaskSpec { name: "HOOK-02", hard_on_darwin: false, fail_closed_off_darwin: false },
+    TaskSpec { name: "MEM-03", hard_on_darwin: false, fail_closed_off_darwin: false },
+    TaskSpec { name: "MCPS-01", hard_on_darwin: false, fail_closed_off_darwin: false },
+    TaskSpec { name: "OFFLINE-01", hard_on_darwin: false, fail_closed_off_darwin: false },
 ];
 
 fn is_darwin() -> bool {
@@ -273,6 +285,21 @@ async fn main() {
     match compact01::compact01_fixture_ready() {
         Ok(()) => println!("COMPACT-01 fixtures: context compaction helpers ready"),
         Err(e) => eprintln!("Warning: COMPACT-01 fixture check failed: {}", e),
+    }
+
+    match mem03::mem03_fixture_ready() {
+        Ok(()) => println!("MEM-03 fixtures: user-inspectable memory helpers ready"),
+        Err(e) => eprintln!("Warning: MEM-03 fixture check failed: {}", e),
+    }
+
+    match mcps01::mcps01_fixture_ready() {
+        Ok(()) => println!("MCPS-01 fixtures: Forge MCP server stub ready"),
+        Err(e) => eprintln!("Warning: MCPS-01 fixture check failed: {}", e),
+    }
+
+    match offline01::offline01_fixture_ready() {
+        Ok(()) => println!("OFFLINE-01 fixtures: offline degradation matrix ready"),
+        Err(e) => eprintln!("Warning: OFFLINE-01 fixture check failed: {}", e),
     }
 
     match reg01::reg01_fixture_ready() {
@@ -473,6 +500,9 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "MCP-02" => test_mcp02_impl(&db.conn()).await,
         "COMPACT-01" => async { Ok(test_compact01_impl()?) }.await,
         "HOOK-02" => async { Ok(test_hook02_impl(db)?) }.await,
+        "MEM-03" => async { test_mem03_impl(db).map(|_| false) }.await,
+        "MCPS-01" => async { test_mcps01_impl().map(|_| false) }.await,
+        "OFFLINE-01" => async { test_offline01_impl().await.map(|_| false) }.await,
         other => Err(format!("Unknown task {}", other)),
     };
 
