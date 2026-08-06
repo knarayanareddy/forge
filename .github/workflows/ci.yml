@@ -157,10 +157,10 @@ jobs:
           HARD=$(grep 'Hard green:' harness.log | tail -1 | sed -E 's/.*Hard green: ([0-9]+).*/\1/')
           echo "Harness passed: ${PASS:-0}/51 (${HARD:-0} hard)"
           if [[ "${PASS:-0}" -ne 51 || "${HARD:-0}" -ne 42 ]]; then
-            echo "Darwin canonical gate requires 51/51 (42 hard / 9 soft; REG-01, SLEEP-01, RELY-01, FORENSIC-01, COMPACT-01, HOOK-02, MEM-03, MCPS-01, OFFLINE-01 are soft green)"
+            echo "Darwin canonical gate requires 51/51 (41 hard / 10 soft; REG-01, SLEEP-01, RELY-01, FORENSIC-01, MCP-02, COMPACT-01, HOOK-02, MEM-03, MCPS-01, OFFLINE-01 are soft green)"
             exit 1
           fi
-          echo "Darwin canonical 51/51 gate satisfied (42 hard / 9 soft)"
+          echo "Darwin canonical 51/51 gate satisfied (41 hard / 10 soft)"
 
       - name: Swift build
         run: |

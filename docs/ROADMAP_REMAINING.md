@@ -1,6 +1,6 @@
 # AetherForge — 1.0 Project Closure
 
-**Status:** **1.0 engineering complete** · **2026-08-06** · **main @ `f2ebcf1`** (PR #46 merged)  
+**Status:** **1.0 engineering complete** · **2026-08-06** · **main @ `355b101`** (PRs #46–#48 merged)  
 **Harness registry:** `tests/golden_harness/src/main.rs` — **51 tasks** (41 hard / 10 soft)
 
 See also: [ROADMAP_PHASES_9-13.md](./ROADMAP_PHASES_9-13.md), [INSTALL.md](./INSTALL.md), [SPARKLE.md](./SPARKLE.md), [LINUX_CI.md](./LINUX_CI.md).
@@ -32,8 +32,9 @@ All planned 1.0 engineering slices are on `main`. The golden harness registry is
 | Metric | Value |
 |--------|-------|
 | **Harness registry** | **51 tasks** (41 hard / 10 soft) |
-| **main HEAD** | `f2ebcf1` — Merge PR #46 (MEM-03, MCPS-01, OFFLINE-01) |
+| **main HEAD** | `355b101` — Merge PR #48 (SEC-01 Keychain hardening) atop #47 closure + #46 wave-6 |
 | **Darwin CI gate** | Push/nightly **51/51** (`.github/workflows/ci.yml`) |
+| **Last cited full Darwin run** | **38/38 @ `6caa521`** (PR #39); tasks 39–51 merged afterward — fresh **51/51** local cite recommended |
 | **Scoreboard script** | `./scripts/check-doc-scoreboard.sh` — **PASS** |
 | **Open PRs** | **0** |
 
@@ -66,6 +67,8 @@ ROUT-01, FS-01, FS-02, SB-01, GIT-01, CODE-01, MCP-01, MEM-01, MEM-02, GRAPH-01,
 |----|-------|---------|
 | #38–#44 | FORK/HEAD/CACHE, Darwin verify, Track D, MCP-02/COMPACT/HOOK-02, SLEEP/RELY/FORENSIC | 48 tasks |
 | **#46** | **MEM-03, MCPS-01, OFFLINE-01** | **51 tasks** |
+| **#47** | **1.0 engineering closure docs** | 51 tasks (scoreboard aligned) |
+| **#48** | **SEC-01 Keychain `security(1)` backend** | 51 tasks (Darwin flake hardening) |
 
 ---
 

@@ -61,18 +61,22 @@ cargo run -p golden-harness --bin golden-harness
 
 | Baseline | Value |
 |----------|-------|
-| **Registry @ main** | **51 tasks** (41 hard / 10 soft) · `f2ebcf1` (PR #46) |
+| **Registry @ main** | **51 tasks** (41 hard / 10 soft) · **`355b101`** (PRs #46–#48) |
+| **Last cited full Darwin run** | **38/38 @ `6caa521`** (PR #39) — tasks 39–51 (FORK/HEAD/CACHE, DIST-01, wave-5/6 probes) merged afterward |
 | **CI gate** | Push/nightly Darwin **51/51** — [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
-| **Wave 6 probes** | MEM-03, MCPS-01, OFFLINE-01 soft-green locally @ `608ac77` (PR #46) |
+| **Wave 6 probes** | MEM-03, MCPS-01, OFFLINE-01 soft-green @ `608ac77` (PR #46) |
 | **Scoreboard** | `./scripts/check-doc-scoreboard.sh` PASS |
 
 Run locally: `cargo run -p golden-harness --bin golden-harness` (requires Ollama + `sandbox-exec` on macOS).
 
 Tasks (51): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **GATE-01**, **GATE-02**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **INGEST-01**, **BUDG-01**, **COST-01**, **GRAPH-02**, **REG-01**, **SLEEP-01**, **RELY-01**, **FORENSIC-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **DIST-01**, **MCP-02**, **COMPACT-01**, **HOOK-02**, **MEM-03**, **MCPS-01**, **OFFLINE-01**
 
-ROUT-01 runs first, warms the chat model, drains five discard streams, then records **seven**
-server-side warm TTFT samples (`load_duration + prompt_eval_duration`). It drops the lowest and
-highest sample and takes the median of the remaining five, retrying at most three rounds. The
+ROUT-01 runs first, warms the chat model, drains eight discard streams, then records **seven**
+server-side warm TTFT samples. When the model is resident in Ollama memory (`/api/ps`), the
+sample uses **`prompt_eval_duration` only** — Apple Silicon often reports 100–250ms
+`load_duration` bookkeeping even for warm models; cold loads (`load_duration` > 300ms) are
+retried, never mixed into the median. It drops the lowest and highest sample and takes the
+median of the remaining five, retrying at most five rounds. The
 local product target is **≤200ms**. GitHub's shared `macos-15` runner uses an explicitly looser
 **700ms CI stability gate** via `AETHER_ROUT_TTFT_MS`; that infrastructure allowance is not a
 product-performance claim.
@@ -252,6 +256,6 @@ Install guide: [docs/INSTALL.md](docs/INSTALL.md)
 
 ## Architecture target vs product readiness
 
-- **1.0 engineering:** **complete** @ main `f2ebcf1` — 51-task harness, DIST-01, wave-6 probes (MEM-03, MCPS-01, OFFLINE-01)
+- **1.0 engineering:** **complete** @ main `355b101` — 51-task harness, DIST-01, wave-6 probes (MEM-03, MCPS-01, OFFLINE-01), SEC-01 Keychain hardening (#48)
 - **Spec engineering target:** 8.5+ achieved on scoped MVP ([ROADMAP_PHASES_9-13.md](docs/ROADMAP_PHASES_9-13.md))
 - **Shippable product blockers:** Apple Developer ID + notarized DMG + Sparkle EdDSA + SwiftUI E2E ([ROADMAP_REMAINING.md](docs/ROADMAP_REMAINING.md))

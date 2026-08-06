@@ -69,7 +69,7 @@ AetherForge treats **Darwin (macOS 15+)** as the canonical platform. Linux CI va
 
 | Environment | Expected harness | Hard / soft | Notes |
 |-------------|------------------|-------------|-------|
-| Darwin + Ollama + sandbox-exec | **51/51 target** | **42 hard / 9 soft** | Canonical Darwin gate: REG-01, SLEEP-01, RELY-01, FORENSIC-01, COMPACT-01, HOOK-02, MEM-03, MCPS-01, OFFLINE-01 soft green |
+| Darwin + Ollama + sandbox-exec | **51/51 target** | **41 hard / 10 soft** | Canonical Darwin gate: REG-01, SLEEP-01, RELY-01, FORENSIC-01, MCP-02, COMPACT-01, HOOK-02, MEM-03, MCPS-01, OFFLINE-01 soft green |
 | Linux (default CI) | **36/51** | 29 hard / 9 soft† | FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01, GRAPH-02, DIST-01 fail-closed |
 | Linux + Ollama + MCP | **41/51** | 34 hard / 9 soft† | FS-02, SB-01, and OS-gated tasks fail closed |
 
@@ -84,8 +84,8 @@ GitHub Actions (`.github/workflows/ci.yml`):
 | Trigger | Linux job | Darwin job |
 |---------|-----------|------------|
 | **Pull request** | Full harness · gate ≥ 30/51 | **Build + unit tests + Swift only** — no golden harness |
-| **Push to `main`** | Full harness · gate ≥ 30/51 | Full harness · gate **51/51 (42 hard / 9 soft)** |
-| **Nightly schedule / manual** | Full harness · gate ≥ 30/51 | Full harness · gate **51/51 (42 hard / 9 soft)** |
+| **Push to `main`** | Full harness · gate ≥ 30/51 | Full harness · gate **51/51 (41 hard / 10 soft)** |
+| **Nightly schedule / manual** | Full harness · gate ≥ 30/51 | Full harness · gate **51/51 (41 hard / 10 soft)** |
 
 ### PR fast path (Linux Ollama-independent tasks)
 
@@ -133,9 +133,9 @@ Setting `AETHER_BYOK_PROVIDER` on non-macOS causes daemon startup to **fail clos
 ## Local reproduction
 
 ```bash
-# Full Darwin gate (51 tasks — 42 hard / 9 soft)
+# Full Darwin gate (51 tasks — 41 hard / 10 soft)
 cargo run -p golden-harness
-# → Darwin scoreboard: 51/51 harness (42 hard / 9 soft)
+# → Darwin scoreboard: 51/51 harness (41 hard / 10 soft)
 
 # Simulate Linux fail-closed (unset Ollama, non-Darwin only)
 # On macOS, FS-02 still passes if sandbox-exec exists.
