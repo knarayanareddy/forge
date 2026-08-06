@@ -1,14 +1,13 @@
 # forge
 
-AetherForge MVP — **Darwin canonical 51/51 target** (42 hard / 9 soft: REG-01, SLEEP-01, RELY-01, FORENSIC-01, COMPACT-01, HOOK-02, MEM-03, MCPS-01, OFFLINE-01).
-The harness covers all **51 tasks**
-in including **GATE-02**, **COST-01**, **REG-01**, **SLEEP-01**, **RELY-01**, **FORENSIC-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **DIST-01**, **MCP-02**, **COMPACT-01**, **HOOK-02**, **MEM-03**, **MCPS-01**, and **OFFLINE-01**.
+AetherForge MVP — **1.0 engineering complete** · **Darwin canonical 51/51** (41 hard / 10 soft: REG-01, SLEEP-01, RELY-01, FORENSIC-01, MCP-02, COMPACT-01, HOOK-02, MEM-03, MCPS-01, OFFLINE-01).
+The harness covers all **51 tasks** including **GATE-02**, **COST-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **DIST-01**, **MCP-02**, **COMPACT-01**, **HOOK-02**, **MEM-03**, **MCPS-01**, and **OFFLINE-01**.
 
 ## Harness score (Darwin, canonical)
 
 ```text
 cargo run -p golden-harness --bin golden-harness
-→ 51/51 harness (42 hard / 9 soft) when ROUT-01 median warm TTFT ≤ 200ms,
+→ 51/51 harness (41 hard / 10 soft) when ROUT-01 median warm TTFT ≤ 200ms,
   GRAPH-01 recall@3 ≥ 1.0, LOOP-02 NL plan through verify shell (gold trajectory in harness eval only),
   RED-01 blocks all frozen adversarial cases (≥12, currently 14),
   SKILL-02 routes 3/3 book_skill questions with citation fidelity ≥ 0.9,
@@ -54,9 +53,20 @@ cargo run -p golden-harness --bin golden-harness
 
 | Platform | Expected score | Hard / soft |
 |----------|----------------|-------------|
-| **Darwin** (Ollama + `sandbox-exec`) | **51/51** | 42 hard / 9 soft (REG-01, SLEEP-01, RELY-01, FORENSIC-01, COMPACT-01, HOOK-02, MEM-03, MCPS-01, OFFLINE-01 soft green) |
+| **Darwin** (Ollama + `sandbox-exec`) | **51/51** | 41 hard / 10 soft (REG-01, SLEEP-01, RELY-01, FORENSIC-01, MCP-02, COMPACT-01, HOOK-02, MEM-03, MCPS-01, OFFLINE-01 soft green) |
 | **Linux CI** (full matrix) | **36/51** | 29 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01, GRAPH-02, DIST-01 **FAIL-CLOSED** |
-| **Linux Ollama-independent** | **39/39** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, GATE-01, **GATE-02**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **BUDG-01**, **COST-01**, **REG-01**, **SLEEP-01**, **RELY-01**, **FORENSIC-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **DIST-01**, **MCP-02**, **COMPACT-01**, **HOOK-02**, **MEM-03**, **MCPS-01**, **OFFLINE-01** |
+| **Linux Ollama-independent** | **39/51** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, GATE-01, **GATE-02**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **BUDG-01**, **COST-01**, **REG-01**, **SLEEP-01**, **RELY-01**, **FORENSIC-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **MCP-02**, **COMPACT-01**, **HOOK-02**, **MEM-03**, **MCPS-01**, **OFFLINE-01** |
+
+## Darwin canonical verification
+
+| Baseline | Value |
+|----------|-------|
+| **Registry @ main** | **51 tasks** (41 hard / 10 soft) · `f2ebcf1` (PR #46) |
+| **CI gate** | Push/nightly Darwin **51/51** — [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
+| **Wave 6 probes** | MEM-03, MCPS-01, OFFLINE-01 soft-green locally @ `608ac77` (PR #46) |
+| **Scoreboard** | `./scripts/check-doc-scoreboard.sh` PASS |
+
+Run locally: `cargo run -p golden-harness --bin golden-harness` (requires Ollama + `sandbox-exec` on macOS).
 
 Tasks (51): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **GATE-01**, **GATE-02**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **INGEST-01**, **BUDG-01**, **COST-01**, **GRAPH-02**, **REG-01**, **SLEEP-01**, **RELY-01**, **FORENSIC-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **DIST-01**, **MCP-02**, **COMPACT-01**, **HOOK-02**, **MEM-03**, **MCPS-01**, **OFFLINE-01**
 
@@ -81,9 +91,10 @@ product-performance claim.
 | **6 — Graph v1 + eval** | Bi-temporal graph, ingest extract, GRAPH-01/LOOP-02/RED-01/SKILL-02, consolidate offline | **Done** |
 | **7 — Orchestration** | Automation scheduler (AUTO-01), maker-checker (CHECK-01), gateway (GATE-01, GATE-02 Telegram/Discord) | **Done — harness extended** |
 | **8.0 — Honesty + closed loop** | IPC lockdown, NL de-harness, memory (MEM-02), production sandbox (SB-01) | **8.0a–8.0c implemented; docs/canonical SB-01 gate remain** |
-| **9 — Trust & Time** | Planner schema/repair (PLAN-01), JSONL session log (SESS-01), undo journal (UNDO-01), replan-on-verify-failure (LOOP-04) | **Slices 9.1–9.10 implemented; Darwin canonical 29/29 verified** |
-| **10 — Product Surface** | Checkpoint + rewind (CKPT-01), `PreToolUse` hook that blocks (HOOK-01), batched approval gate (PERM-02), subagent delegation (SUB-01) | **Slices 10.1, 10.3-10.4, 10.7-10.9 implemented; only FORK-01 (probe) remains in Phase 10; Darwin canonical 29/29 verified** |
-| **11 — Memory & Supply Chain** | Consolidation, secrets, skill trust, tool-result induction | **CONS-01 Darwin-verified; SEC-01 + SKILL-03 + INJECT-01 scoreboard complete; INGEST-01 (8.1–8.3 honesty tail) on this branch → 33/33** |
+| **9 — Trust & Time** | Planner schema/repair (PLAN-01), JSONL session log (SESS-01), undo journal (UNDO-01), replan-on-verify-failure (LOOP-04) | **Done** |
+| **10 — Product Surface** | Checkpoint + rewind (CKPT-01), PreToolUse hook (HOOK-01), batched approval (PERM-02), subagent delegation (SUB-01), FORK/HEAD/CACHE | **Done** |
+| **11 — Memory & Supply Chain** | Consolidation, secrets, skill trust, tool-result induction, user memory (MEM-03) | **Done** |
+| **12 — Moat probes** | SLEEP-01, RELY-01, FORENSIC-01, OFFLINE-01 | **Probes merged (soft)** |
 
 See [docs/ROADMAP_PHASES_1-5.md](docs/ROADMAP_PHASES_1-5.md) for Phases 1–5 acceptance criteria.  
 See [docs/ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md) for Phase 6 binding spec.  
@@ -91,7 +102,7 @@ See [docs/ROADMAP_PHASE_7.md](docs/ROADMAP_PHASE_7.md) for Phase 7 orchestration
 See [docs/ROADMAP_PHASE_8.0.md](docs/ROADMAP_PHASE_8.0.md) for the Phase 8.0 honesty wedge (**closed** — Darwin 22/22 verified) and [docs/PHASE_8_0_CLOSURE.md](docs/PHASE_8_0_CLOSURE.md) for the closure evidence.
 See [docs/PHASE_8_0_CLOSURE.md](docs/PHASE_8_0_CLOSURE.md) for code-grounded closure evidence and remaining gates.
 See [docs/ROADMAP_PHASES_9-13.md](docs/ROADMAP_PHASES_9-13.md) for the Phases 9–13 product wedge (planner robustness, session log, undo, table stakes, supply chain, local-first differentiators) plus parallel distribution and interop tracks.  
-See [docs/ROADMAP_REMAINING.md](docs/ROADMAP_REMAINING.md) for **project closure status** and the authoritative remaining-work checklist (P0–P2, Track D/E, 48-task harness).
+See [docs/ROADMAP_REMAINING.md](docs/ROADMAP_REMAINING.md) for **1.0 engineering closure** — blockers are Apple creds + SwiftUI E2E only (51-task harness).
 See [docs/SANDBOX.md](docs/SANDBOX.md) for the production tool boundary, platform behavior, and SB-01 contract.
 
 ## Phase 7 — Orchestration + gateway (complete)
@@ -235,11 +246,12 @@ FFI (`aether_ffi_daemon_ipc`, `aether_daemon_default_port`) provides default hos
 - **RED-01:** ≥12 frozen adversarial cases (14 shipped); 0% forbidden-action escape
 - **SKILL-02:** book-to-skill progressive disclosure — [docs/RATEL_TOOL_INDEX.md](docs/RATEL_TOOL_INDEX.md)
 - **Consolidate offline:** `./scripts/consolidate_memory.sh` → `review_pending` until human apply
-- **CI:** `.github/workflows/ci.yml` — Linux full matrix gate **≥24/33** · Darwin PR **build + unit tests + Swift only** · push/nightly Darwin **33/33 target** ([docs/LINUX_CI.md](docs/LINUX_CI.md))
+- **CI:** `.github/workflows/ci.yml` — Linux gate **≥30/51** · Darwin push/nightly **51/51** ([docs/LINUX_CI.md](docs/LINUX_CI.md))
 
 Install guide: [docs/INSTALL.md](docs/INSTALL.md)
 
 ## Architecture target vs product readiness
 
-- **Spec engineering target:** 8.5+ (see v1.2.3 / v1.2.4 docs; Phase 6 memory architecture via [ROADMAP_PHASE_6.md](docs/ROADMAP_PHASE_6.md))
-- **Last verified main baseline:** **29/29 on Darwin** (run `30840008383` @ `51658d0`) through SUB-01; **SEC-01** and **SKILL-03** merged on `main` afterward (Linux-verified). **INJECT-01** completes non-probe Phase 11 scoreboard items; this branch adds **INGEST-01** for a **33/33** target (Linux-verified with Ollama). See [docs/PHASE_8_0_CLOSURE.md](docs/PHASE_8_0_CLOSURE.md) for the Phase 8.0 22/22 closure evidence.
+- **1.0 engineering:** **complete** @ main `f2ebcf1` — 51-task harness, DIST-01, wave-6 probes (MEM-03, MCPS-01, OFFLINE-01)
+- **Spec engineering target:** 8.5+ achieved on scoped MVP ([ROADMAP_PHASES_9-13.md](docs/ROADMAP_PHASES_9-13.md))
+- **Shippable product blockers:** Apple Developer ID + notarized DMG + Sparkle EdDSA + SwiftUI E2E ([ROADMAP_REMAINING.md](docs/ROADMAP_REMAINING.md))
