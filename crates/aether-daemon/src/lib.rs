@@ -2,6 +2,8 @@ pub mod automation;
 pub mod automation_webhook;
 pub mod checkpoint;
 pub mod gateway;
+pub mod session_fork;
+pub mod headless;
 pub mod ingest;
 pub mod protocol;
 pub mod server;

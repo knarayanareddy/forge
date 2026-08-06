@@ -1,7 +1,9 @@
 use aether_core::{discover_registry_path, ModelRouter};
+use aether_daemon::headless::run_headless_cli;
 use aether_db::Database;
 use aether_daemon::server;
 use std::path::PathBuf;
+use std::process;
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 
@@ -10,6 +12,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env().add_directive("aether_daemon=info".parse()?))
         .init();
+
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--json") {
+        process::exit(run_headless_cli(args).await.as_i32());
+    }
 
     let db_path = std::env::var("AETHER_DB_PATH").unwrap_or_else(|_| {
         let home = dirs_home();

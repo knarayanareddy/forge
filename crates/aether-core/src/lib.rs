@@ -2,6 +2,7 @@ mod cost;
 mod graph_extract;
 mod hf_hub;
 mod model_registry;
+mod prefix_cache;
 mod hooks;
 mod inject;
 mod keychain;
@@ -30,6 +31,11 @@ pub use inject::{
 };
 
 pub use hf_hub::{download_file, sha256_hex, DownloadPlan, HfHubError};
+pub use prefix_cache::{
+    assemble_context_prompt, build_volatile_replan_tail, measure_prefix_reuse, prefix_fingerprint,
+    sort_tool_results_deterministic, static_tools_prefix, CACHE01_MIN_REUSE_RATIO,
+};
+
 pub use model_registry::{
     discover_registry_path, load_discovered_registry, BackendKind,
     ModelProfile, ModelRegistry, RegistryError, ENV_MODEL_PROFILE, ENV_MODEL_PROFILE_COMPLEX,
