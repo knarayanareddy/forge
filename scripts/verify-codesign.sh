@@ -35,12 +35,6 @@ verify_app_bundle() {
   local app="$1"
   echo "==> Verifying app: $app"
 
-  if codesign --verify --strict --verbose=2 "$app" 2>&1; then
-    note_ok "codesign --verify --strict"
-  else
-    note_failure "codesign --verify --strict"
-  fi
-
   local authority
   authority="$(codesign -dv --verbose=4 "$app" 2>&1 | sed -n 's/^Authority=\(.*\)/\1/p' | head -1 || true)"
   if [[ -z "$authority" || "$authority" == "adhoc" ]]; then
@@ -50,6 +44,11 @@ verify_app_bundle() {
       note_ok "unsigned/ad-hoc (acceptable for dev/CI unsigned builds)"
     fi
   else
+    if codesign --verify --strict --verbose=2 "$app" 2>&1; then
+      note_ok "codesign --verify --strict"
+    else
+      note_failure "codesign --verify --strict"
+    fi
     note_ok "signed by $authority"
   fi
 

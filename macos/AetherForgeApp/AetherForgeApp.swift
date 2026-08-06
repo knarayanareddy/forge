@@ -7,6 +7,7 @@ struct AetherForgeApp: App {
     @State private var safetyModel = SafetyModel()
     @State private var consolidationModel = ConsolidationModel()
     @State private var settingsModel = SettingsModel()
+    @StateObject private var sparkle = SparkleUpdateController()
 
     var body: some Scene {
         WindowGroup {
@@ -15,7 +16,8 @@ struct AetherForgeApp: App {
                 model: model,
                 safetyModel: safetyModel,
                 consolidationModel: consolidationModel,
-                settingsModel: settingsModel
+                settingsModel: settingsModel,
+                sparkle: sparkle
             )
                 .frame(minWidth: 640, minHeight: 480)
                 .task {
@@ -24,6 +26,11 @@ struct AetherForgeApp: App {
                 .onDisappear {
                     DaemonProcessManager.shared.shutdown()
                 }
+        }
+        .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { sparkle.checkForUpdates() }
+            }
         }
     }
 }
@@ -34,6 +41,7 @@ struct RootView: View {
     @Bindable var safetyModel: SafetyModel
     @Bindable var consolidationModel: ConsolidationModel
     @Bindable var settingsModel: SettingsModel
+    @ObservedObject var sparkle: SparkleUpdateController
 
     var body: some View {
         TabView {
@@ -50,7 +58,7 @@ struct RootView: View {
             }
 
             Tab("Settings", systemImage: "gearshape") {
-                SettingsView(settings: settingsModel, workspace: workspace)
+                SettingsView(settings: settingsModel, workspace: workspace, sparkle: sparkle)
             }
 
             Tab("Memory", systemImage: "brain.head.profile") {
