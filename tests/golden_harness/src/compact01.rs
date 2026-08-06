@@ -1,16 +1,27 @@
-//! COMPACT-01 — context compaction with steerable instructions and thrashing guard.
+//! COMPACT-01 — context compaction with thrashing guard.
 
 use aether_core::{
     compact_turns, mechanical_summarize, CompactRequest, CompactionError, ContextTurn,
 };
 
 pub fn compact01_fixture_ready() -> Result<(), String> {
-    let turns = vec![ContextTurn {
-        role: "user".into(),
-        content: "hello".into(),
-    }];
+    let turns = vec![
+        ContextTurn {
+            role: "user".into(),
+            content: "x".repeat(200),
+        },
+        ContextTurn {
+            role: "assistant".into(),
+            content: "y".repeat(200),
+        },
+        ContextTurn {
+            role: "user".into(),
+            content: "tail".into(),
+        },
+    ];
     let req = CompactRequest {
         keep_recent: 1,
+        min_reduction_ratio: 0.05,
         ..CompactRequest::default()
     };
     compact_turns(&turns, &req, mechanical_summarize)
@@ -65,8 +76,12 @@ pub fn test_compact01_impl() -> Result<bool, String> {
             content: "x".repeat(500 + i),
         })
         .collect();
-    match compact_turns(&short, &thrash_req, |_i, older| {
-        older.iter().map(|t| t.content.clone()).collect::<Vec<_>>().join("\n")
+    match compact_turns(&short, &thrash_req, |_instr, older| {
+        older
+            .iter()
+            .map(|t| t.content.clone())
+            .collect::<Vec<_>>()
+            .join("\n")
     }) {
         Err(CompactionError::Thrashing { attempts, .. }) if attempts == 2 => {}
         other => return Err(format!("COMPACT-01 expected thrashing guard, got {other:?}")),

@@ -1,0 +1,147 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "tc-01",
+      "tool_name": "fs_write",
+      "expect_success": true
+    },
+    {
+      "id": "tc-02",
+      "tool_name": "fs_read",
+      "expect_success": true
+    },
+    {
+      "id": "tc-03",
+      "tool_name": "python_lint",
+      "expect_success": true
+    },
+    {
+      "id": "tc-04",
+      "tool_name": "git_init",
+      "expect_success": true
+    },
+    {
+      "id": "tc-05",
+      "tool_name": "fs_write",
+      "expect_success": false
+    },
+    {
+      "id": "tc-06",
+      "tool_name": "fs_read",
+      "expect_success": false
+    },
+    {
+      "id": "tc-07",
+      "tool_name": "mcp_call",
+      "expect_success": true
+    },
+    {
+      "id": "tc-08",
+      "tool_name": "verify_contains",
+      "expect_success": true
+    }
+  ],
+  "profiles": {
+    "q4": {
+      "tc-01": {
+        "tool_name": "fs_write",
+        "success": true,
+        "arguments_match": true,
+        "output": "ok"
+      },
+      "tc-02": {
+        "tool_name": "fs_read",
+        "success": true,
+        "arguments_match": false,
+        "output": "ok"
+      },
+      "tc-03": {
+        "tool_name": "python_lint",
+        "success": true,
+        "arguments_match": true,
+        "output": "ok"
+      },
+      "tc-04": {
+        "tool_name": "git_init",
+        "success": false,
+        "arguments_match": true,
+        "output": "fail"
+      },
+      "tc-05": {
+        "tool_name": "fs_write",
+        "success": true,
+        "arguments_match": false,
+        "output": "unexpected"
+      },
+      "tc-06": {
+        "tool_name": "fs_read",
+        "success": false,
+        "arguments_match": true,
+        "output": "denied"
+      },
+      "tc-07": {
+        "tool_name": "mcp_call",
+        "success": true,
+        "arguments_match": false,
+        "output": "ok"
+      },
+      "tc-08": {
+        "tool_name": "verify_contains",
+        "success": false,
+        "arguments_match": true,
+        "output": "miss"
+      }
+    },
+    "q8": {
+      "tc-01": {
+        "tool_name": "fs_write",
+        "success": true,
+        "arguments_match": true,
+        "output": "ok"
+      },
+      "tc-02": {
+        "tool_name": "fs_read",
+        "success": true,
+        "arguments_match": true,
+        "output": "ok"
+      },
+      "tc-03": {
+        "tool_name": "python_lint",
+        "success": true,
+        "arguments_match": true,
+        "output": "ok"
+      },
+      "tc-04": {
+        "tool_name": "git_init",
+        "success": true,
+        "arguments_match": true,
+        "output": "ok"
+      },
+      "tc-05": {
+        "tool_name": "fs_write",
+        "success": false,
+        "arguments_match": true,
+        "output": "denied"
+      },
+      "tc-06": {
+        "tool_name": "fs_read",
+        "success": false,
+        "arguments_match": true,
+        "output": "denied"
+      },
+      "tc-07": {
+        "tool_name": "mcp_call",
+        "success": true,
+        "arguments_match": true,
+        "output": "ok"
+      },
+      "tc-08": {
+        "tool_name": "verify_contains",
+        "success": true,
+        "arguments_match": true,
+        "output": "ok"
+      }
+    }
+  }
+}

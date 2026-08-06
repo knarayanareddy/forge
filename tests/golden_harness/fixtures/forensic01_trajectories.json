@@ -1,0 +1,221 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "fg-missing-grant-01",
+      "human_label": "missing_grant",
+      "goal": "g",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "s1",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": {
+            "kind": "tool",
+            "iteration": 1,
+            "tool": "fs_write",
+            "output": "Permission denied: write grant required"
+          }
+        }
+      ],
+      "regression_plan": [
+        { "action": "fs_write", "path": "x.txt", "content": "x" },
+        { "action": "done" }
+      ]
+    },
+    {
+      "id": "fg-missing-grant-02",
+      "human_label": "missing_grant",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "s2",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": { "kind": "error", "message": "Permission denied: ungranted" }
+        }
+      ]
+    },
+    {
+      "id": "fg-missing-grant-03",
+      "human_label": "missing_grant",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "s3",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": {
+            "kind": "tool",
+            "iteration": 1,
+            "tool": "git_init",
+            "output": "Write grant required"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fg-context-01",
+      "human_label": "context_exhaustion",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "s4",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": {
+            "kind": "budget",
+            "iteration": 5,
+            "max_iterations": 8,
+            "tokens_used": 4096,
+            "max_tokens": 4096,
+            "provider_input_tokens": 1,
+            "provider_output_tokens": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "fg-context-02",
+      "human_label": "context_exhaustion",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "s5",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": { "kind": "error", "message": "Token budget exceeded: 5000 / 4096" }
+        }
+      ]
+    },
+    {
+      "id": "fg-schema-01",
+      "human_label": "schema_failure",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "s6",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": { "kind": "error", "message": "invalid plan JSON" }
+        }
+      ]
+    },
+    {
+      "id": "fg-schema-02",
+      "human_label": "schema_failure",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "s7",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": {
+            "kind": "verify",
+            "iteration": 1,
+            "passed": false,
+            "detail": "schema validation failed"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fg-wrong-tool-01",
+      "human_label": "wrong_tool",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "s8",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": {
+            "kind": "tool",
+            "iteration": 1,
+            "tool": "wrong_tool",
+            "output": "unexpected invocation"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fg-wrong-tool-02",
+      "human_label": "wrong_tool",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "s9",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": { "kind": "error", "message": "unexpected tool mcp_call" }
+        }
+      ]
+    },
+    {
+      "id": "fg-bad-output-01",
+      "human_label": "bad_tool_output",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "s10",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": {
+            "kind": "verify",
+            "iteration": 1,
+            "passed": false,
+            "detail": "file content mismatch"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fg-bad-output-02",
+      "human_label": "bad_tool_output",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "s11",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": {
+            "kind": "verify",
+            "iteration": 2,
+            "passed": false,
+            "detail": "verify_contains failed"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fg-bad-output-03",
+      "human_label": "bad_tool_output",
+      "records": [
+        {
+          "schema_version": 2,
+          "session_id": "s12",
+          "turn_index": 1,
+          "seq": 0,
+          "unix_ms": 1,
+          "payload": {
+            "kind": "verify",
+            "iteration": 1,
+            "passed": false,
+            "detail": "lint reported errors"
+          }
+        }
+      ]
+    }
+  ]
+}

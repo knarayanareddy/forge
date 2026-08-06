@@ -4,6 +4,9 @@ mod user_registry;
 
 pub use runtime::{invoke_with_grant, McpClient, McpToolInfo, McpToolsAudit};
 pub use tool_index::ToolIndex;
+pub use user_registry::{
+    pin_filesystem_server, McpToolChange, McpToolsDiff, UserMcpEntry, UserMcpRegistry,
+};
 
 pub use user_registry::{pin_filesystem_server, McpToolChange, McpToolsDiff, UserMcpEntry, UserMcpRegistry};
 

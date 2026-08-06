@@ -1,4 +1,4 @@
-//! MCP-02 — user-addable MCP servers with pin-on-install and diff-on-update review.
+//! MCP-02 — user-addable MCP with pin-on-install and diff-on-update.
 
 use aether_mcp::{
     discover_filesystem_mcp, invoke_with_grant, pin_filesystem_server, McpAllowlist,
@@ -86,7 +86,6 @@ pub async fn test_mcp02_impl(conn: &rusqlite::Connection) -> Result<bool, String
         return Err(format!("MCP-02 list_directory missing probe.txt: {text}"));
     }
 
-    // Simulate tools_hash change — invoke must fail until approve_update.
     let mut stale_allowlist = registry.to_allowlist();
     if let Some(server) = stale_allowlist
         .servers
