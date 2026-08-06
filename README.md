@@ -8,7 +8,7 @@ in including **GATE-02**, **COST-01**, **REG-01**, **SLEEP-01**, **RELY-01**, **
 
 ```text
 cargo run -p golden-harness --bin golden-harness
-→ 48/48 harness (42 hard / 6 soft) when ROUT-01 median warm TTFT ≤ 200ms,
+→ 51/51 harness (42 hard / 9 soft) when ROUT-01 median warm TTFT ≤ 200ms,
   GRAPH-01 recall@3 ≥ 1.0, LOOP-02 NL plan through verify shell (gold trajectory in harness eval only),
   RED-01 blocks all frozen adversarial cases (≥12, currently 14),
   SKILL-02 routes 3/3 book_skill questions with citation fidelity ≥ 0.9,

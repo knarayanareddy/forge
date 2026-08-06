@@ -83,9 +83,9 @@ GitHub Actions (`.github/workflows/ci.yml`):
 
 | Trigger | Linux job | Darwin job |
 |---------|-----------|------------|
-| **Pull request** | Full harness · gate ≥ 30/45 | **Build + unit tests + Swift only** — no golden harness |
-| **Push to `main`** | Full harness · gate ≥ 30/48 | Full harness · gate **48/48 (42 hard / 6 soft)** |
-| **Nightly schedule / manual** | Full harness · gate ≥ 30/48 | Full harness · gate **48/48 (42 hard / 6 soft)** |
+| **Pull request** | Full harness · gate ≥ 30/51 | **Build + unit tests + Swift only** — no golden harness |
+| **Push to `main`** | Full harness · gate ≥ 30/51 | Full harness · gate **51/51 (42 hard / 9 soft)** |
+| **Nightly schedule / manual** | Full harness · gate ≥ 30/51 | Full harness · gate **51/51 (42 hard / 9 soft)** |
 
 ### PR fast path (Linux Ollama-independent tasks)
 
@@ -133,9 +133,9 @@ Setting `AETHER_BYOK_PROVIDER` on non-macOS causes daemon startup to **fail clos
 ## Local reproduction
 
 ```bash
-# Full Darwin gate (45 tasks — 41 hard / 4 soft)
+# Full Darwin gate (51 tasks — 42 hard / 9 soft)
 cargo run -p golden-harness
-# → Darwin scoreboard: 48/48 harness (42 hard / 6 soft)
+# → Darwin scoreboard: 51/51 harness (42 hard / 9 soft)
 
 # Simulate Linux fail-closed (unset Ollama, non-Darwin only)
 # On macOS, FS-02 still passes if sandbox-exec exists.
