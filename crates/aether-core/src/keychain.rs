@@ -69,30 +69,106 @@ fn test_keychain_delete(service: &str, account: &str) -> Result<(), KeychainErro
 }
 
 #[cfg(not(test))]
-fn platform_keychain_set(service: &str, account: &str, password: &str) -> Result<(), KeychainError> {
-    // Upsert: stale or ACL-mismatched items make set_password fail on macOS; delete first.
-    let _ = platform_keychain_delete(service, account);
-    let entry = keyring::Entry::new(service, account)
+fn security_cli_set(service: &str, account: &str, password: &str) -> Result<(), KeychainError> {
+    use std::process::Command;
+    let _ = security_cli_delete(service, account);
+    let output = Command::new("security")
+        .args([
+            "add-generic-password",
+            "-U",
+            "-s",
+            service,
+            "-a",
+            account,
+            "-w",
+            password,
+        ])
+        .output()
         .map_err(|e| KeychainError::Access(e.to_string()))?;
-    entry
-        .set_password(password)
-        .map_err(|e| KeychainError::Access(e.to_string()))
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(KeychainError::Access(
+            String::from_utf8_lossy(&output.stderr).into_owned(),
+        ))
+    }
+}
+
+#[cfg(not(test))]
+fn security_cli_get(service: &str, account: &str) -> Result<Option<String>, KeychainError> {
+    use std::process::Command;
+    let output = Command::new("security")
+        .args(["find-generic-password", "-s", service, "-a", account, "-w"])
+        .output()
+        .map_err(|e| KeychainError::Access(e.to_string()))?;
+    if output.status.success() {
+        let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        return Ok(if value.is_empty() { None } else { Some(value) });
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.contains("could not be found") || stderr.contains("The specified item could not be found")
+    {
+        Ok(None)
+    } else {
+        Err(KeychainError::Access(stderr.into_owned()))
+    }
+}
+
+#[cfg(not(test))]
+fn security_cli_delete(service: &str, account: &str) -> Result<(), KeychainError> {
+    use std::process::Command;
+    let output = Command::new("security")
+        .args(["delete-generic-password", "-s", service, "-a", account])
+        .output()
+        .map_err(|e| KeychainError::Access(e.to_string()))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("could not be found") || stderr.contains("The specified item could not be found")
+        {
+            Ok(())
+        } else {
+            Err(KeychainError::Access(stderr.into_owned()))
+        }
+    }
+}
+
+#[cfg(not(test))]
+fn platform_keychain_set(service: &str, account: &str, password: &str) -> Result<(), KeychainError> {
+    match security_cli_set(service, account, password) {
+        Ok(()) => Ok(()),
+        Err(cli_err) => {
+            let _ = security_cli_delete(service, account);
+            let entry = keyring::Entry::new(service, account)
+                .map_err(|e| KeychainError::Access(e.to_string()))?;
+            entry.set_password(password).map_err(|e| {
+                KeychainError::Access(format!("{cli_err}; keyring fallback: {e}"))
+            })
+        }
+    }
 }
 
 #[cfg(not(test))]
 fn platform_keychain_get(service: &str, account: &str) -> Result<Option<String>, KeychainError> {
-    let entry = keyring::Entry::new(service, account)
-        .map_err(|e| KeychainError::Access(e.to_string()))?;
-    match entry.get_password() {
-        Ok(value) if !value.is_empty() => Ok(Some(value)),
-        Ok(_) => Ok(None),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(KeychainError::Access(e.to_string())),
+    match security_cli_get(service, account) {
+        Ok(value) => Ok(value),
+        Err(cli_err) => {
+            let entry = keyring::Entry::new(service, account)
+                .map_err(|e| KeychainError::Access(e.to_string()))?;
+            match entry.get_password() {
+                Ok(value) if !value.is_empty() => Ok(Some(value)),
+                Ok(_) => Ok(None),
+                Err(keyring::Error::NoEntry) => Ok(None),
+                Err(e) => Err(KeychainError::Access(format!("{cli_err}; keyring fallback: {e}"))),
+            }
+        }
     }
 }
 
 #[cfg(not(test))]
 fn platform_keychain_delete(service: &str, account: &str) -> Result<(), KeychainError> {
+    let _ = security_cli_delete(service, account);
     let entry = keyring::Entry::new(service, account)
         .map_err(|e| KeychainError::Access(e.to_string()))?;
     match entry.delete_credential() {
