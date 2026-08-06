@@ -3,6 +3,7 @@ mod cost;
 mod graph_extract;
 mod hf_hub;
 mod model_registry;
+mod offline;
 mod prefix_cache;
 mod hooks;
 mod inject;
@@ -29,6 +30,8 @@ pub use compaction::{
     ContextTurn,
 };
 
+pub use offline::{probe_offline_degradation, NetworkPath, OfflineMatrix, PathStatus};
+
 pub use hooks::{
     enforce_user_prompt_submit, post_tool_use_scrub_output, pre_tool_use_path_check, HookDecision,
     HookEngine, HookPhase, DEFAULT_DENY_PATH_PATTERNS, DEFAULT_DENY_PROMPT_PATTERNS,
@@ -52,7 +55,6 @@ pub use model_registry::{
     ModelProfile, ModelRegistry, RegistryError, ENV_MODEL_PROFILE, ENV_MODEL_PROFILE_COMPLEX,
     ENV_REGISTRY_PATH,
 };
-
 
 pub use tool_reliability::{
     discover_reliability_fixture, evaluate_profile_reliability, load_reliability_corpus,

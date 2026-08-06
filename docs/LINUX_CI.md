@@ -4,7 +4,7 @@ AetherForge treats **Darwin (macOS 15+)** as the canonical platform. Linux CI va
 
 **Related:** [ROADMAP_PHASE_6.md](./ROADMAP_PHASE_6.md) · [ROADMAP_PHASE_7.md](./ROADMAP_PHASE_7.md) · [GRAPH_V1.md](./GRAPH_V1.md) · [PHASE_6_SLICE_CHECKLIST.md](./PHASE_6_SLICE_CHECKLIST.md)
 
-## Harness matrix (48 tasks)
+## Harness matrix (51 tasks)
 
 | Task | Tier | Linux CI | Reason |
 |------|------|----------|--------|
@@ -54,18 +54,24 @@ AetherForge treats **Darwin (macOS 15+)** as the canonical platform. Linux CI va
 | **HEAD-01** | hard | PASS | Headless NDJSON helpers; no Ollama dependency |
 | **CACHE-01** | hard | PASS | Prefix-cache fingerprint helpers; no Ollama dependency |
 | **DIST-01** | hard | **FAIL-CLOSED** | Darwin codesign + spctl release gates |
+| **MCP-02** | soft | PASS‡ | User-addable MCP with pin-on-install and diff-on-update |
+| **COMPACT-01** | soft | PASS‡ | Context compaction with thrashing guard |
+| **HOOK-02** | soft | PASS‡ | Extended hook lifecycle beyond PreToolUse denylist |
+| **MEM-03** | soft | PASS‡ | User-inspectable memory list/edit/delete/export |
+| **MCPS-01** | soft | PASS‡ | Forge MCP server stdio stub (`forge_ping`) |
+| **OFFLINE-01** | soft | PASS‡ | Ollama offline degradation matrix fails fast with clear messages |
 
 * MCP-01 fails if `@modelcontextprotocol/server-filesystem` is not installed — install via `npm install -g` in CI.
 
-‡ REG-01, SLEEP-01, RELY-01, FORENSIC-01, COMPACT-01, and HOOK-02 are **soft green** on Darwin; counted in pass total but not in hard-green gate.
+‡ REG-01, SLEEP-01, RELY-01, FORENSIC-01, COMPACT-01, HOOK-02, MEM-03, MCPS-01, and OFFLINE-01 are **soft green** on Darwin; counted in pass total but not in hard-green gate.
 
 ## Expected scores
 
 | Environment | Expected harness | Hard / soft | Notes |
 |-------------|------------------|-------------|-------|
-| Darwin + Ollama + sandbox-exec | **48/48 target** | **42 hard / 6 soft** | Canonical Darwin gate: REG-01, SLEEP-01, RELY-01, FORENSIC-01, COMPACT-01, HOOK-02 soft green |
-| Linux (default CI) | **33/45** | 29 hard / 6 soft† | FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01, GRAPH-02, DIST-01 fail-closed |
-| Linux + Ollama + MCP | **38/45** | 34 hard / 6 soft† | FS-02, SB-01, and OS-gated tasks fail closed | FS-02, SB-01, and OS-gated tasks fail closed |
+| Darwin + Ollama + sandbox-exec | **51/51 target** | **42 hard / 9 soft** | Canonical Darwin gate: REG-01, SLEEP-01, RELY-01, FORENSIC-01, COMPACT-01, HOOK-02, MEM-03, MCPS-01, OFFLINE-01 soft green |
+| Linux (default CI) | **36/51** | 29 hard / 9 soft† | FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01, GRAPH-02, DIST-01 fail-closed |
+| Linux + Ollama + MCP | **41/51** | 34 hard / 9 soft† | FS-02, SB-01, and OS-gated tasks fail closed |
 
 † Fail-closed tasks print `FAIL-CLOSED` and do not inflate the pass count — the harness reports explicit partial scores on Linux, not 39/39.
 
@@ -83,11 +89,11 @@ GitHub Actions (`.github/workflows/ci.yml`):
 
 ### PR fast path (Linux Ollama-independent tasks)
 
-PRs validate the Ollama-independent core without blocking on cold-model flake. These **36 tasks** are expected PASS on every Linux run (including PRs):
+PRs validate the Ollama-independent core without blocking on cold-model flake. These **39 tasks** are expected PASS on every Linux run (including PRs):
 
-FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, UNDO-01, AUTO-01, CHECK-01, GATE-01, GATE-02, HOOK-01, CKPT-01, CONS-01, PERM-02, SUB-01, SEC-01, SKILL-03, INJECT-01, BUDG-01, COST-01, REG-01, SLEEP-01, RELY-01, FORENSIC-01, FORK-01, HEAD-01, CACHE-01.
+FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, UNDO-01, AUTO-01, CHECK-01, GATE-01, GATE-02, HOOK-01, CKPT-01, CONS-01, PERM-02, SUB-01, SEC-01, SKILL-03, INJECT-01, BUDG-01, COST-01, REG-01, SLEEP-01, RELY-01, FORENSIC-01, FORK-01, HEAD-01, CACHE-01, MCP-02, COMPACT-01, HOOK-02, MEM-03, MCPS-01, OFFLINE-01.
 
-Linux PR jobs still run the **full 48-task harness** (36 pass + 12 fail-closed) and gate on ≥ 30/48. **Darwin PR jobs do not run the golden harness** — they run `cargo build`, `cargo test`, MCP allowlist scan, and Swift build only. Merge to `main` or nightly runs enforce **48/48 on Darwin**.
+Linux PR jobs still run the **full 51-task harness** (39 pass + 12 fail-closed) and gate on ≥ 30/51. **Darwin PR jobs do not run the golden harness** — they run `cargo build`, `cargo test`, MCP allowlist scan, and Swift build only. Merge to `main` or nightly runs enforce **51/51 on Darwin**.
 
 Steps on every job:
 
