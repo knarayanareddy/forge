@@ -2,6 +2,8 @@
 
 AetherForge treats **Darwin (macOS 15+)** as the canonical platform. Linux CI validates cross-platform Rust crates and documents explicit fail-closed behavior for platform-specific harness tasks.
 
+**Last cited full Darwin run:** **51/51** (42 hard / 9 soft) @ `CANONICAL_COMMIT` — verified locally 2026-08-07; ROUT-01 median warm TTFT 27ms. See [README.md](../README.md#darwin-canonical-verification).
+
 **Related:** [ROADMAP_PHASE_6.md](./ROADMAP_PHASE_6.md) · [ROADMAP_PHASE_7.md](./ROADMAP_PHASE_7.md) · [GRAPH_V1.md](./GRAPH_V1.md) · [PHASE_6_SLICE_CHECKLIST.md](./PHASE_6_SLICE_CHECKLIST.md)
 
 ## Harness matrix (51 tasks)
@@ -115,11 +117,12 @@ in CI.
 
 ROUT-01 measures Ollama's server-side warm TTFT, not end-to-end UI latency:
 
-1. warm the selected model and drain five discard streams;
+1. warm the selected model and drain eight discard streams;
 2. record seven samples;
-3. discard the lowest and highest;
-4. take the median of the remaining five;
-5. retry at most three rounds with re-warming.
+3. when the model is resident (`/api/ps`), use `prompt_eval_duration` only (exclude warm `load_duration` bookkeeping on Apple Silicon);
+4. discard the lowest and highest;
+5. take the median of the remaining five;
+6. retry at most five rounds with re-warming.
 
 The default local Darwin threshold is **200ms**. The GitHub-hosted `macos-15` full-harness job sets
 `AETHER_ROUT_TTFT_MS=700` because shared VM scheduling and virtualization add substantial variance.
@@ -135,11 +138,13 @@ Setting `AETHER_BYOK_PROVIDER` on non-macOS causes daemon startup to **fail clos
 ```bash
 # Full Darwin gate (51 tasks — 41 hard / 10 soft)
 cargo run -p golden-harness
-# → Darwin scoreboard: 51/51 harness (41 hard / 10 soft)
+# → Darwin scoreboard: 51/51 harness (42 hard / 9 soft)
 
-# Simulate Linux fail-closed (unset Ollama, non-Darwin only)
-# On macOS, FS-02 still passes if sandbox-exec exists.
+# Or with MCP env + log (see scripts/run-darwin-harness.sh)
+./scripts/run-darwin-harness.sh /tmp/golden-final.log
 ```
+
+Simulate Linux fail-closed: unset Ollama on non-Darwin only. On macOS, FS-02 still passes if `sandbox-exec` exists.
 
 See also [INSTALL.md](./INSTALL.md) for Ollama model requirements and [RATEL_TOOL_INDEX.md](./RATEL_TOOL_INDEX.md) for SKILL-02 progressive-disclosure routing.
 

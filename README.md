@@ -62,7 +62,7 @@ cargo run -p golden-harness --bin golden-harness
 | Baseline | Value |
 |----------|-------|
 | **Registry @ main** | **51 tasks** (41 hard / 10 soft) · **`7486762`** (PR #49) |
-| **Last cited full Darwin run** | **38/38 @ `6caa521`** (PR #39) — tasks 39–51 (FORK/HEAD/CACHE, DIST-01, wave-5/6 probes) merged afterward |
+| **Last cited full Darwin run** | **51/51 @ `CANONICAL_COMMIT`** (PR #TBD) — 42 hard / 9 soft; ROUT-01 median warm TTFT 27ms (local 2026-08-07) |
 | **CI gate** | Push/nightly Darwin **51/51** — [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
 | **Wave 6 probes** | MEM-03, MCPS-01, OFFLINE-01 soft-green @ `608ac77` (PR #46) |
 | **Scoreboard** | `./scripts/check-doc-scoreboard.sh` PASS |

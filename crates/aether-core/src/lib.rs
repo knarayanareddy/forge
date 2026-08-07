@@ -258,8 +258,11 @@ pub struct TokenChunk {
     pub text: String,
     /// Client-side time-to-first-token in milliseconds; set only on the first content chunk.
     pub ttft_ms: Option<u128>,
-    /// Ollama server-side TTFT (`load_duration + prompt_eval_duration`) on the terminal chunk.
+    /// Ollama server-side TTFT on the terminal chunk (see `rout_warm_server_ttft_ms`).
     pub server_ttft_ms: Option<u128>,
+    /// Raw Ollama timings on the terminal chunk — used by ROUT-01 warm measurement.
+    pub ollama_load_duration_ns: Option<u64>,
+    pub ollama_prompt_eval_duration_ns: Option<u64>,
     pub model: String,
     pub done: bool,
     pub token_usage: Option<ProviderTokenUsage>,
@@ -599,6 +602,8 @@ impl OllamaProvider {
                             text: String::new(),
                             ttft_ms: None,
                             server_ttft_ms,
+                            ollama_load_duration_ns: data.load_duration,
+                            ollama_prompt_eval_duration_ns: data.prompt_eval_duration,
                             model: model_name.clone(),
                             done: true,
                             token_usage: ollama_token_usage(data.prompt_eval_count, data.eval_count),
@@ -616,6 +621,8 @@ impl OllamaProvider {
                             text: data.message.content.clone(),
                             ttft_ms,
                             server_ttft_ms: None,
+                            ollama_load_duration_ns: None,
+                            ollama_prompt_eval_duration_ns: None,
                             model: model_name.clone(),
                             done: false,
                             token_usage: None,
@@ -703,6 +710,8 @@ impl OllamaProvider {
                                 text: choice.delta.content.clone(),
                                 ttft_ms,
                                 server_ttft_ms: None,
+                                ollama_load_duration_ns: None,
+                                ollama_prompt_eval_duration_ns: None,
                                 model: model_name.clone(),
                                 done: false,
                                 token_usage: None,
@@ -713,6 +722,8 @@ impl OllamaProvider {
                                 text: String::new(),
                                 ttft_ms: None,
                                 server_ttft_ms: None,
+                                ollama_load_duration_ns: None,
+                                ollama_prompt_eval_duration_ns: None,
                                 model: model_name.clone(),
                                 done: true,
                                 token_usage: data.usage.as_ref().and_then(|u| openai_token_usage(Some(u.prompt_tokens), Some(u.completion_tokens))),
@@ -909,13 +920,27 @@ pub fn ollama_warm_server_ttft_ms(
     load_duration: Option<u64>,
     prompt_eval_duration: Option<u64>,
 ) -> Option<u128> {
+    rout_warm_server_ttft_ms(false, load_duration, prompt_eval_duration)
+}
+
+/// ROUT-01 warm TTFT: when the model is resident (`/api/ps`), use `prompt_eval_duration`
+/// only — Apple Silicon often reports 100–250ms `load_duration` bookkeeping even for warm models.
+pub fn rout_warm_server_ttft_ms(
+    model_resident: bool,
+    load_duration: Option<u64>,
+    prompt_eval_duration: Option<u64>,
+) -> Option<u128> {
     match (load_duration, prompt_eval_duration) {
         (None, None) => None,
         (Some(load), _) if load > ROUT_WARM_LOAD_MAX_NS => None,
         (load, prompt) => {
-            let load_ms = load.unwrap_or(0) as u128 / 1_000_000;
             let prompt_ms = prompt.unwrap_or(0) as u128 / 1_000_000;
-            Some(load_ms + prompt_ms)
+            if model_resident {
+                Some(prompt_ms)
+            } else {
+                let load_ms = load.unwrap_or(0) as u128 / 1_000_000;
+                Some(load_ms + prompt_ms)
+            }
         }
     }
 }
@@ -1261,5 +1286,14 @@ mod tests {
         let issues = PythonLinter::check_syntax(source).unwrap();
         assert!(!issues.is_empty());
         assert!(issues[0].line >= 1);
+    }
+
+    #[test]
+    fn rout_warm_server_ttft_uses_prompt_eval_when_resident() {
+        let load = Some(150_000_000u64);
+        let prompt = Some(28_000_000u64);
+        assert_eq!(rout_warm_server_ttft_ms(true, load, prompt), Some(28));
+        assert_eq!(rout_warm_server_ttft_ms(false, load, prompt), Some(178));
+        assert_eq!(rout_warm_server_ttft_ms(true, Some(400_000_000), prompt), None);
     }
 }

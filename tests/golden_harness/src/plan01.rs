@@ -57,9 +57,16 @@ pub async fn test_plan01_impl() -> Result<(), String> {
     OllamaProvider::health_check(&endpoint)
         .await
         .map_err(|e| format!("PLAN-01 requires Ollama: {}", e))?;
-    OllamaProvider::warm_chat_model(&endpoint, &chat_model, 1)
-        .await
-        .map_err(|e| format!("PLAN-01 model warmup failed: {}", e))?;
+    for attempt in 0..3 {
+        match OllamaProvider::preload_chat_model(&endpoint, &chat_model).await {
+            Ok(()) => break,
+            Err(e) if attempt + 1 < 3 => {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                continue;
+            }
+            Err(e) => return Err(format!("PLAN-01 model warmup failed: {}", e)),
+        }
+    }
 
     let router = ModelRouter::new(
         ModelBackend::OllamaMlx {

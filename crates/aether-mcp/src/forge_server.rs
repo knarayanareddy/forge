@@ -48,7 +48,7 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, McpError> {
         "initialize" => Ok(json!({
             "protocolVersion": MCP_PROTOCOL_VERSION,
             "capabilities": { "tools": {} },
-            "serverInfo": { "name": "aether-forge", "version": env!("CARGO_PKG_VERSION") }
+            "serverInfo": { "name": "aether-forge-mcp", "version": env!("CARGO_PKG_VERSION") }
         })),
         "tools/list" => Ok(json!({
             "tools": [{

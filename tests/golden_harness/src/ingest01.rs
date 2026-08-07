@@ -135,9 +135,16 @@ async fn ensure_ollama_ready() -> Result<(String, String, String), String> {
     OllamaProvider::health_check(&endpoint)
         .await
         .map_err(|e| format!("Ollama offline or unreachable: {e}"))?;
-    OllamaProvider::warm_chat_model(&endpoint, &chat_model, 2)
-        .await
-        .map_err(|e| format!("Chat model warmup failed: {e}"))?;
+    for attempt in 0..3 {
+        match OllamaProvider::preload_chat_model(&endpoint, &chat_model).await {
+            Ok(()) => break,
+            Err(e) if attempt + 1 < 3 => {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                continue;
+            }
+            Err(e) => return Err(format!("Chat model warmup failed: {e}")),
+        }
+    }
     OllamaProvider::warm_embed_model(&endpoint, &embed_model)
         .await
         .map_err(|e| format!("Embed model warmup failed: {e}"))?;
