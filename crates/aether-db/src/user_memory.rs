@@ -117,8 +117,6 @@ mod tests {
     fn mem03_list_edit_delete_export() {
         let db = Database::open_in_memory().unwrap();
         db.conn()
-            .lock()
-            .unwrap()
             .execute(
                 "INSERT INTO sessions (id, title, status) VALUES ('s1', 't', 'active')",
                 [],
