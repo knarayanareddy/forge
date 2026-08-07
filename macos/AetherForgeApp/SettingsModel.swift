@@ -165,7 +165,8 @@ final class SettingsModel {
                 provider: nil,
                 contextLen: nil,
                 role: nil,
-                description: "From AETHER_CHAT_MODEL"
+                description: "From AETHER_CHAT_MODEL",
+                toolReliability: nil
             ),
             ModelProfileEntry(
                 id: "env-complex",
@@ -175,7 +176,8 @@ final class SettingsModel {
                 provider: nil,
                 contextLen: nil,
                 role: nil,
-                description: "From AETHER_CHAT_MODEL_COMPLEX"
+                description: "From AETHER_CHAT_MODEL_COMPLEX",
+                toolReliability: nil
             ),
         ]
     }
