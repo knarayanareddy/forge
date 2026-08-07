@@ -12,12 +12,13 @@ final class SparkleUpdateController: ObservableObject {
     init() {
         let feedURL = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
         let publicKey = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String
-        feedConfigured = Self.isConfiguredFeed(feedURL) && Self.isConfiguredPublicKey(publicKey)
+        let configured = Self.isConfiguredFeed(feedURL) && Self.isConfiguredPublicKey(publicKey)
         updaterController = SPUStandardUpdaterController(
-            startingUpdater: feedConfigured,
+            startingUpdater: configured,
             updaterDelegate: nil,
             userDriverDelegate: nil
         )
+        feedConfigured = configured
     }
 
     func checkForUpdates() {

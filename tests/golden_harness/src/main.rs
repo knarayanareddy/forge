@@ -422,16 +422,60 @@ async fn main() {
     }
 }
 
+async fn ollama_chat_config() -> (String, String) {
+    let endpoint = std::env::var("AETHER_OLLAMA_ENDPOINT")
+        .unwrap_or_else(|_| "http://localhost:11434".to_string());
+    let chat_model =
+        std::env::var("AETHER_CHAT_MODEL").unwrap_or_else(|_| "qwen2.5:3b".to_string());
+    (endpoint, chat_model)
+}
+
+async fn ensure_ollama_chat_ready() -> Result<(), String> {
+    let (endpoint, chat_model) = ollama_chat_config().await;
+    for attempt in 0..3 {
+        match aether_core::OllamaProvider::health_check(&endpoint).await {
+            Ok(()) => {}
+            Err(e) if attempt + 1 < 3 => {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                continue;
+            }
+            Err(e) => return Err(format!("Ollama unreachable before chat task: {e}")),
+        }
+        match aether_core::OllamaProvider::preload_chat_model(&endpoint, &chat_model).await {
+            Ok(()) => return Ok(()),
+            Err(e) if attempt + 1 < 3 => {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                continue;
+            }
+            Err(e) => return Err(format!("Chat model warmup failed: {e}")),
+        }
+    }
+    Err("Chat model warmup exhausted retries".into())
+}
+
 async fn ensure_ollama_embed_ready() -> Result<(), String> {
     let endpoint = std::env::var("AETHER_OLLAMA_ENDPOINT")
         .unwrap_or_else(|_| "http://localhost:11434".to_string());
     let model = std::env::var("AETHER_EMBED_MODEL").unwrap_or_else(|_| "all-minilm".to_string());
-    aether_core::OllamaProvider::health_check(&endpoint)
-        .await
-        .map_err(|e| format!("Ollama unreachable before embed task: {}", e))?;
-    aether_core::OllamaProvider::warm_embed_model(&endpoint, &model)
-        .await
-        .map_err(|e| format!("Ollama embedder warmup failed: {}", e))
+    for attempt in 0..3 {
+        match aether_core::OllamaProvider::health_check(&endpoint).await {
+            Ok(()) => {}
+            Err(e) if attempt + 1 < 3 => {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                continue;
+            }
+            Err(e) => return Err(format!("Ollama unreachable before embed task: {e}")),
+        }
+        match aether_core::OllamaProvider::warm_embed_model(&endpoint, &model).await {
+            Ok(()) => break,
+            Err(e) if attempt + 1 < 3 => {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                continue;
+            }
+            Err(e) => return Err(format!("Ollama embedder warmup failed: {e}")),
+        }
+    }
+    ensure_ollama_chat_ready().await
 }
 
 async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
@@ -463,9 +507,24 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "ROUT-01" => test_rout_01().await.map(|_| true),
         "RES-01" => test_res_01().await.map(|_| true),
         "LOOP-01" => test_loop_01(db).await.map(|_| true),
-        "LOOP-02" => test_loop_02(db).await.map(|_| true),
-        "PLAN-01" => test_plan01().await.map(|_| true),
-        "LOOP-04" => test_loop04_impl(db).await.map(|_| true),
+        "LOOP-02" => {
+            if is_darwin() {
+                ensure_ollama_chat_ready().await?;
+            }
+            test_loop_02(db).await.map(|_| true)
+        }
+        "PLAN-01" => {
+            if is_darwin() {
+                ensure_ollama_chat_ready().await?;
+            }
+            test_plan01().await.map(|_| true)
+        }
+        "LOOP-04" => {
+            if is_darwin() {
+                ensure_ollama_chat_ready().await?;
+            }
+            test_loop04_impl(db).await.map(|_| true)
+        }
         "SESS-01" => test_sess01_impl(db).map(|_| true),
         "UNDO-01" => test_undo01_impl(db).map(|_| true),
         "AUTO-01" => test_auto01(db).await.map(|_| true),
@@ -480,9 +539,19 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "SEC-01" => test_sec01_impl(db).map(|_| true),
         "SKILL-03" => test_skill03_impl().map(|_| true),
         "INJECT-01" => test_inject01_impl().map(|_| true),
-        "INGEST-01" => test_ingest01_impl(db).await.map(|_| true),
+        "INGEST-01" => {
+            if is_darwin() {
+                ensure_ollama_chat_ready().await?;
+            }
+            test_ingest01_impl(db).await.map(|_| true)
+        }
         "BUDG-01" => test_budg01_impl().map(|_| true),
-        "COST-01" => test_cost01_impl().await.map(|hard| hard),
+        "COST-01" => {
+            if is_darwin() {
+                ensure_ollama_chat_ready().await?;
+            }
+            test_cost01_impl().await.map(|hard| hard)
+        }
         "GRAPH-02" => {
             if is_darwin() {
                 ensure_ollama_embed_ready().await?;
@@ -777,9 +846,13 @@ async fn rout_01_measure_ttft(
     endpoint: &str,
     model: &str,
 ) -> Result<(u128, u128), String> {
-    const MAX_COLD_RETRIES: usize = 3;
+    const MAX_COLD_RETRIES: usize = 5;
 
     for attempt in 0..MAX_COLD_RETRIES {
+        let model_resident = aether_core::OllamaProvider::is_model_loaded(endpoint, model)
+            .await
+            .unwrap_or(false);
+
         let mut stream = Box::pin(
             router
                 .complete_stream(aether_core::ROUT_TTFT_PROMPT, aether_core::PromptComplexity::Simple)
@@ -788,7 +861,8 @@ async fn rout_01_measure_ttft(
         );
 
         let mut client_ttft_ms = None;
-        let mut server_ttft_ms = None;
+        let mut load_ns = None;
+        let mut prompt_ns = None;
         let mut content = String::new();
 
         while let Some(chunk) = stream.next().await {
@@ -796,8 +870,9 @@ async fn rout_01_measure_ttft(
             if client_ttft_ms.is_none() {
                 client_ttft_ms = chunk.ttft_ms;
             }
-            if let Some(server) = chunk.server_ttft_ms {
-                server_ttft_ms = Some(server);
+            if chunk.done {
+                load_ns = chunk.ollama_load_duration_ns;
+                prompt_ns = chunk.ollama_prompt_eval_duration_ns;
             }
             content.push_str(&chunk.text);
             if chunk.done {
@@ -812,30 +887,24 @@ async fn rout_01_measure_ttft(
         let client = client_ttft_ms
             .ok_or_else(|| "No client TTFT recorded on first streamed token".to_string())?;
 
-        if let Some(server) = server_ttft_ms {
+        if let Some(server) =
+            aether_core::rout_warm_server_ttft_ms(model_resident, load_ns, prompt_ns)
+        {
             return Ok((client, server));
         }
 
-        // Server timing missing on done chunk — retry once after rewarm if model looks cold.
         if attempt + 1 < MAX_COLD_RETRIES {
-            let loaded = aether_core::OllamaProvider::is_model_loaded(endpoint, model)
-                .await
-                .unwrap_or(false);
-            if !loaded {
-                eprint!("[cold-load retry {}] ", attempt + 1);
-                aether_core::OllamaProvider::warm_chat_model_with_prompt(
-                    endpoint,
-                    model,
-                    aether_core::ROUT_TTFT_PROMPT,
-                    2,
-                )
-                .await
-                .map_err(|e| format!("Cold-load rewarm failed: {}", e))?;
-                continue;
-            }
+            eprint!("[cold/spike retry {}] ", attempt + 1);
+            aether_core::OllamaProvider::warm_chat_model_with_prompt(
+                endpoint,
+                model,
+                aether_core::ROUT_TTFT_PROMPT,
+                2,
+            )
+            .await
+            .map_err(|e| format!("Cold-load rewarm failed: {}", e))?;
+            continue;
         }
-
-        return Ok((client, client));
     }
 
     Err("ROUT-01 TTFT measurement exhausted retries".into())
@@ -882,7 +951,7 @@ async fn test_rout_01() -> Result<(), String> {
         format!("Ollama offline or unreachable: {}. (Rule: ROUT-01 must fail if Ollama is down)", e)
     })?;
 
-    aether_core::OllamaProvider::warm_chat_model(&endpoint, &fast_model, 7)
+    aether_core::OllamaProvider::warm_chat_model(&endpoint, &fast_model, 10)
         .await
         .map_err(|e| format!("Chat model warmup failed: {}", e))?;
 
@@ -890,7 +959,7 @@ async fn test_rout_01() -> Result<(), String> {
         .await
         .map_err(|e| format!("Ollama ps check failed: {}", e))?
     {
-        aether_core::OllamaProvider::warm_chat_model(&endpoint, &fast_model, 5)
+        aether_core::OllamaProvider::warm_chat_model(&endpoint, &fast_model, 8)
             .await
             .map_err(|e| format!("Model not resident after warmup: {}", e))?;
     }
@@ -907,7 +976,7 @@ async fn test_rout_01() -> Result<(), String> {
     );
 
     // Discard streams so the first counted sample is not penalized by connection/prompt priming.
-    rout_01_discard_warmup(&endpoint, &fast_model, 5).await?;
+    rout_01_discard_warmup(&endpoint, &fast_model, 8).await?;
 
     // Default 200ms on local Darwin; CI sets AETHER_ROUT_TTFT_MS for macos-15 runner overhead.
     let ttft_warm_ms: u128 = std::env::var("AETHER_ROUT_TTFT_MS")
@@ -915,7 +984,7 @@ async fn test_rout_01() -> Result<(), String> {
         .and_then(|v| v.parse().ok())
         .unwrap_or(200);
     const TTFT_SAMPLES: usize = 7;
-    const MAX_ROUNDS: usize = 3;
+    const MAX_ROUNDS: usize = 5;
 
     let mut last_server_samples = vec![0u128; TTFT_SAMPLES];
     let mut last_median = 0u128;
@@ -958,7 +1027,7 @@ async fn test_rout_01() -> Result<(), String> {
             aether_core::OllamaProvider::warm_chat_model(&endpoint, &fast_model, 5)
                 .await
                 .map_err(|e| format!("Inter-round warmup failed: {}", e))?;
-            rout_01_discard_warmup(&endpoint, &fast_model, 3).await?;
+            rout_01_discard_warmup(&endpoint, &fast_model, 5).await?;
         }
     }
 
