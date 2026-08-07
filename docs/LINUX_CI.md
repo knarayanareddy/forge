@@ -2,7 +2,7 @@
 
 AetherForge treats **Darwin (macOS 15+)** as the canonical platform. Linux CI validates cross-platform Rust crates and documents explicit fail-closed behavior for platform-specific harness tasks.
 
-**Last cited full Darwin run:** **51/51** (42 hard / 9 soft) @ `CANONICAL_COMMIT` — verified locally 2026-08-07; ROUT-01 median warm TTFT 27ms. See [README.md](../README.md#darwin-canonical-verification).
+**Last cited full Darwin run:** **51/51** (42 hard / 9 soft) @ `d38ba6e` — verified locally 2026-08-07; ROUT-01 median warm TTFT 27ms. See [README.md](../README.md#darwin-canonical-verification).
 
 **Related:** [ROADMAP_PHASE_6.md](./ROADMAP_PHASE_6.md) · [ROADMAP_PHASE_7.md](./ROADMAP_PHASE_7.md) · [GRAPH_V1.md](./GRAPH_V1.md) · [PHASE_6_SLICE_CHECKLIST.md](./PHASE_6_SLICE_CHECKLIST.md)
 
