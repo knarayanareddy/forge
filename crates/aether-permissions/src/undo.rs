@@ -64,6 +64,10 @@ pub fn journal_file_write(
         "workspace": workspace_str,
         "had_previous": previous.is_some(),
         "previous_content": previous.unwrap_or_default(),
+        // Recovery compares actual bytes with the intended post-write bytes. If a crash lands
+        // after the filesystem mutation but before status='applied', startup promotes the row to
+        // applied so the inverse remains available instead of falsely discarding it.
+        "new_content": new_content,
     })
     .to_string();
 

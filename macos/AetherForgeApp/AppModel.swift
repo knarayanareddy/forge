@@ -3,6 +3,14 @@ import SwiftUI
 @MainActor
 @Observable
 final class AppModel {
+    enum ExecutionMode: String, CaseIterable, Identifiable, Hashable {
+        case agent
+        case chat
+
+        var id: String { rawValue }
+        var label: String { self == .agent ? "Agent" : "Chat" }
+    }
+
     enum ConnectionStatus: String {
         case unknown = "Unknown"
         case connected = "Connected"
@@ -19,6 +27,7 @@ final class AppModel {
     var isRunningTask = false
     var lastError: String?
     var pendingApproval: PendingApproval?
+    var executionMode: ExecutionMode = .agent
 
     private let client = DaemonClient.shared
     private var lastWorkspacePath: String?
@@ -49,7 +58,12 @@ final class AppModel {
         guard !trimmed.isEmpty else { return }
 
         lastWorkspacePath = workspacePath
-        await runTask(prompt: trimmed, sessionId: sessionId, workspacePath: workspacePath, approved: false)
+        await runTask(
+            prompt: trimmed,
+            sessionId: sessionId,
+            workspacePath: workspacePath,
+            approvalId: nil
+        )
     }
 
     func approvePending(sessionId: String) async {
@@ -59,7 +73,7 @@ final class AppModel {
             prompt: pending.prompt,
             sessionId: sessionId,
             workspacePath: lastWorkspacePath,
-            approved: true,
+            approvalId: pending.approvalId,
             preservePromptField: false
         )
     }
@@ -75,7 +89,7 @@ final class AppModel {
         prompt: String,
         sessionId: String,
         workspacePath: String?,
-        approved: Bool,
+        approvalId: String?,
         preservePromptField: Bool = true
     ) async {
         isRunningTask = true
@@ -105,7 +119,8 @@ final class AppModel {
             prompt: prompt,
             sessionId: sessionId,
             workspacePath: workspacePath,
-            approved: approved
+            executionMode: executionMode.rawValue,
+            approvalId: approvalId
         )
 
         var blockedForApproval = false
@@ -116,8 +131,21 @@ final class AppModel {
                 if event.type == "token", let text = event.text {
                     streamedTokens.append(text)
                 }
-                if event.type == "pending_approval", let steps = event.riskySteps, !steps.isEmpty {
-                    pendingApproval = PendingApproval(prompt: prompt, riskySteps: steps)
+                if event.type == "pending_approval",
+                   let steps = event.riskySteps,
+                   let approvalId = event.approvalId,
+                   let canonicalPlan = event.approvalPlan,
+                   let digest = event.approvalDigest,
+                   let expiresAt = event.approvalExpiresAt,
+                   !steps.isEmpty {
+                    pendingApproval = PendingApproval(
+                        approvalId: approvalId,
+                        prompt: prompt,
+                        riskySteps: steps,
+                        canonicalPlan: canonicalPlan,
+                        digest: digest,
+                        expiresAt: expiresAt
+                    )
                     lastResponseSummary = "Waiting for approval (\(steps.count) risky step(s))."
                     blockedForApproval = true
                 }

@@ -74,7 +74,11 @@ fi
 
 echo "==> Staging .app bundle"
 rm -rf "$STAGING"
-mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources/profiles"
+mkdir -p \
+  "$APP_BUNDLE/Contents/MacOS" \
+  "$APP_BUNDLE/Contents/Resources/profiles" \
+  "$APP_BUNDLE/Contents/Resources/models" \
+  "$APP_BUNDLE/Contents/Resources/skills"
 
 BIN="$ROOT/.build/release/AetherForgeApp"
 DAEMON="$ROOT/target/release/aether-daemon"
@@ -91,6 +95,9 @@ fi
 cp "$BIN" "$APP_BUNDLE/Contents/MacOS/${APP_NAME}"
 cp "$DAEMON" "$APP_BUNDLE/Contents/MacOS/aether-daemon"
 cp "$ROOT/profiles/sandbox_tool.sb" "$APP_BUNDLE/Contents/Resources/profiles/sandbox_tool.sb"
+cp "$ROOT/models/registry.toml" "$APP_BUNDLE/Contents/Resources/models/registry.toml"
+cp "$ROOT/mcp_allowlist.json" "$APP_BUNDLE/Contents/Resources/mcp_allowlist.json"
+cp -R "$ROOT/skills/." "$APP_BUNDLE/Contents/Resources/skills/"
 chmod +x "$APP_BUNDLE/Contents/MacOS/"*
 
 cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST

@@ -73,6 +73,37 @@ fn ipc_ping_allowed_without_auth_helper() {
 }
 
 #[test]
+fn ipc_ping_returns_nonce_bound_server_identity_proof_without_receiving_token() {
+    let db = Database::open_in_memory().expect("db");
+    let router = ModelRouter::from_env().expect("router");
+    let token = "ipc-test-proof-token".to_string();
+    let state = Arc::new(DaemonState {
+        db,
+        router,
+        auth_token: token.clone(),
+    });
+    let addr = spawn_test_server(state);
+    std::thread::sleep(Duration::from_millis(200));
+
+    let mut stream = TcpStream::connect_timeout(
+        &addr.parse().expect("addr"),
+        Duration::from_secs(2),
+    )
+    .expect("connect");
+    let nonce = "a".repeat(64);
+    writeln!(
+        stream,
+        "{}",
+        serde_json::json!({"method":"ping", "params":{"client_nonce":nonce}})
+    )
+    .expect("write");
+    let line = read_one_event(&stream);
+    let expected = aether_core::daemon_server_proof(&token, &nonce).unwrap();
+    assert!(line.contains(&expected), "missing daemon identity proof: {line}");
+    assert!(!line.contains(&token), "ping response leaked auth token");
+}
+
+#[test]
 fn ipc_register_automation_succeeds_with_auth_no_auto_grant() {
     let db = Database::open_in_memory().expect("db");
     let router = ModelRouter::from_env().expect("router");
@@ -114,6 +145,40 @@ fn ipc_register_automation_succeeds_with_auth_no_auto_grant() {
         "expected registration, got: {}",
         line
     );
+}
+
+#[test]
+fn ipc_rejects_unbound_approved_boolean() {
+    let db = Database::open_in_memory().expect("db");
+    let router = ModelRouter::from_env().expect("router");
+    let token = "ipc-test-unbound-approval".to_string();
+    let state = Arc::new(DaemonState {
+        db,
+        router,
+        auth_token: token.clone(),
+    });
+    let addr = spawn_test_server(state);
+    std::thread::sleep(Duration::from_millis(200));
+    let mut stream = TcpStream::connect_timeout(
+        &addr.parse().expect("addr"),
+        Duration::from_secs(2),
+    )
+    .expect("connect");
+    writeln!(
+        stream,
+        "{}",
+        serde_json::json!({
+            "method":"run_task",
+            "params":{
+                "auth_token":token,
+                "prompt":"{}",
+                "approved":true
+            }
+        })
+    )
+    .expect("write");
+    let line = read_one_event(&stream);
+    assert!(line.contains("bare approved=true is forbidden"), "{line}");
 }
 
 #[test]

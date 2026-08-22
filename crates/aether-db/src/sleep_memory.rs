@@ -18,9 +18,12 @@ pub fn run_sleep_memory_cycle(db: &Database, session_id: &str) -> Result<SleepCy
     }
     let chunks: Vec<(String, String)> = {
         let conn = db.conn();
-        let mut stmt = conn.prepare("SELECT chunk_id, chunk_text FROM semantic_memory ORDER BY id")?;
+        let mut stmt = conn.prepare(
+            "SELECT chunk_id, chunk_text FROM semantic_memory
+             WHERE session_id = ?1 ORDER BY id",
+        )?;
         let mut out = Vec::new();
-        let mut rows = stmt.query_map([], |row| {
+        let mut rows = stmt.query_map(rusqlite::params![session_id], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?;
         for row in rows {
@@ -77,14 +80,14 @@ mod tests {
         let mut e0 = vec![0.0f32; 384]; e0[0] = 1.0;
         let mut e1 = vec![0.0f32; 384]; e1[0] = 0.92; e1[1] = 0.25;
         let mut e2 = vec![0.0f32; 384]; e2[0] = 0.88; e2[1] = 0.3;
-        db.insert_memory_chunk("n", "m", "Generic platform runtime overview", &e0).unwrap();
+        db.insert_memory_chunk_scoped(s, "n", "m", "Generic platform runtime overview", &e0).unwrap();
         db.link_graph_chunk("n", "node-z", 0.9).unwrap();
-        db.insert_memory_chunk("d1", "m", "Platform runtime overview documentation index", &e1).unwrap();
-        db.insert_memory_chunk("d2", "m", "Runtime overview notes for platform services", &e2).unwrap();
-        db.insert_memory_chunk("b", "m", "The Zephyr-7 release uses the sleep bridge for offline recall", &vec![0.0f32; 384]).unwrap();
+        db.insert_memory_chunk_scoped(s, "d1", "m", "Platform runtime overview documentation index", &e1).unwrap();
+        db.insert_memory_chunk_scoped(s, "d2", "m", "Runtime overview notes for platform services", &e2).unwrap();
+        db.insert_memory_chunk_scoped(s, "b", "m", "The Zephyr-7 release uses the sleep bridge for offline recall", &vec![0.0f32; 384]).unwrap();
         db.conn().execute("UPDATE query_policy SET graph_hop_depth=1, graph_weight=4.0 WHERE policy_name='default'", []).unwrap();
         let mut q = vec![0.0f32; 384]; q[0] = 1.0;
-        let base = db.search_semantic_memory_hybrid("platform runtime overview", &q, 2).unwrap();
+        let base = db.search_semantic_memory_hybrid_scoped(s, "platform runtime overview", &q, 2).unwrap();
         let br = recall_at_k_chunks(&base.iter().map(|(id,_,_)| id.clone()).collect::<Vec<_>>(), &["b".into()], 2);
         assert!(run_sleep_memory_cycle(&db, s).unwrap().links_added >= 1);
         let after = db.search_hybrid_with_graph(s, "platform runtime overview", &q, 2).unwrap();

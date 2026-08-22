@@ -61,7 +61,7 @@ impl Database {
                 "memory fact '{node_id}' is not active"
             )));
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         conn.execute(
             "UPDATE graph_nodes SET canonical_name = ?1, properties_json = ?2 WHERE id = ?3",
             rusqlite::params![canonical_name, properties_json, node_id],
@@ -84,7 +84,7 @@ impl Database {
                 "memory fact '{node_id}' already deleted"
             )));
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         conn.execute(
             "UPDATE graph_nodes SET valid_to = datetime('now') WHERE id = ?1 AND valid_to IS NULL",
             rusqlite::params![node_id],

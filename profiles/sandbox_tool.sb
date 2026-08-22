@@ -12,3 +12,9 @@
 (deny file-read*
     (subpath "/etc")
     (subpath "/private/etc"))
+
+;; Prevent reading other user data while retaining system runtime/framework reads.
+(deny file-read*
+    (require-all
+        (subpath "/Users")
+        (require-not (subpath (param "WORKSPACE_PATH")))))

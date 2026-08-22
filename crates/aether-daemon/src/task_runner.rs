@@ -1,3 +1,6 @@
+use crate::approval::{
+    consume_pending_approval, create_pending_approval, PendingApprovalEnvelope,
+};
 use crate::ingest::{post_turn_graph_ingest, IngestConfig, DEFAULT_EMBED_MODEL};
 use crate::protocol::EventLine;
 use crate::automation::AutomationTrigger;
@@ -5,13 +8,14 @@ use crate::gateway::GatewayChannel;
 use crate::session_log::SessionLogWriter;
 use crate::DaemonState;
 use aether_core::{
-    enforce_user_prompt_submit, evaluate_approval_gate, fetch_ollama_embedding, LoopConfig, LoopError, LoopRunResult,
-    LoopStreamEvent, MakerCheckerGoal, OrchestrationGraph, PromptComplexity, ReActLoopEngine,
+    classify_prompt_complexity, enforce_user_prompt_submit, evaluate_approval_gate,
+    fetch_ollama_embedding, LoopConfig, LoopError, LoopRunResult, LoopStreamEvent,
+    MakerCheckerGoal, OrchestrationGraph, ReActLoopEngine, ToolObservation,
     record_provider_token_usage, resolve_default_max_loop_tokens,
 };
 use aether_db::Database;
 use aether_mcp::McpAllowlist;
-use aether_permissions::{PermissionDecision, PermissionManager};
+use aether_permissions::{PermissionDecision, PermissionManager, PrincipalAuthorization};
 use aether_sandbox::ProductionSandbox;
 use aether_skills::{SkillDefinition, SkillLoader};
 use futures::StreamExt;
@@ -21,16 +25,33 @@ use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::net::tcp::OwnedWriteHalf;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutionMode {
+    Agent,
+    Chat,
+}
+
+impl ExecutionMode {
+    pub fn parse(value: Option<&str>) -> Result<Self, String> {
+        match value.unwrap_or("chat") {
+            "agent" => Ok(Self::Agent),
+            "chat" => Ok(Self::Chat),
+            other => Err(format!("invalid execution_mode {other:?}; expected 'agent' or 'chat'")),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct RunTaskParams {
     pub prompt: String,
     pub session_id: Option<String>,
     pub workspace_path: Option<String>,
     pub max_iterations: Option<usize>,
     pub max_tokens: Option<usize>,
-    /// Explicit human confirmation for a plan containing risky steps (PERM-02). Automation
-    /// triggers and gateway inbound do not go through this gate — they already have their own
-    /// consent mechanism (`AutomationGrant`/`GatewayGrant`, granted once at registration time).
-    pub approved: bool,
+    pub execution_mode: ExecutionMode,
+    /// Opaque, single-use approval id issued by the daemon for an immutable stored plan.
+    pub approval_id: Option<String>,
+    pub principal_id: String,
 }
 
 const DEFAULT_MEMORY_RETRIEVAL_LIMIT: usize = 5;
@@ -147,7 +168,7 @@ pub fn execute_structured_loop(
     let max_iterations = config.max_iterations;
     let mut events = Vec::new();
 
-    let result = if let Some(goal) = checker_goal {
+    let mut result = if let Some(goal) = checker_goal {
         let graph = OrchestrationGraph::new(true, max_iterations);
         graph.run_maker_checker(
             conn,
@@ -170,12 +191,19 @@ pub fn execute_structured_loop(
         )
     };
 
-    if let Err(e) = SessionLogWriter::from_env().append_turn(&config.session_id, prompt, &events) {
-        tracing::warn!(
-            session_id = %config.session_id,
-            error = %e,
-            "session log append failed"
+    if let Err(error) = SessionLogWriter::from_env().append_turn(&config.session_id, prompt, &events) {
+        let message = format!("mandatory session log append failed: {error}");
+        tracing::error!(session_id = %config.session_id, error = %error, "session log append failed");
+        let _ = PermissionManager::audit_decision(
+            conn,
+            &config.session_id,
+            "session_log",
+            &serde_json::json!({"error": error.to_string()}).to_string(),
+            &PermissionDecision::Denied,
+            Some(1),
+            None,
         );
+        result = Err(LoopError::Turn(message));
     }
 
     (result, events)
@@ -186,19 +214,48 @@ pub async fn run_task(
     state: &Arc<DaemonState>,
     params: &RunTaskParams,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Approval follow-ups execute the exact server-stored plan. They never call a planner again.
+    if let Some(approval_id) = params.approval_id.as_deref() {
+        let approved = {
+            let conn = state.db.conn();
+            consume_pending_approval(
+                &conn,
+                approval_id,
+                params.session_id.as_deref(),
+                params.workspace_path.as_deref().map(std::path::Path::new),
+            )?
+        };
+        let approved_params = RunTaskParams {
+            prompt: approved.prompt,
+            session_id: Some(approved.session_id),
+            workspace_path: Some(approved.workspace.to_string_lossy().to_string()),
+            max_iterations: Some(approved.max_iterations),
+            max_tokens: Some(approved.max_tokens),
+            execution_mode: ExecutionMode::Agent,
+            approval_id: None,
+            principal_id: params.principal_id.clone(),
+        };
+        return run_loop_task(writer, state, &approved_params, approved.plan, true).await;
+    }
+
     if let Some(nl_goal) = params.prompt.strip_prefix("nl:") {
-        return run_nl_loop_task_with_replan(writer, state, params, nl_goal.trim()).await;
+        return run_nl_loop_task_with_replan(writer, state, params, nl_goal.trim(), false).await;
     }
 
     if OrchestrationGraph::parse_checker_goal(&params.prompt).is_some() {
-        return run_loop_task(writer, state, params, vec![]).await;
+        return run_loop_task(writer, state, params, vec![], false).await;
     }
 
     if let Some(plan) = ReActLoopEngine::parse_plan_from_prompt(&params.prompt) {
-        return run_loop_task(writer, state, params, plan).await;
+        return run_loop_task(writer, state, params, plan, false).await;
     }
 
-    run_stream_task(writer, state, params).await
+    match params.execution_mode {
+        ExecutionMode::Agent => {
+            run_nl_loop_task_with_replan(writer, state, params, params.prompt.trim(), false).await
+        }
+        ExecutionMode::Chat => run_stream_task(writer, state, params).await,
+    }
 }
 
 async fn run_loop_task(
@@ -206,6 +263,7 @@ async fn run_loop_task(
     state: &Arc<DaemonState>,
     params: &RunTaskParams,
     plan: Vec<aether_core::ToolInvocation>,
+    approval_verified: bool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let session_id = params
         .session_id
@@ -215,7 +273,10 @@ async fn run_loop_task(
     let workspace = resolve_workspace(params.workspace_path.as_deref())?;
 
     let allowlist = load_allowlist();
-    let skills = load_skills();
+    let skills = {
+        let conn = state.db.conn();
+        load_skills(&conn)?
+    };
     let max_iterations = params.max_iterations.unwrap_or(8);
     let max_tokens = params.max_tokens.unwrap_or_else(resolve_default_max_loop_tokens);
     let mut config = LoopConfig {
@@ -230,12 +291,20 @@ async fn run_loop_task(
 
     let checker_goal = OrchestrationGraph::parse_checker_goal(&params.prompt);
     enum GateOutcome {
-        Blocked(Vec<aether_core::RiskyStep>),
+        Blocked {
+            approval: PendingApprovalEnvelope,
+            risky: Vec<aether_core::RiskyStep>,
+        },
         Proceed(Result<LoopRunResult, LoopError>, Vec<LoopStreamEvent>),
     }
     let outcome = {
         let conn = state.db.conn();
-        ensure_session_and_workspace_grant(&conn, &session_id, &config.workspace)?;
+        ensure_session_and_workspace_grant(
+            &conn,
+            &session_id,
+            &config.workspace,
+            Some(&params.principal_id),
+        )?;
         let plan = if checker_goal.is_some() && plan.is_empty() {
             ReActLoopEngine::parse_plan_from_prompt(&params.prompt).ok_or_else(|| {
                 aether_core::LoopError::Turn("checker prompt missing loop plan".into())
@@ -243,8 +312,17 @@ async fn run_loop_task(
         } else {
             plan
         };
-        if let Some(risky) = evaluate_approval_gate(&config.workspace, &plan, params.approved) {
-            GateOutcome::Blocked(risky)
+        if let Some(risky) = evaluate_approval_gate(&config.workspace, &plan, approval_verified) {
+            let approval = create_pending_approval(
+                &conn,
+                &session_id,
+                &config.workspace,
+                params.prompt.trim(),
+                &plan,
+                config.max_iterations,
+                config.max_tokens,
+            )?;
+            GateOutcome::Blocked { approval, risky }
         } else {
             let (result, events) = execute_structured_loop(
                 &conn,
@@ -260,8 +338,8 @@ async fn run_loop_task(
     };
 
     let (result, events) = match outcome {
-        GateOutcome::Blocked(risky) => {
-            write_event(writer, EventLine::pending_approval(&risky)).await?;
+        GateOutcome::Blocked { approval, risky } => {
+            write_event(writer, EventLine::pending_approval(&approval, &risky)).await?;
             return Ok(());
         }
         GateOutcome::Proceed(result, events) => (result, events),
@@ -449,6 +527,7 @@ async fn run_nl_loop_task_with_replan(
     state: &Arc<DaemonState>,
     params: &RunTaskParams,
     nl_goal: &str,
+    approval_verified: bool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let session_id = params
         .session_id
@@ -456,7 +535,10 @@ async fn run_nl_loop_task_with_replan(
         .unwrap_or_else(|| "daemon-loop".into());
     let workspace = resolve_workspace(params.workspace_path.as_deref())?;
     let allowlist = load_allowlist();
-    let skills = load_skills();
+    let skills = {
+        let conn = state.db.conn();
+        load_skills(&conn)?
+    };
     let max_iterations = params.max_iterations.unwrap_or(8);
     let max_tokens = params.max_tokens.unwrap_or_else(resolve_default_max_loop_tokens);
     let mut config = LoopConfig {
@@ -471,13 +553,18 @@ async fn run_nl_loop_task_with_replan(
 
     {
         let conn = state.db.conn();
-        ensure_session_and_workspace_grant(&conn, &session_id, &config.workspace)?;
+        ensure_session_and_workspace_grant(
+            &conn,
+            &session_id,
+            &config.workspace,
+            Some(&params.principal_id),
+        )?;
     }
 
     // Close the memory-retrieval gap for structured NL-goal runs (Phase 8.0b previously only
     // wired this into run_stream_task): recall is a no-op for a fresh session and never blocks
     // planning if it fails, matching the same fail-open behavior already used there.
-    let planning_goal = match retrieve_session_memory(
+    let (planning_goal, recalled_memory) = match retrieve_session_memory(
         &state.db,
         &session_id,
         nl_goal,
@@ -485,14 +572,14 @@ async fn run_nl_loop_task_with_replan(
     )
     .await
     {
-        Ok(hits) => enrich_prompt_with_memory(nl_goal, &hits),
+        Ok(hits) => (enrich_prompt_with_memory(nl_goal, &hits), hits),
         Err(e) => {
             tracing::warn!(
                 session_id = %session_id,
                 error = %e,
                 "memory retrieval failed; planning without recalled context"
             );
-            nl_goal.to_string()
+            (nl_goal.to_string(), Vec::new())
         }
     };
 
@@ -509,8 +596,67 @@ async fn run_nl_loop_task_with_replan(
         }
     };
 
-    if let Some(risky) = evaluate_approval_gate(&config.workspace, &plan, params.approved) {
-        write_event(writer, EventLine::pending_approval(&risky)).await?;
+    if !recalled_memory.is_empty() {
+        let memory_observations: Vec<ToolObservation> = recalled_memory
+            .iter()
+            .enumerate()
+            .map(|(index, memory)| ToolObservation {
+                iteration: index + 1,
+                tool: "retrieved_memory".into(),
+                success: true,
+                output: memory.text.clone(),
+            })
+            .collect();
+        if let aether_core::AdmitDecision::Deny { findings } =
+            aether_core::admit_plan_against_observations(
+                nl_goal,
+                &[],
+                &memory_observations,
+                &plan,
+            )
+        {
+            let detail = findings
+                .iter()
+                .map(|finding| finding.reason.clone())
+                .collect::<Vec<_>>()
+                .join("; ");
+            {
+                let conn = state.db.conn();
+                PermissionManager::audit_decision(
+                    &conn,
+                    &session_id,
+                    "initial_plan_memory_policy",
+                    &serde_json::json!({"reason": detail}).to_string(),
+                    &PermissionDecision::Denied,
+                    Some(1),
+                    None,
+                )?;
+            }
+            write_event(
+                writer,
+                EventLine::error(format!(
+                    "initial plan blocked because it appears induced by untrusted memory: {detail}"
+                )),
+            )
+            .await?;
+            return Ok(());
+        }
+    }
+
+    if let Some(risky) = evaluate_approval_gate(&config.workspace, &plan, approval_verified) {
+        let approval = {
+            let conn = state.db.conn();
+            create_pending_approval(
+                &conn,
+                &session_id,
+                &config.workspace,
+                params.prompt.trim(),
+                &plan,
+                config.max_iterations,
+                config.max_tokens,
+            )?
+        };
+        write_event(writer, EventLine::pending_approval(&approval, &risky)).await?;
         return Ok(());
     }
 
@@ -601,7 +747,10 @@ async fn run_stream_task(
     let mut stream = Box::pin(
         state
             .router
-            .complete_stream(&completion_prompt, PromptComplexity::Simple)
+            .complete_stream(
+                &completion_prompt,
+                classify_prompt_complexity(&params.prompt),
+            )
             .await
             .map_err(|e| format!("Stream start failed: {}", e))?,
     );
@@ -636,9 +785,11 @@ async fn run_stream_task(
 
                 if chunk.done { stream_usage = chunk.token_usage; break; }
             }
-            Err(e) => {
-                write_event(writer, EventLine::error(e.to_string())).await?;
-                break;
+            Err(error) => {
+                write_event(writer, EventLine::error(error.to_string())).await?;
+                // `error` is terminal. Never follow it with `done` or ingest a partial assistant
+                // response as successful memory.
+                return Ok(());
             }
         }
     }
@@ -673,11 +824,7 @@ pub fn run_automation_trigger(
     trigger: &AutomationTrigger,
 ) -> Result<(), String> {
     let workspace = resolve_workspace(trigger.workspace_path.as_deref())?;
-    ensure_session_and_workspace_grant(
-        conn,
-        &trigger.session_id,
-        &workspace,
-    )?;
+    ensure_session_and_workspace_grant(conn, &trigger.session_id, &workspace, None)?;
 
     let plan = if let Some(plan) = ReActLoopEngine::parse_plan_from_prompt(&trigger.task_prompt) {
         plan
@@ -689,7 +836,7 @@ pub fn run_automation_trigger(
     };
 
     let allowlist = load_allowlist();
-    let skills = load_skills();
+    let skills = load_skills(conn)?;
     let mut config = LoopConfig {
         max_iterations: 8,
         max_tokens: resolve_default_max_loop_tokens(),
@@ -724,7 +871,7 @@ pub fn run_gateway_inbound(
     normalized_prompt: &str,
 ) -> Result<(), String> {
     let workspace = resolve_workspace(channel.workspace_path.as_deref())?;
-    ensure_session_and_workspace_grant(conn, &channel.session_id, &workspace)?;
+    ensure_session_and_workspace_grant(conn, &channel.session_id, &workspace, None)?;
 
     let plan = if let Some(plan) = ReActLoopEngine::parse_plan_from_prompt(&channel.task_prompt) {
         plan
@@ -736,7 +883,7 @@ pub fn run_gateway_inbound(
     };
 
     let allowlist = load_allowlist();
-    let skills = load_skills();
+    let skills = load_skills(conn)?;
     let mut config = LoopConfig {
         max_iterations: 8,
         max_tokens: resolve_default_max_loop_tokens(),
@@ -779,6 +926,12 @@ async fn post_turn_ingest(
     user_text: &str,
     assistant_text: &str,
 ) {
+    let enabled = std::env::var("AETHER_ENABLE_PERSISTENT_MEMORY")
+        .is_ok_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));
+    if !enabled {
+        tracing::debug!(session_id = %session_id, "persistent memory disabled by privacy policy");
+        return;
+    }
     post_turn_graph_ingest(
         &state.db,
         &state.router,
@@ -803,12 +956,20 @@ fn ensure_session_and_workspace_grant(
     conn: &rusqlite::Connection,
     session_id: &str,
     workspace: &PathBuf,
+    principal_id: Option<&str>,
 ) -> Result<(), String> {
     conn.execute(
         "INSERT OR IGNORE INTO sessions (id, title, status) VALUES (?1, 'Loop Session', 'active')",
         rusqlite::params![session_id],
     )
     .map_err(|e| e.to_string())?;
+    if let Some(principal_id) = principal_id {
+        let owner = PrincipalAuthorization::claim_or_check_session(conn, session_id, principal_id)
+            .map_err(|error| error.to_string())?;
+        if owner != PermissionDecision::Approved {
+            return Err(format!("session {session_id} belongs to another principal"));
+        }
+    }
 
     let ws = workspace.to_string_lossy().to_string();
     let decision = PermissionManager::check_file_access(conn, session_id, &ws, "write")
@@ -826,13 +987,79 @@ fn load_allowlist() -> Option<McpAllowlist> {
     aether_mcp::McpAllowlist::resolve_filesystem().ok()
 }
 
-fn load_skills() -> HashMap<String, aether_skills::SkillDefinition> {
-    let skills_root = std::path::Path::new("skills");
-    SkillLoader::load_directory(skills_root)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|s| (s.id.clone(), s))
-        .collect()
+#[derive(serde::Deserialize)]
+struct CuratedSkillEntry {
+    sha256: String,
+    source: String,
+}
+
+#[derive(serde::Deserialize)]
+struct CuratedSkillRegistry {
+    schema_version: u32,
+    skills: HashMap<String, CuratedSkillEntry>,
+}
+
+fn discover_skills_root() -> Option<std::path::PathBuf> {
+    if let Some(root) = std::env::var_os("AETHER_SKILLS_ROOT") {
+        let root = std::path::PathBuf::from(root);
+        return root.is_dir().then_some(root);
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        for ancestor in cwd.ancestors() {
+            let candidate = ancestor.join("skills");
+            if candidate.is_dir() {
+                return Some(candidate);
+            }
+        }
+    }
+
+    // Cargo can launch tests with a package-specific working directory. This deterministic
+    // development fallback is compiled from this crate's manifest location; packaged builds use
+    // the Resources lookup below and never search an untrusted sibling directory.
+    let development = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../skills");
+    if development.is_dir() {
+        return Some(development);
+    }
+
+    let exe = std::env::current_exe().ok()?;
+    let resources = exe.parent()?.join("../Resources/skills");
+    resources.is_dir().then_some(resources)
+}
+
+pub(crate) fn load_skills(
+    conn: &rusqlite::Connection,
+) -> Result<HashMap<String, aether_skills::SkillDefinition>, String> {
+    let root = discover_skills_root().ok_or("curated skills root not found")?;
+    let registry_path = root.join("registry.json");
+    let registry: CuratedSkillRegistry = serde_json::from_str(
+        &std::fs::read_to_string(&registry_path)
+            .map_err(|error| format!("curated skill registry missing: {error}"))?,
+    )
+    .map_err(|error| format!("invalid curated skill registry: {error}"))?;
+    if registry.schema_version != 1 {
+        return Err(format!(
+            "unsupported curated skill registry version {}",
+            registry.schema_version
+        ));
+    }
+
+    let mut admitted = HashMap::new();
+    for skill in SkillLoader::load_directory(&root).map_err(|error| error.to_string())? {
+        let entry = registry.skills.get(&skill.id).ok_or_else(|| {
+            format!("skill '{}' is not present in curated registry", skill.id)
+        })?;
+        aether_skills::install_skill_persisted(
+            conn,
+            &skill,
+            Some(&entry.sha256),
+            &entry.source,
+        )
+        .map_err(|error| error.to_string())?;
+        aether_skills::admit_skill_persisted(conn, &skill)
+            .map_err(|error| error.to_string())?;
+        admitted.insert(skill.id.clone(), skill);
+    }
+    Ok(admitted)
 }
 
 fn loop_event_to_line(event: &LoopStreamEvent) -> Option<EventLine> {
@@ -896,14 +1123,16 @@ mod tests {
             .unwrap();
         }
         let embedding = vec![0.2f32; 384];
-        db.insert_memory_chunk(
+        db.insert_memory_chunk_scoped(
+            "sess-a",
             "sess-a::t1::turn",
             "memory://sess-a/turn/1",
             "shared-memory alpha fact",
             &embedding,
         )
         .unwrap();
-        db.insert_memory_chunk(
+        db.insert_memory_chunk_scoped(
+            "sess-b",
             "sess-b::t1::turn",
             "memory://sess-b/turn/1",
             "shared-memory beta secret",
@@ -966,7 +1195,8 @@ mod tests {
             .unwrap();
         }
         let embedding = vec![0.3f32; 384];
-        db.insert_memory_chunk(
+        db.insert_memory_chunk_scoped(
+            "sess-nl-recall",
             "sess-nl-recall::t1::turn",
             "memory://sess-nl-recall/turn/1",
             "The project workspace is named aether-forge-demo.",
@@ -1003,6 +1233,7 @@ mod tests {
                 &conn,
                 "explicit-grant-test",
                 &workspace.path().to_path_buf(),
+                None,
             )
             .unwrap_err();
             assert!(denied.contains("Workspace write grant required"));
@@ -1030,6 +1261,7 @@ mod tests {
                 &conn,
                 "explicit-grant-test",
                 &workspace.path().to_path_buf(),
+                None,
             )
             .unwrap();
         }

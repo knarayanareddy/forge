@@ -20,6 +20,49 @@ pub enum PermissionDecision {
 
 pub struct PermissionManager;
 
+pub struct PrincipalAuthorization;
+
+impl PrincipalAuthorization {
+    /// Claim an unowned session or verify that the existing owner matches. This is atomic under the
+    /// daemon's database mutex and prevents caller-selected session IDs from crossing principals.
+    pub fn claim_or_check_session(
+        conn: &Connection,
+        session_id: &str,
+        principal_id: &str,
+    ) -> Result<PermissionDecision> {
+        conn.execute(
+            "INSERT OR IGNORE INTO session_owners (session_id, principal_id) VALUES (?1, ?2)",
+            params![session_id, principal_id],
+        )?;
+        let owner: String = conn.query_row(
+            "SELECT principal_id FROM session_owners WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        Ok(if owner == principal_id {
+            PermissionDecision::Approved
+        } else {
+            PermissionDecision::Denied
+        })
+    }
+
+    pub fn check_session(
+        conn: &Connection,
+        session_id: &str,
+        principal_id: &str,
+    ) -> Result<PermissionDecision> {
+        let result = conn.query_row(
+            "SELECT principal_id FROM session_owners WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get::<_, String>(0),
+        );
+        Ok(match result {
+            Ok(owner) if owner == principal_id => PermissionDecision::Approved,
+            _ => PermissionDecision::Denied,
+        })
+    }
+}
+
 impl PermissionManager {
     /// Grant-based enforcement with path canonicalization and subpath inheritance.
     /// A path is allowed when an explicit (or app-lifetime) grant matches exactly,
@@ -190,7 +233,37 @@ pub fn path_is_subpath(child: &Path, parent: &Path) -> bool {
     child_bytes.len() > parent_len && child_bytes[parent_len] == b'/'
 }
 
-/// Phase 7 automation grant — one explicit grant per trigger_id + session_id pair.
+fn automation_config_hash(
+    conn: &Connection,
+    trigger_id: &str,
+    session_id: &str,
+) -> Result<String> {
+    let canonical: String = conn.query_row(
+        "SELECT trigger_type || char(0) || session_id || char(0) || config_json || char(0) ||
+                task_prompt || char(0) || COALESCE(workspace_path, '') || char(0) || enabled
+         FROM automation_triggers WHERE trigger_id = ?1 AND session_id = ?2",
+        params![trigger_id, session_id],
+        |row| row.get(0),
+    )?;
+    Ok(format!("{:x}", Sha256::digest(canonical.as_bytes())))
+}
+
+fn gateway_config_hash(
+    conn: &Connection,
+    channel_id: &str,
+    session_id: &str,
+) -> Result<String> {
+    let canonical: String = conn.query_row(
+        "SELECT channel_type || char(0) || session_id || char(0) || task_prompt || char(0) ||
+                COALESCE(workspace_path, '') || char(0) || enabled
+         FROM gateway_channels WHERE channel_id = ?1 AND session_id = ?2",
+        params![channel_id, session_id],
+        |row| row.get(0),
+    )?;
+    Ok(format!("{:x}", Sha256::digest(canonical.as_bytes())))
+}
+
+/// Phase 7 automation grant — bound to the exact registered trigger revision.
 pub struct AutomationGrant;
 
 impl AutomationGrant {
@@ -199,10 +272,14 @@ impl AutomationGrant {
         trigger_id: &str,
         session_id: &str,
     ) -> Result<PermissionDecision> {
+        let config_hash = match automation_config_hash(conn, trigger_id, session_id) {
+            Ok(hash) => hash,
+            Err(_) => return Ok(PermissionDecision::Denied),
+        };
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM automation_grants
-             WHERE trigger_id = ?1 AND session_id = ?2 AND is_stale = 0",
-            params![trigger_id, session_id],
+             WHERE trigger_id = ?1 AND session_id = ?2 AND is_stale = 0 AND config_hash = ?3",
+            params![trigger_id, session_id, config_hash],
             |row| row.get(0),
         )?;
         if count > 0 {
@@ -213,10 +290,12 @@ impl AutomationGrant {
     }
 
     pub fn grant(conn: &Connection, trigger_id: &str, session_id: &str) -> Result<()> {
+        let config_hash = automation_config_hash(conn, trigger_id, session_id)?;
         conn.execute(
-            "INSERT OR REPLACE INTO automation_grants (trigger_id, session_id, is_stale)
-             VALUES (?1, ?2, 0)",
-            params![trigger_id, session_id],
+            "INSERT OR REPLACE INTO automation_grants
+             (trigger_id, session_id, is_stale, config_hash)
+             VALUES (?1, ?2, 0, ?3)",
+            params![trigger_id, session_id, config_hash],
         )?;
         Ok(())
     }
@@ -271,10 +350,14 @@ impl GatewayGrant {
         channel_id: &str,
         session_id: &str,
     ) -> Result<PermissionDecision> {
+        let config_hash = match gateway_config_hash(conn, channel_id, session_id) {
+            Ok(hash) => hash,
+            Err(_) => return Ok(PermissionDecision::Denied),
+        };
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM gateway_grants
-             WHERE channel_id = ?1 AND session_id = ?2 AND is_stale = 0",
-            params![channel_id, session_id],
+             WHERE channel_id = ?1 AND session_id = ?2 AND is_stale = 0 AND config_hash = ?3",
+            params![channel_id, session_id, config_hash],
             |row| row.get(0),
         )?;
         if count > 0 {
@@ -290,10 +373,12 @@ impl GatewayGrant {
         session_id: &str,
         channel_type: &str,
     ) -> Result<()> {
+        let config_hash = gateway_config_hash(conn, channel_id, session_id)?;
         conn.execute(
-            "INSERT OR REPLACE INTO gateway_grants (channel_id, session_id, channel_type, is_stale)
-             VALUES (?1, ?2, ?3, 0)",
-            params![channel_id, session_id, channel_type],
+            "INSERT OR REPLACE INTO gateway_grants
+             (channel_id, session_id, channel_type, is_stale, config_hash)
+             VALUES (?1, ?2, ?3, 0, ?4)",
+            params![channel_id, session_id, channel_type, config_hash],
         )?;
         Ok(())
     }
@@ -475,6 +560,13 @@ mod tests {
 
         let denied = AutomationGrant::check(&conn, "trg-cron-01", "sess-auto").unwrap();
         assert_eq!(denied, PermissionDecision::Denied);
+        conn.execute(
+            "INSERT INTO automation_triggers
+             (trigger_id, trigger_type, session_id, config_json, task_prompt, enabled)
+             VALUES ('trg-cron-01', 'cron', 'sess-auto', '{}', '{}', 1)",
+            [],
+        )
+        .unwrap();
 
         AutomationGrant::grant(&conn, "trg-cron-01", "sess-auto").unwrap();
         let approved = AutomationGrant::check(&conn, "trg-cron-01", "sess-auto").unwrap();
@@ -536,6 +628,13 @@ mod tests {
 
         let denied = GatewayGrant::check(&conn, "slack-gate-01", "sess-gate").unwrap();
         assert_eq!(denied, PermissionDecision::Denied);
+        conn.execute(
+            "INSERT INTO gateway_channels
+             (channel_id, channel_type, session_id, task_prompt, enabled)
+             VALUES ('slack-gate-01', 'slack', 'sess-gate', '{}', 1)",
+            [],
+        )
+        .unwrap();
 
         GatewayGrant::grant(&conn, "slack-gate-01", "sess-gate", "slack").unwrap();
         let approved = GatewayGrant::check(&conn, "slack-gate-01", "sess-gate").unwrap();

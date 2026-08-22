@@ -8,9 +8,10 @@
 //! Scope: this tool set has no explicit "delete" action and no network-egress concept, so the two
 //! roadmap examples ("deletions", "unseen-domain egress") are mapped onto their closest real
 //! analogs: overwriting a file that already exists (destroying its prior content, the same
-//! destructive shape as a delete) and any `mcp_call` (the only way this agent reaches outside the
-//! workspace/local tools at all). Read-only and already-vetted operations (`fs_read`,
-//! `verify_contains`, `python_lint`, `git_init`, `skill_execute`, `done`) are never risky.
+//! destructive shape as a delete), any `mcp_call` (the only way this agent reaches outside the
+//! workspace/local tools at all), and `git_init` because repository metadata/commits are persistent
+//! and intentionally not auto-undone. Read-only operations (`fs_read`, `verify_contains`,
+//! `python_lint`, `skill_execute`, `done`) are not classified as risky here.
 
 use crate::loop_engine::resolve_workspace_path;
 use crate::ToolInvocation;
@@ -30,21 +31,38 @@ pub fn find_steps_requiring_approval(workspace: &PathBuf, plan: &[ToolInvocation
     for (index, step) in plan.iter().enumerate() {
         match step {
             ToolInvocation::FsWrite { path, .. } => {
-                if let Ok(full) = resolve_workspace_path(workspace, path) {
-                    if full_exists(&full) {
-                        risky.push(RiskyStep {
-                            index,
-                            tool: "fs_write".into(),
-                            reason: format!("would overwrite existing file: {path}"),
-                        });
-                    }
-                }
+                let disposition = resolve_workspace_path(workspace, path)
+                    .ok()
+                    .filter(|full| full_exists(full))
+                    .map(|_| "overwrite existing")
+                    .unwrap_or("create new");
+                risky.push(RiskyStep {
+                    index,
+                    tool: "fs_write".into(),
+                    reason: format!("would {disposition} file: {path}"),
+                });
             }
             ToolInvocation::McpCall { server, tool, .. } => {
                 risky.push(RiskyStep {
                     index,
                     tool: "mcp_call".into(),
                     reason: format!("external tool call to {server}/{tool}"),
+                });
+            }
+            ToolInvocation::GitInit { branch } => {
+                risky.push(RiskyStep {
+                    index,
+                    tool: "git_init".into(),
+                    reason: format!(
+                        "creates persistent repository metadata and an initial commit on branch {branch}"
+                    ),
+                });
+            }
+            ToolInvocation::SkillExecute { skill_id, .. } => {
+                risky.push(RiskyStep {
+                    index,
+                    tool: "skill_execute".into(),
+                    reason: format!("executes persisted skill and declared side effects: {skill_id}"),
                 });
             }
             _ => {}
@@ -83,15 +101,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn new_file_write_is_not_risky() {
+    fn new_file_write_requires_explicit_approval() {
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().to_path_buf();
         let plan = vec![ToolInvocation::FsWrite {
             path: "new.txt".into(),
             content: "hello".into(),
         }];
-        assert!(find_steps_requiring_approval(&workspace, &plan).is_empty());
-        assert_eq!(evaluate_approval_gate(&workspace, &plan, false), None);
+        let risky = find_steps_requiring_approval(&workspace, &plan);
+        assert_eq!(risky.len(), 1);
+        assert!(evaluate_approval_gate(&workspace, &plan, false).is_some());
     }
 
     #[test]
@@ -125,6 +144,18 @@ mod tests {
     }
 
     #[test]
+    fn git_init_always_requires_explicit_approval() {
+        let tmp = tempfile::tempdir().unwrap();
+        let workspace = tmp.path().to_path_buf();
+        let plan = vec![ToolInvocation::GitInit {
+            branch: "main".into(),
+        }];
+        let risky = find_steps_requiring_approval(&workspace, &plan);
+        assert_eq!(risky.len(), 1);
+        assert_eq!(risky[0].tool, "git_init");
+    }
+
+    #[test]
     fn gate_blocks_without_approval_and_clears_with_it() {
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().to_path_buf();
@@ -142,18 +173,13 @@ mod tests {
     }
 
     #[test]
-    fn read_only_and_prevetted_tools_are_never_risky() {
+    fn read_only_and_verification_tools_are_not_risky() {
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().to_path_buf();
         let plan = vec![
             ToolInvocation::FsRead { path: "a.txt".into() },
             ToolInvocation::VerifyContains { path: "a.txt".into(), text: "x".into() },
             ToolInvocation::PythonLint { source: "def ok(): pass".into() },
-            ToolInvocation::GitInit { branch: "main".into() },
-            ToolInvocation::SkillExecute {
-                skill_id: "s1".into(),
-                variables: Default::default(),
-            },
             ToolInvocation::Done,
         ];
         assert!(find_steps_requiring_approval(&workspace, &plan).is_empty());

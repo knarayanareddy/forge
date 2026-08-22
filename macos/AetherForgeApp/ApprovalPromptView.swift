@@ -1,8 +1,12 @@
 import SwiftUI
 
 struct PendingApproval: Sendable {
+    let approvalId: String
     let prompt: String
     let riskySteps: [String]
+    let canonicalPlan: String
+    let digest: String
+    let expiresAt: UInt64
 }
 
 struct ApprovalPromptView: View {
@@ -30,7 +34,27 @@ struct ApprovalPromptView: View {
                 .padding(4)
             }
 
-            Text("Prompt")
+            GroupBox("Exact canonical plan") {
+                ScrollView {
+                    Text(pending.canonicalPlan)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 220)
+            }
+
+            LabeledContent("Plan SHA-256", value: pending.digest)
+                .font(.caption2.monospaced())
+                .textSelection(.enabled)
+            LabeledContent(
+                "Expires",
+                value: Date(timeIntervalSince1970: TimeInterval(pending.expiresAt))
+                    .formatted(date: .abbreviated, time: .standard)
+            )
+            .font(.caption)
+
+            Text("Trusted user prompt")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Text(pending.prompt)

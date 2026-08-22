@@ -92,11 +92,19 @@ Structured `run_task`, automation, and gateway execution fail closed when this g
 
 ### Request: `run_task`
 
-Plain prompt (streams Ollama tokens):
+Plain Chat mode (streams model tokens and never invokes tools):
 
 ```json
-{"method":"run_task","params":{"prompt":"Say hello in one word","session_id":"demo-1"}}
+{"method":"run_task","params":{"prompt":"Say hello in one word","session_id":"demo-1","execution_mode":"chat"}}
 ```
+
+Agent mode (natural language is converted to a validated tool plan):
+
+```json
+{"method":"run_task","params":{"prompt":"Create hello.txt containing forge","session_id":"demo-1","workspace_path":"/tmp/aether-workspace","execution_mode":"agent"}}
+```
+
+The Swift app exposes Agent/Chat as an explicit segmented control and defaults to Agent.
 
 Structured loop plan (Phase 3 — emits `plan`/`tool`/`observe`/`verify` events):
 
@@ -119,7 +127,12 @@ Structured loop plan (Phase 3 — emits `plan`/`tool`/`observe`/`verify` events)
 | `workspace_path` | loop only | Workspace directory (or set `AETHER_WORKSPACE`) |
 | `max_iterations` | no | Loop cap (default 8) |
 | `auth_token` | yes (macOS) | Daemon IPC token from Keychain |
-| `auth_token` | yes (Darwin) | Keychain daemon auth token — required on macOS |
+| `execution_mode` | no | `chat` (backward-compatible default) or `agent` |
+| `approval_id` | approval follow-up only | Opaque single-use ID returned by `pending_approval`; prompt may be omitted |
+
+A client-supplied `approved: true` is forbidden. For a risky plan, the daemon persists the exact
+normalized plan and returns `pending_approval` with `approval_id`. The follow-up request submits that
+ID; the daemon consumes it once and executes the stored plan without re-running inference.
 
 Optional params (Phase 3 loop):
 
@@ -153,7 +166,7 @@ When `prompt` is JSON with a `loop` array, the daemon runs a structured ReAct lo
 ]}
 ```
 
-Requires `workspace_path` (or `AETHER_WORKSPACE` env). Grants are auto-inserted for the workspace write path.
+Requires `workspace_path` (or `AETHER_WORKSPACE` env) and a pre-existing authenticated workspace grant. Tool execution never auto-inserts a grant from a caller-chosen path.
 
 Example:
 
@@ -175,11 +188,16 @@ Example stream:
 {"method":"ping","params":{}}
 ```
 
-Response:
+Manual health response:
 
 ```json
 {"type":"pong"}
 ```
+
+The Swift app performs an authenticated health check: it sends a random `client_nonce`, and the
+daemon returns a nonce-bound `server_proof` derived from the Keychain token. The client verifies
+that proof before sending authenticated requests, preventing a process that merely squats on port
+7433 from impersonating the daemon.
 
 ## Manual test with netcat
 

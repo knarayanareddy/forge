@@ -1,11 +1,15 @@
 use crate::gateway::inbound;
-use crate::gateway::telegram;
+use crate::gateway::{discord, slack, telegram};
 use crate::gateway::GatewayChannelType;
 use crate::DaemonState;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+use tokio::time::{timeout, Duration};
+
+const HTTP_READ_TIMEOUT: Duration = Duration::from_secs(10);
+const MAX_WEBHOOK_BODY_BYTES: usize = 65_536;
 
 pub async fn serve_gateway_webhooks(
     addr: String,
@@ -41,20 +45,40 @@ async fn handle_gateway_connection(
         return Ok(());
     };
 
-    if channel_type == GatewayChannelType::Telegram {
-        if let Err(reason) = telegram::verify_webhook_secret(
+    let authentication = match channel_type {
+        GatewayChannelType::Telegram => telegram::verify_webhook_secret(
             headers
                 .get("x-telegram-bot-api-secret-token")
                 .map(String::as_str),
             channel_id,
-        ) {
-            write_http_response(socket, 403, "text/plain", &reason).await?;
-            return Ok(());
-        }
+        ),
+        GatewayChannelType::Slack => slack::verify_slack_signature(
+            channel_id,
+            headers
+                .get("x-slack-request-timestamp")
+                .map(String::as_str),
+            headers.get("x-slack-signature").map(String::as_str),
+            &body,
+        ),
+        GatewayChannelType::Discord => discord::verify_interaction_signature(
+            channel_id,
+            headers.get("x-signature-ed25519").map(String::as_str),
+            headers.get("x-signature-timestamp").map(String::as_str),
+            &body,
+        ),
+    };
+    if let Err(reason) = authentication {
+        write_http_response(socket, 403, "text/plain", &reason).await?;
+        return Ok(());
     }
 
-    if channel_type == GatewayChannelType::Discord {
-        crate::gateway::discord::log_webhook_ready(channel_id);
+    let identity_result = {
+        let conn = state.db.conn();
+        inbound::authorize_and_claim_remote_event(&conn, channel_type, channel_id, &body)
+    };
+    if let Err(reason) = identity_result {
+        write_http_response(socket, 403, "text/plain", &reason).await?;
+        return Ok(());
     }
 
     match inbound::handle_inbound_and_run(state, channel_type, channel_id, &body) {
@@ -88,7 +112,9 @@ async fn read_http_request(
 ) -> Result<(String, String, HashMap<String, String>, String), Box<dyn std::error::Error + Send + Sync>>
 {
     let mut buf = vec![0u8; 8192];
-    let n = socket.read(&mut buf).await?;
+    let n = timeout(HTTP_READ_TIMEOUT, socket.read(&mut buf))
+        .await
+        .map_err(|_| "gateway request read timed out")??;
     if n == 0 {
         return Err("empty request".into());
     }
@@ -116,6 +142,10 @@ async fn read_http_request(
         }
     }
 
+    if content_length > MAX_WEBHOOK_BODY_BYTES {
+        return Err("gateway request body exceeds 64 KiB".into());
+    }
+
     let body_start = request
         .find("\r\n\r\n")
         .or_else(|| request.find("\n\n"))
@@ -123,13 +153,18 @@ async fn read_http_request(
         .unwrap_or(n);
     let mut body = request[body_start..].to_string();
     while body.len() < content_length && body.len() < 65536 {
-        let extra = socket.read(&mut buf).await?;
+        let extra = timeout(HTTP_READ_TIMEOUT, socket.read(&mut buf))
+            .await
+            .map_err(|_| "gateway body read timed out")??;
         if extra == 0 {
             break;
         }
         body.push_str(&String::from_utf8_lossy(&buf[..extra]));
     }
     if content_length > 0 && body.len() > content_length {
+        if !body.is_char_boundary(content_length) {
+            return Err("gateway Content-Length splits UTF-8 sequence".into());
+        }
         body.truncate(content_length);
     }
 

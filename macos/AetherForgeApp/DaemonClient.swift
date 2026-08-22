@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 
@@ -24,6 +25,8 @@ struct ConsolidationRunItem: Identifiable, Sendable {
     let dedupeCount: Int64
     let contradictionCount: Int64
     let reviewArtifactPath: String?
+    let reviewMarkdown: String?
+    let reviewHash: String?
     let startedAt: String
 }
 
@@ -50,6 +53,11 @@ struct DaemonEvent: Identifiable, Sendable {
     let runId: Int64?
     let nodesSuperseded: Int?
     let consolidationRuns: [ConsolidationRunItem]?
+    let serverProof: String?
+    let approvalId: String?
+    let approvalPlan: String?
+    let approvalDigest: String?
+    let approvalExpiresAt: UInt64?
 
     var displayLine: String {
         switch type {
@@ -88,12 +96,27 @@ final class DaemonClient: @unchecked Sendable {
 
     func ping(timeoutSeconds: TimeInterval = 3) async -> Result<DaemonEvent, DaemonClientError> {
         do {
-            let events = try await collectEvents(method: "ping", params: authParams(), timeoutSeconds: timeoutSeconds)
-            if let pong = events.first(where: { $0.type == "pong" }) { return .success(pong) }
+            guard let token = DaemonAuth.loadToken() else {
+                return .failure(.invalidEvent("daemon identity token unavailable"))
+            }
+            let nonce = Self.randomNonce()
+            let events = try await collectEvents(
+                method: "ping",
+                params: ["client_nonce": nonce],
+                timeoutSeconds: timeoutSeconds
+            )
             if let error = events.first(where: { $0.type == "error" }) {
                 return .failure(.invalidEvent(error.message ?? "daemon error"))
             }
-            return .failure(.invalidEvent("no pong"))
+            guard let pong = events.first(where: { $0.type == "pong" }),
+                  let receivedProof = pong.serverProof else {
+                return .failure(.invalidEvent("daemon did not prove possession of the identity token"))
+            }
+            let expectedProof = Self.daemonProof(token: token, nonce: nonce)
+            guard Self.constantTimeEqual(receivedProof, expectedProof) else {
+                return .failure(.invalidEvent("daemon identity proof mismatch"))
+            }
+            return .success(pong)
         } catch let error as DaemonClientError {
             return .failure(error)
         } catch {
@@ -170,13 +193,18 @@ final class DaemonClient: @unchecked Sendable {
         prompt: String,
         sessionId: String,
         workspacePath: String?,
-        approved: Bool = false,
+        executionMode: String,
+        approvalId: String? = nil,
         timeoutSeconds: TimeInterval = 120
     ) -> AsyncThrowingStream<DaemonEvent, Error> {
         var params = authParams()
-        params["prompt"] = prompt
         params["session_id"] = sessionId
-        if approved { params["approved"] = true }
+        params["execution_mode"] = executionMode
+        if let approvalId {
+            params["approval_id"] = approvalId
+        } else {
+            params["prompt"] = prompt
+        }
         if let workspacePath, !workspacePath.isEmpty { params["workspace_path"] = workspacePath }
         return stream(method: "run_task", params: params, timeoutSeconds: timeoutSeconds)
     }
@@ -266,7 +294,7 @@ final class DaemonClient: @unchecked Sendable {
                 do {
                     try self.streamSync(requestData: requestData, timeoutSeconds: timeoutSeconds) { event in
                         continuation.yield(event)
-                        return event.type != "done" && event.type != "error" && event.type != "pong"
+                        return !Self.isTerminalEvent(event.type)
                     }
                     continuation.finish()
                 } catch { continuation.finish(throwing: error) }
@@ -284,7 +312,7 @@ final class DaemonClient: @unchecked Sendable {
                         timeoutSeconds: timeoutSeconds
                     ) { event in
                         events.append(event)
-                        return event.type != "done" && event.type != "error" && event.type != "pong"
+                        return !Self.isTerminalEvent(event.type)
                     }
                     continuation.resume(returning: events)
                 } catch { continuation.resume(throwing: error) }
@@ -293,40 +321,75 @@ final class DaemonClient: @unchecked Sendable {
     }
 
     private func streamSync(requestData: Data, timeoutSeconds: TimeInterval, onEvent: (DaemonEvent) -> Bool) throws {
-        let socketFD = try connect()
+        let socketFD = try connect(timeoutSeconds: timeoutSeconds)
         defer { close(socketFD) }
-        guard var request = String(data: requestData, encoding: .utf8) else { throw DaemonClientError.sendFailed }
-        request.append("\n")
-        guard request.withCString({ write(socketFD, $0, strlen($0)) }) > 0 else { throw DaemonClientError.sendFailed }
+
+        guard requestData.count <= 1_048_576 else { throw DaemonClientError.sendFailed }
+        var payload = requestData
+        payload.append(0x0A)
+        let sentAll = payload.withUnsafeBytes { rawBuffer -> Bool in
+            guard let base = rawBuffer.baseAddress else { return false }
+            var sent = 0
+            while sent < rawBuffer.count {
+                let count = Darwin.send(socketFD, base.advanced(by: sent), rawBuffer.count - sent, 0)
+                if count <= 0 { return false }
+                sent += count
+            }
+            return true
+        }
+        guard sentAll else { throw DaemonClientError.sendFailed }
 
         var buffer = Data()
-        let deadline = Date().addingTimeInterval(timeoutSeconds)
-        while Date() < deadline {
+        var sawEvent = false
+        while true {
             var chunk = [UInt8](repeating: 0, count: 4096)
             let received = recv(socketFD, &chunk, chunk.count, 0)
-            if received == 0 { break }
+            if received == 0 {
+                if sawEvent && buffer.isEmpty { return }
+                throw DaemonClientError.receiveFailed
+            }
             if received < 0 { throw DaemonClientError.receiveFailed }
             buffer.append(contentsOf: chunk.prefix(received))
+            guard buffer.count <= 1_048_576 else {
+                throw DaemonClientError.invalidEvent("daemon event exceeded 1 MiB")
+            }
             while let newlineRange = buffer.firstRange(of: Data([0x0A])) {
                 let lineData = buffer.subdata(in: 0..<newlineRange.lowerBound)
                 buffer.removeSubrange(0..<newlineRange.upperBound)
                 guard let line = String(data: lineData, encoding: .utf8)?
                     .trimmingCharacters(in: .whitespacesAndNewlines), !line.isEmpty else { continue }
                 let event = try parseEvent(line)
+                sawEvent = true
                 if !onEvent(event) { return }
             }
         }
-        throw DaemonClientError.receiveFailed
     }
 
-    private func connect() throws -> Int32 {
+    private func connect(timeoutSeconds: TimeInterval) throws -> Int32 {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { throw DaemonClientError.connectFailed("socket() failed") }
+
+        var timeout = timeval(
+            tv_sec: Int(timeoutSeconds.rounded(.down)),
+            tv_usec: Int32((timeoutSeconds.truncatingRemainder(dividingBy: 1)) * 1_000_000)
+        )
+        let timeoutSize = socklen_t(MemoryLayout<timeval>.size)
+        guard setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, timeoutSize) == 0,
+              setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, timeoutSize) == 0 else {
+            close(fd)
+            throw DaemonClientError.connectFailed("could not configure socket timeout")
+        }
+        var noSigPipe: Int32 = 1
+        _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+
         var addr = sockaddr_in()
         addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         addr.sin_family = sa_family_t(AF_INET)
         addr.sin_port = endpoint.port.bigEndian
-        inet_pton(AF_INET, endpoint.host, &addr.sin_addr)
+        guard inet_pton(AF_INET, endpoint.host, &addr.sin_addr) == 1 else {
+            close(fd)
+            throw DaemonClientError.connectFailed("invalid IPv4 endpoint \(endpoint.host)")
+        }
         let result = withUnsafePointer(to: &addr) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                 Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
@@ -363,8 +426,51 @@ final class DaemonClient: @unchecked Sendable {
             riskySteps: json["risky_steps"] as? [String],
             runId: json["run_id"] as? Int64,
             nodesSuperseded: json["nodes_superseded"] as? Int,
-            consolidationRuns: Self.parseConsolidationRuns(json["runs"])
+            consolidationRuns: Self.parseConsolidationRuns(json["runs"]),
+            serverProof: json["server_proof"] as? String,
+            approvalId: json["approval_id"] as? String,
+            approvalPlan: json["approval_plan"] as? String,
+            approvalDigest: json["approval_digest"] as? String,
+            approvalExpiresAt: (json["approval_expires_at"] as? NSNumber)?.uint64Value
         )
+    }
+
+    private static func isTerminalEvent(_ type: String) -> Bool {
+        switch type {
+        case "done", "error", "pong", "pending_approval",
+             "workspace_granted", "undo_complete", "checkpoint_created", "rewind_complete",
+             "automation_registered", "automation_tick", "automation_run_complete",
+             "consolidation_list", "consolidation_applied", "consolidation_rejected",
+             "model_config", "byok_stored", "byok_deleted":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func randomNonce() -> String {
+        var generator = SystemRandomNumberGenerator()
+        return (0..<32)
+            .map { _ in String(format: "%02x", UInt8.random(in: .min ... .max, using: &generator)) }
+            .joined()
+    }
+
+    private static func daemonProof(token: String, nonce: String) -> String {
+        let key = SymmetricKey(data: Data(token.utf8))
+        var message = Data("aether-daemon-proof-v2\0".utf8)
+        message.append(Data(nonce.utf8))
+        return HMAC<SHA256>.authenticationCode(for: message, using: key)
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    private static func constantTimeEqual(_ lhs: String, _ rhs: String) -> Bool {
+        let left = Array(lhs.utf8)
+        let right = Array(rhs.utf8)
+        guard left.count == right.count else { return false }
+        return zip(left, right).reduce(UInt8(0)) { result, pair in
+            result | (pair.0 ^ pair.1)
+        } == 0
     }
 
     private static func parseConsolidationRuns(_ value: Any?) -> [ConsolidationRunItem]? {
@@ -378,6 +484,8 @@ final class DaemonClient: @unchecked Sendable {
                 dedupeCount: row["dedupe_count"] as? Int64 ?? (row["dedupe_count"] as? Int).map(Int64.init) ?? 0,
                 contradictionCount: row["contradiction_count"] as? Int64 ?? (row["contradiction_count"] as? Int).map(Int64.init) ?? 0,
                 reviewArtifactPath: row["review_artifact_path"] as? String,
+                reviewMarkdown: row["review_markdown"] as? String,
+                reviewHash: row["review_hash"] as? String,
                 startedAt: row["started_at"] as? String ?? ""
             )
         }

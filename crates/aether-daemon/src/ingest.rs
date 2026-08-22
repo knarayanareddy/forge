@@ -269,7 +269,13 @@ pub fn persist_turn_memory(
     linked_node_ids: &[String],
 ) -> Result<String, IngestError> {
     let (chunk_id, source_uri) = turn_memory_ids(session_id, turn_index);
-    db.insert_memory_chunk(&chunk_id, &source_uri, normalized_text, embedding)
+    db.insert_memory_chunk_scoped(
+        session_id,
+        &chunk_id,
+        &source_uri,
+        normalized_text,
+        embedding,
+    )
         .map_err(|e| IngestError::Failed(format!("semantic memory insert: {e}")))?;
     for node_id in linked_node_ids {
         db.link_graph_chunk(&chunk_id, node_id, 1.0)

@@ -223,6 +223,8 @@ mod tests {
             payload: SessionLogPayload::Error {
                 message: message.into(),
             },
+            prev_hash: "GENESIS".into(),
+            content_hash: "test-fixture".into(),
         }
     }
 

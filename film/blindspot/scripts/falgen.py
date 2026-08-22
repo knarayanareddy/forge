@@ -29,6 +29,19 @@ class FalError(RuntimeError):
     pass
 
 
+def validate_fal_url(url: str, *, media: bool = False) -> str:
+    parsed = urllib.parse.urlparse(url)
+    allowed = ("fal.run", "fal.media") if media else ("fal.run",)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or parsed.username or parsed.password:
+        raise FalError("fal URL must be credential-free HTTPS")
+    if not any(host == suffix or host.endswith("." + suffix) for suffix in allowed):
+        raise FalError(f"untrusted fal response origin: {host or '<missing>'}")
+    if parsed.port not in (None, 443):
+        raise FalError("fal URL must use HTTPS default port")
+    return url
+
+
 class Fal:
     def __init__(self, dry_run: bool = False, models: dict | None = None):
         self.models = models or load("models")
@@ -54,7 +67,15 @@ class Fal:
         delay = 4
         for attempt in range(5):
             try:
-                r = self.session.request(method, url, headers=self._headers(), timeout=120, **kw)
+                validate_fal_url(url)
+                r = self.session.request(
+                    method,
+                    url,
+                    headers=self._headers(),
+                    timeout=120,
+                    allow_redirects=False,
+                    **kw,
+                )
             except requests.RequestException as exc:
                 if attempt == 4:
                     raise FalError(f"network failure calling {url}: {exc}") from exc
@@ -106,7 +127,8 @@ class Fal:
 
     def download(self, url: str, dest: pathlib.Path) -> pathlib.Path:
         dest.parent.mkdir(parents=True, exist_ok=True)
-        with self.session.get(url, stream=True, timeout=600) as r:
+        validate_fal_url(url, media=True)
+        with self.session.get(url, stream=True, timeout=600, allow_redirects=False) as r:
             r.raise_for_status()
             with open(dest, "wb") as fh:
                 for chunk in r.iter_content(1 << 20):

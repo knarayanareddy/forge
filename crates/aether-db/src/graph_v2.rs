@@ -15,23 +15,49 @@ pub fn decay_edge_weight(weight: f64, recorded_at: &str, lambda: f64, now_days: 
 }
 
 fn parse_sqlite_age_days(recorded_at: &str, now_days: f64) -> f64 {
-    if recorded_at.len() < 10 {
+    let Some(date_part) = recorded_at.get(..10) else {
         return 0.0;
-    }
-    let date_part = &recorded_at[..10];
-    let parts: Vec<&str> = date_part.split('-').collect();
-    if parts.len() != 3 {
+    };
+    let mut parts = date_part.split('-');
+    let Some(year) = parts.next().and_then(|value| value.parse::<i64>().ok()) else {
         return 0.0;
-    }
-    let year: f64 = parts[0].parse().unwrap_or(2026.0);
-    let month: f64 = parts[1].parse().unwrap_or(1.0);
-    let day: f64 = parts[2].parse().unwrap_or(1.0);
-    let recorded_days = year * 365.25 + month * 30.0 + day;
-    (now_days - recorded_days).max(0.0)
+    };
+    let Some(month) = parts.next().and_then(|value| value.parse::<u64>().ok()) else {
+        return 0.0;
+    };
+    let Some(day) = parts.next().and_then(|value| value.parse::<u64>().ok()) else {
+        return 0.0;
+    };
+    let Some(recorded_days) = unix_days_from_ymd(year, month, day) else {
+        return 0.0;
+    };
+    (now_days - recorded_days as f64).max(0.0)
 }
 
 fn current_day_index() -> f64 {
-    2026.0 * 365.25 + 8.0 * 30.0 + 4.0
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs_f64() / 86_400.0)
+        .unwrap_or(0.0)
+}
+
+/// Gregorian civil date to days since Unix epoch (Howard Hinnant's civil-date algorithm).
+fn unix_days_from_ymd(year: i64, month: u64, day: u64) -> Option<i64> {
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+    let mut adjusted_year = year;
+    let mut adjusted_month = month as i64;
+    if adjusted_month <= 2 {
+        adjusted_year -= 1;
+        adjusted_month += 12;
+    }
+    let era = adjusted_year.div_euclid(400);
+    let year_of_era = adjusted_year - era * 400;
+    let day_of_year = (153 * (adjusted_month - 3) + 2) / 5 + day as i64 - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    Some(era * 146_097 + day_of_era - 719_468)
 }
 
 /// Merge node score lists, keeping the maximum score per node id.
@@ -98,7 +124,7 @@ impl Database {
             .collect::<Vec<_>>()
             .join(", ");
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let sql = format!(
             "SELECT DISTINCT e.id, e.session_id, e.src_node_id, e.dst_node_id,
                     e.relation_type, e.weight, e.evidence_text, e.source_uri,

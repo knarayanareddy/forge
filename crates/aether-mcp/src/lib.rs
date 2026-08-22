@@ -72,36 +72,42 @@ impl McpAllowlist {
         let paths = discover_filesystem_mcp()?;
         let mut entry = paths.to_allowlist_entry();
 
-        let file_path = Path::new("mcp_allowlist.json");
-        if file_path.exists() {
-            if let Ok(file) = Self::load_from_file(file_path) {
-                if let Some(server) = file.servers.iter().find(|s| s.name == "filesystem") {
-                    if is_unverified_pin(&server.entry_sha256_pin.clone().unwrap_or_default())
-                        || is_unverified_pin(
-                            &server
-                                .tools_hash_pin
-                                .clone()
-                                .unwrap_or_default(),
-                        )
-                    {
-                        return Err(McpError::SecurityViolation(
-                            "filesystem allowlist entry or tools_hash pin is unverified".into(),
-                        ));
-                    }
-                    verify_file_hash(
-                        &paths.server_script,
-                        server.entry_sha256_pin.as_ref().unwrap(),
-                        "entry script",
-                    )?;
-                    entry.entry_sha256_pin = server.entry_sha256_pin.clone();
-                    entry.tools_hash_pin = server.tools_hash_pin.clone();
-                }
-            }
+        let file_path = discover_allowlist_path().ok_or_else(|| {
+            McpError::SecurityViolation(
+                "curated mcp_allowlist.json is required; MCP execution disabled".into(),
+            )
+        })?;
+        let file = Self::load_from_file(&file_path).map_err(|error| {
+            McpError::SecurityViolation(format!(
+                "invalid curated MCP policy {}: {error}",
+                file_path.display()
+            ))
+        })?;
+        let server = file
+            .servers
+            .iter()
+            .find(|server| server.name == "filesystem")
+            .ok_or_else(|| {
+                McpError::SecurityViolation(
+                    "curated MCP policy has no filesystem server entry".into(),
+                )
+            })?;
+        if is_unverified_pin(&server.entry_sha256_pin.clone().unwrap_or_default())
+            || is_unverified_pin(&server.tools_hash_pin.clone().unwrap_or_default())
+        {
+            return Err(McpError::SecurityViolation(
+                "filesystem allowlist entry or tools_hash pin is unverified".into(),
+            ));
         }
+        verify_file_hash(
+            &paths.server_script,
+            server.entry_sha256_pin.as_ref().unwrap(),
+            "entry script",
+        )?;
+        entry.entry_sha256_pin = server.entry_sha256_pin.clone();
+        entry.tools_hash_pin = server.tools_hash_pin.clone();
 
-        Ok(McpAllowlist {
-            servers: vec![entry],
-        })
+        Ok(McpAllowlist { servers: vec![entry] })
     }
 
     pub fn verify_and_get(&self, name: &str) -> Result<McpServerConfig, McpError> {
@@ -145,6 +151,35 @@ impl McpAllowlist {
     }
 }
 
+fn discover_allowlist_path() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("AETHER_MCP_ALLOWLIST") {
+        let path = PathBuf::from(path);
+        if path.is_file() {
+            return Some(path);
+        }
+        return None;
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        let path = cwd.join("mcp_allowlist.json");
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            for candidate in [
+                dir.join("../Resources/mcp_allowlist.json"),
+                dir.join("mcp_allowlist.json"),
+            ] {
+                if candidate.is_file() {
+                    return candidate.canonicalize().ok();
+                }
+            }
+        }
+    }
+    None
+}
+
 fn verify_file_hash(path: &Path, expected: &str, label: &str) -> Result<(), McpError> {
     if !path.exists() || !path.is_file() {
         return Err(McpError::SecurityViolation(format!(
@@ -181,15 +216,25 @@ pub(crate) fn sha256_file(path: &Path) -> Result<String, McpError> {
 
 /// Resolve node + @modelcontextprotocol/server-filesystem for Darwin harness/runtime.
 pub fn discover_filesystem_mcp() -> Result<FilesystemMcpPaths, McpError> {
-    let node = std::env::var("AETHER_MCP_NODE")
-        .ok()
-        .map(PathBuf::from)
-        .or_else(which_node)
-        .ok_or_else(|| {
+    let node_override = std::env::var("AETHER_MCP_NODE").ok().map(PathBuf::from);
+    let node = node_override.clone().or_else(which_node).ok_or_else(|| {
+        McpError::SecurityViolation(
+            "node not found — install Node.js or enroll a pinned AETHER_MCP_NODE override".into(),
+        )
+    })?;
+    if node_override.is_some() {
+        let expected = std::env::var("AETHER_MCP_NODE_SHA256").map_err(|_| {
             McpError::SecurityViolation(
-                "node not found — install Node.js or set AETHER_MCP_NODE".into(),
+                "AETHER_MCP_NODE override requires AETHER_MCP_NODE_SHA256".into(),
             )
         })?;
+        if is_unverified_pin(&expected) {
+            return Err(McpError::SecurityViolation(
+                "AETHER_MCP_NODE_SHA256 is unverified".into(),
+            ));
+        }
+        verify_file_hash(&node, &expected, "overridden node executable")?;
+    }
 
     let server_script = std::env::var("AETHER_MCP_FILESYSTEM_SCRIPT")
         .ok()

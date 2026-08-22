@@ -420,6 +420,12 @@ async fn main() {
             "Non-Darwin note: FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01 expected fail-closed when sandbox-exec/Ollama absent; SEC-01 is Ollama-independent"
         );
     }
+
+    // Darwin is the canonical product platform: a failed mandatory task must be visible in the
+    // process status, not only in text that each caller has to scrape correctly.
+    if is_darwin() && passed != total {
+        std::process::exit(1);
+    }
 }
 
 async fn ollama_chat_config() -> (String, String) {
@@ -674,6 +680,9 @@ async fn test_git_01(db: &Database) -> Result<(), String> {
         rusqlite::params![session_id, workspace_str],
     ).map_err(|e| e.to_string())?;
 
+    let existing_readme = workspace.join("README.md");
+    fs::write(&existing_readme, "user-owned README\n").map_err(|e| e.to_string())?;
+
     aether_core::GitOps::init_commit_and_branch(
         &conn,
         session_id,
@@ -684,6 +693,9 @@ async fn test_git_01(db: &Database) -> Result<(), String> {
 
     if !workspace.join(".git").exists() {
         return Err("git init did not create .git directory".into());
+    }
+    if fs::read_to_string(&existing_readme).map_err(|e| e.to_string())? != "user-owned README\n" {
+        return Err("git init overwrote the user's pre-existing README".into());
     }
 
     Ok(())
@@ -855,7 +867,10 @@ async fn rout_01_measure_ttft(
 
         let mut stream = Box::pin(
             router
-                .complete_stream(aether_core::ROUT_TTFT_PROMPT, aether_core::PromptComplexity::Simple)
+                .complete_stream_benchmark(
+                    aether_core::ROUT_TTFT_PROMPT,
+                    aether_core::PromptComplexity::Simple,
+                )
                 .await
                 .map_err(|e| format!("Timed stream failed: {}", e))?,
         );

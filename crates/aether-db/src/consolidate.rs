@@ -6,6 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use rusqlite::{params, Result};
+use sha2::{Digest, Sha256};
 
 use crate::{
     format_consolidate_review, ConsolidateEdgeDiff, ConsolidateNodeDiff, ConsolidatePreview,
@@ -31,6 +32,8 @@ pub struct ConsolidationRunListItem {
     pub dedupe_count: i64,
     pub contradiction_count: i64,
     pub review_artifact_path: Option<String>,
+    pub review_markdown: Option<String>,
+    pub review_hash: Option<String>,
     pub started_at: String,
 }
 
@@ -70,7 +73,7 @@ impl Database {
         })?;
 
         let input_count = self.get_active_graph_nodes(session_id, None)?.len();
-        let run_id = self.begin_consolidation_run(input_count)?;
+        let run_id = self.begin_consolidation_run(session_id, input_count)?;
 
         let mut preview = self.consolidate_memory_preview(session_id)?;
         preview.run_id = Some(run_id);
@@ -99,6 +102,17 @@ impl Database {
             )))
         })?;
 
+        let content_hash = format!("{:x}", Sha256::digest(json.as_bytes()));
+        {
+            let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            conn.execute(
+                "INSERT INTO consolidation_artifact_pins
+                 (run_id, session_id, canonical_json, canonical_markdown, content_hash)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![run_id, session_id, json, markdown, content_hash],
+            )?;
+        }
+
         let output_count = input_count.saturating_sub(preview.dedupe_count);
         self.finish_consolidation_run(
             run_id,
@@ -118,12 +132,12 @@ impl Database {
         })
     }
 
-    fn begin_consolidation_run(&self, input_node_count: usize) -> Result<i64> {
-        let conn = self.conn.lock().unwrap();
+    fn begin_consolidation_run(&self, session_id: &str, input_node_count: usize) -> Result<i64> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         conn.execute(
-            "INSERT INTO consolidation_runs (status, input_node_count)
-             VALUES ('running', ?1)",
-            params![input_node_count as i64],
+            "INSERT INTO consolidation_runs (session_id, status, input_node_count)
+             VALUES (?1, 'running', ?2)",
+            params![session_id, input_node_count as i64],
         )?;
         Ok(conn.last_insert_rowid())
     }
@@ -137,7 +151,7 @@ impl Database {
         contradiction_count: usize,
         review_artifact_path: &str,
     ) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         conn.execute(
             "UPDATE consolidation_runs
              SET finished_at = CURRENT_TIMESTAMP,
@@ -161,12 +175,14 @@ impl Database {
 
     /// List consolidation runs filtered by status (e.g. `review_pending` for the review UI).
     pub fn list_consolidation_runs_by_status(&self, status: &str) -> Result<Vec<ConsolidationRunListItem>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut stmt = conn.prepare(
-            "SELECT id, status, input_node_count, dedupe_count, contradiction_count,
-                    review_artifact_path, started_at
-             FROM consolidation_runs
-             WHERE status = ?1
+            "SELECT cr.id, cr.status, cr.input_node_count, cr.dedupe_count,
+                    cr.contradiction_count, cr.review_artifact_path,
+                    cap.canonical_markdown, cap.content_hash, cr.started_at
+             FROM consolidation_runs cr
+             LEFT JOIN consolidation_artifact_pins cap ON cap.run_id = cr.id
+             WHERE cr.status = ?1
              ORDER BY id DESC",
         )?;
         let rows = stmt.query_map(params![status], |row| {
@@ -177,7 +193,41 @@ impl Database {
                 dedupe_count: row.get(3)?,
                 contradiction_count: row.get(4)?,
                 review_artifact_path: row.get(5)?,
-                started_at: row.get(6)?,
+                review_markdown: row.get(6)?,
+                review_hash: row.get(7)?,
+                started_at: row.get(8)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn list_consolidation_runs_for_principal(
+        &self,
+        status: &str,
+        principal_id: &str,
+    ) -> Result<Vec<ConsolidationRunListItem>> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut stmt = conn.prepare(
+            "SELECT cr.id, cr.status, cr.input_node_count, cr.dedupe_count,
+                    cr.contradiction_count, cr.review_artifact_path,
+                    cap.canonical_markdown, cap.content_hash, cr.started_at
+             FROM consolidation_runs cr
+             JOIN session_owners so ON so.session_id = cr.session_id
+             LEFT JOIN consolidation_artifact_pins cap ON cap.run_id = cr.id
+             WHERE cr.status = ?1 AND so.principal_id = ?2
+             ORDER BY cr.id DESC",
+        )?;
+        let rows = stmt.query_map(params![status, principal_id], |row| {
+            Ok(ConsolidationRunListItem {
+                run_id: row.get(0)?,
+                status: row.get(1)?,
+                input_node_count: row.get(2)?,
+                dedupe_count: row.get(3)?,
+                contradiction_count: row.get(4)?,
+                review_artifact_path: row.get(5)?,
+                review_markdown: row.get(6)?,
+                review_hash: row.get(7)?,
+                started_at: row.get(8)?,
             })
         })?;
         rows.collect()
@@ -185,7 +235,7 @@ impl Database {
 
     /// Fetch consolidation run status (for review workflow tests).
     pub fn get_consolidation_run_status(&self, run_id: i64) -> Result<Option<String>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut stmt = conn.prepare("SELECT status FROM consolidation_runs WHERE id = ?1")?;
         let mut rows = stmt.query(params![run_id])?;
         if let Some(row) = rows.next()? {
@@ -205,13 +255,17 @@ impl Database {
     /// error — in particular, applying a `rejected` run always fails, so a stray apply call can
     /// never silently override an explicit human rejection (Phase 11 slice / CONS-01).
     pub fn apply_consolidation_run(&self, run_id: i64) -> Result<usize> {
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
 
-        let (status, artifact_path): (String, Option<String>) = conn.query_row(
-            "SELECT status, review_artifact_path FROM consolidation_runs WHERE id = ?1",
-            params![run_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )?;
+        let (status, session_id, canonical_json, stored_hash): (String, String, String, String) =
+            conn.query_row(
+                "SELECT cr.status, cr.session_id, cap.canonical_json, cap.content_hash
+                 FROM consolidation_runs cr
+                 JOIN consolidation_artifact_pins cap ON cap.run_id = cr.id
+                 WHERE cr.id = ?1",
+                params![run_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )?;
 
         if status == "applied" {
             return Ok(0);
@@ -221,26 +275,47 @@ impl Database {
                 "consolidation run {run_id} is '{status}', not 'review_pending'; cannot apply"
             )));
         }
-        let artifact_path = artifact_path.ok_or_else(|| {
-            consolidate_error(format!(
-                "consolidation run {run_id} has no review artifact to apply"
-            ))
+        let actual_hash = format!("{:x}", Sha256::digest(canonical_json.as_bytes()));
+        if actual_hash != stored_hash {
+            return Err(consolidate_error(format!(
+                "consolidation run {run_id} canonical artifact integrity mismatch"
+            )));
+        }
+        let preview: ConsolidatePreview = serde_json::from_str(&canonical_json).map_err(|e| {
+            consolidate_error(format!("parse canonical consolidation artifact: {e}"))
         })?;
-        let json = fs::read_to_string(&artifact_path).map_err(|e| {
-            consolidate_error(format!("read consolidation artifact {artifact_path}: {e}"))
-        })?;
-        let preview: ConsolidatePreview = serde_json::from_str(&json).map_err(|e| {
-            consolidate_error(format!("parse consolidation artifact {artifact_path}: {e}"))
-        })?;
+        if preview.run_id != Some(run_id) || preview.session_id != session_id {
+            return Err(consolidate_error(
+                "consolidation artifact run/session binding mismatch".into(),
+            ));
+        }
 
         let tx = conn.transaction()?;
         let mut applied = 0usize;
         for diff in &preview.nodes_superseded {
             if let Some(survivor) = &diff.superseded_by {
-                let rows = tx.execute(
-                    "UPDATE graph_nodes SET superseded_by = ?1 WHERE id = ?2 AND superseded_by IS NULL",
-                    params![survivor, diff.id],
+                let survivor_count: i64 = tx.query_row(
+                    "SELECT COUNT(*) FROM graph_nodes
+                     WHERE id = ?1 AND session_id = ?2 AND valid_to IS NULL",
+                    params![survivor, session_id],
+                    |row| row.get(0),
                 )?;
+                if survivor_count != 1 {
+                    return Err(consolidate_error(format!(
+                        "consolidation survivor {survivor} is not active in session {session_id}"
+                    )));
+                }
+                let rows = tx.execute(
+                    "UPDATE graph_nodes SET superseded_by = ?1
+                     WHERE id = ?2 AND session_id = ?3 AND superseded_by IS NULL",
+                    params![survivor, diff.id, session_id],
+                )?;
+                if rows != 1 {
+                    return Err(consolidate_error(format!(
+                        "consolidation duplicate {} is not active in session {}",
+                        diff.id, session_id
+                    )));
+                }
                 applied += rows;
             }
         }
@@ -256,7 +331,7 @@ impl Database {
     /// Reject a `review_pending` consolidation run: mark it `rejected` without mutating any graph
     /// node. Fails closed on any status other than `review_pending` (Phase 11 slice / CONS-01).
     pub fn reject_consolidation_run(&self, run_id: i64) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let status: String = conn.query_row(
             "SELECT status FROM consolidation_runs WHERE id = ?1",
             params![run_id],

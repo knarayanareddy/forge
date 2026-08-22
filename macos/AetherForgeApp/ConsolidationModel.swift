@@ -69,10 +69,8 @@ final class ConsolidationModel {
         previewMarkdown = nil
         guard let runId = selectedRunId,
               let run = pendingRuns.first(where: { $0.id == runId }),
-              let jsonPath = run.reviewArtifactPath else { return }
-        let mdPath = jsonPath.replacingOccurrences(of: ".json", with: ".md")
-        if let markdown = try? String(contentsOfFile: mdPath, encoding: .utf8) {
-            previewMarkdown = markdown
-        }
+              let markdown = run.reviewMarkdown,
+              let digest = run.reviewHash else { return }
+        previewMarkdown = "Plan SHA-256: \(digest)\n\n\(markdown)"
     }
 }

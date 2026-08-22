@@ -26,6 +26,27 @@ pub struct Database {
     conn: Arc<Mutex<Connection>>,
 }
 
+fn ensure_column(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<()> {
+    let mut statement = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let exists = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|name| name == column);
+    if !exists {
+        conn.execute(
+            &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
+            [],
+        )?;
+    }
+    Ok(())
+}
+
 impl Clone for Database {
     fn clone(&self) -> Self {
         Self {
@@ -49,7 +70,7 @@ impl Database {
             conn: Arc::new(Mutex::new(conn)),
         };
         db.init_schema()?;
-        RecoveryManager::recover_on_startup(&db.conn.lock().unwrap())?;
+        RecoveryManager::recover_on_startup(&db.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner()))?;
         Ok(db)
     }
 
@@ -66,12 +87,12 @@ impl Database {
             conn: Arc::new(Mutex::new(conn)),
         };
         db.init_schema()?;
-        RecoveryManager::recover_on_startup(&db.conn.lock().unwrap())?;
+        RecoveryManager::recover_on_startup(&db.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner()))?;
         Ok(db)
     }
 
     pub fn init_schema(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         conn.execute_batch("
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
@@ -79,6 +100,13 @@ impl Database {
                 status TEXT NOT NULL CHECK(status IN ('active', 'paused', 'completed', 'failed')),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS session_owners (
+                session_id TEXT PRIMARY KEY,
+                principal_id TEXT NOT NULL,
+                claimed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS capability_grants (
@@ -105,6 +133,7 @@ impl Database {
             CREATE TABLE IF NOT EXISTS semantic_memory (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 chunk_id TEXT UNIQUE NOT NULL,
+                session_id TEXT NOT NULL DEFAULT '',
                 source_uri TEXT NOT NULL,
                 model_id TEXT NOT NULL DEFAULT 'all-MiniLM-L6-v2',
                 dimension INTEGER NOT NULL DEFAULT 384 CHECK(dimension = 384),
@@ -133,6 +162,14 @@ impl Database {
 
             CREATE VIRTUAL TABLE IF NOT EXISTS semantic_memory_vec USING vec0(
                 embedding float[384] distance_metric=cosine
+            );
+
+            CREATE TABLE IF NOT EXISTS installed_skills (
+                skill_id TEXT PRIMARY KEY,
+                content_hash TEXT NOT NULL,
+                manifest_json TEXT NOT NULL,
+                source TEXT NOT NULL,
+                installed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
             CREATE TABLE IF NOT EXISTS procedural_skills (
@@ -231,6 +268,7 @@ impl Database {
 
             CREATE TABLE IF NOT EXISTS consolidation_runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL DEFAULT '',
                 started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 finished_at TIMESTAMP,
                 status TEXT NOT NULL CHECK(status IN ('running', 'review_pending', 'applied', 'rejected')),
@@ -240,6 +278,16 @@ impl Database {
                 dedupe_count INTEGER DEFAULT 0,
                 review_artifact_path TEXT,
                 applied_at TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS consolidation_artifact_pins (
+                run_id INTEGER PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                canonical_json TEXT NOT NULL,
+                canonical_markdown TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(run_id) REFERENCES consolidation_runs(id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS checkpoints (
@@ -253,6 +301,36 @@ impl Database {
                 turn_watermark INTEGER NOT NULL,
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 last_rewound_at TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS pending_approvals (
+                approval_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                workspace_path TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                plan_json TEXT NOT NULL,
+                plan_digest TEXT NOT NULL,
+                max_iterations INTEGER NOT NULL,
+                max_tokens INTEGER NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('pending', 'consumed', 'expired')),
+                created_at INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL,
+                consumed_at INTEGER,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_pending_approvals_session_status
+                ON pending_approvals(session_id, status);
+
+            CREATE TABLE IF NOT EXISTS checkpoint_operations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                checkpoint_id INTEGER NOT NULL,
+                session_id TEXT NOT NULL,
+                state TEXT NOT NULL CHECK(state IN ('started','files_reverted','log_truncated','completed','failed')),
+                error TEXT,
+                started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                finished_at TIMESTAMP,
+                FOREIGN KEY(checkpoint_id) REFERENCES checkpoints(id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS query_policy (
@@ -275,6 +353,7 @@ impl Database {
                 trigger_id TEXT NOT NULL,
                 session_id TEXT NOT NULL,
                 is_stale BOOLEAN DEFAULT 0,
+                config_hash TEXT NOT NULL DEFAULT '',
                 granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
                 UNIQUE(trigger_id, session_id)
@@ -308,6 +387,8 @@ impl Database {
                 detail_json TEXT NOT NULL DEFAULT '{}',
                 enqueued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 started_at TIMESTAMP,
+                lease_expires_at INTEGER,
+                attempt_count INTEGER NOT NULL DEFAULT 0,
                 finished_at TIMESTAMP,
                 FOREIGN KEY(trigger_id) REFERENCES automation_triggers(trigger_id) ON DELETE CASCADE,
                 FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
@@ -322,6 +403,7 @@ impl Database {
                 session_id TEXT NOT NULL,
                 channel_type TEXT NOT NULL CHECK(channel_type IN ('slack', 'telegram', 'discord')),
                 is_stale BOOLEAN DEFAULT 0,
+                config_hash TEXT NOT NULL DEFAULT '',
                 granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
                 UNIQUE(channel_id, session_id)
@@ -343,11 +425,83 @@ impl Database {
 
             CREATE INDEX IF NOT EXISTS idx_gateway_channels_session
                 ON gateway_channels(session_id);
-        ")
+
+            CREATE TABLE IF NOT EXISTS gateway_events (
+                channel_id TEXT NOT NULL,
+                provider_event_id TEXT NOT NULL,
+                sender_id TEXT NOT NULL,
+                received_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(channel_id, provider_event_id),
+                FOREIGN KEY(channel_id) REFERENCES gateway_channels(channel_id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS automation_webhook_events (
+                trigger_id TEXT NOT NULL,
+                provider_event_id TEXT NOT NULL,
+                received_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(trigger_id, provider_event_id),
+                FOREIGN KEY(trigger_id) REFERENCES automation_triggers(trigger_id) ON DELETE CASCADE
+            );
+        ")?;
+
+        ensure_column(&conn, "semantic_memory", "session_id", "TEXT NOT NULL DEFAULT ''")?;
+        ensure_column(&conn, "consolidation_runs", "session_id", "TEXT NOT NULL DEFAULT ''")?;
+        ensure_column(&conn, "automation_grants", "config_hash", "TEXT NOT NULL DEFAULT ''")?;
+        ensure_column(&conn, "gateway_grants", "config_hash", "TEXT NOT NULL DEFAULT ''")?;
+        ensure_column(&conn, "automation_queue", "lease_expires_at", "INTEGER")?;
+        ensure_column(
+            &conn,
+            "automation_queue",
+            "attempt_count",
+            "INTEGER NOT NULL DEFAULT 0",
+        )?;
+        ensure_column(&conn, "pending_approvals", "plan_digest", "TEXT NOT NULL DEFAULT ''")?;
+        ensure_column(
+            &conn,
+            "pending_approvals",
+            "max_iterations",
+            "INTEGER NOT NULL DEFAULT 8",
+        )?;
+        ensure_column(
+            &conn,
+            "pending_approvals",
+            "max_tokens",
+            "INTEGER NOT NULL DEFAULT 16384",
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_semantic_memory_session ON semantic_memory(session_id)",
+            [],
+        )?;
+        Ok(())
     }
 
     pub fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
-        self.conn.lock().unwrap()
+        self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub fn purge_expired_data(&self, retention_days: u32) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let tx = conn.transaction()?;
+        let modifier = format!("-{} days", retention_days.max(1));
+        tx.execute(
+            "DELETE FROM semantic_memory_vec WHERE rowid IN (
+                SELECT id FROM semantic_memory WHERE created_at < datetime('now', ?1)
+            )",
+            rusqlite::params![modifier],
+        )?;
+        tx.execute(
+            "DELETE FROM semantic_memory WHERE created_at < datetime('now', ?1)",
+            rusqlite::params![modifier],
+        )?;
+        tx.execute(
+            "DELETE FROM conversations WHERE created_at < datetime('now', ?1)",
+            rusqlite::params![modifier],
+        )?;
+        tx.execute(
+            "DELETE FROM pending_approvals WHERE expires_at < strftime('%s','now')",
+            [],
+        )?;
+        tx.commit()
     }
 
     pub fn insert_memory_chunk(
@@ -357,14 +511,34 @@ impl Database {
         chunk_text: &str,
         embedding: &[f32],
     ) -> Result<i64> {
+        self.insert_memory_chunk_scoped("", chunk_id, source_uri, chunk_text, embedding)
+    }
+
+    pub fn insert_memory_chunk_scoped(
+        &self,
+        session_id: &str,
+        chunk_id: &str,
+        source_uri: &str,
+        chunk_text: &str,
+        embedding: &[f32],
+    ) -> Result<i64> {
         assert_eq!(embedding.len(), 384, "Embedding dimension must be exactly 384");
 
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let tx = conn.transaction()?;
 
         tx.execute(
-            "INSERT INTO semantic_memory (chunk_id, source_uri, model_id, dimension, chunk_text) VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![chunk_id, source_uri, "all-MiniLM-L6-v2", 384, chunk_text],
+            "INSERT INTO semantic_memory
+             (chunk_id, session_id, source_uri, model_id, dimension, chunk_text)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                chunk_id,
+                session_id,
+                source_uri,
+                "all-MiniLM-L6-v2",
+                384,
+                chunk_text
+            ],
         )?;
         let surrogate_id = tx.last_insert_rowid();
 
@@ -435,6 +609,54 @@ impl Database {
             .collect())
     }
 
+    /// Session-scoped hybrid retrieval. Filtering happens inside both FTS and vector SQL queries,
+    /// never after global ranking, preventing cross-session starvation or prefix collisions.
+    pub fn search_semantic_memory_hybrid_scoped(
+        &self,
+        session_id: &str,
+        query_text: &str,
+        query_embedding: &[f32],
+        limit: usize,
+    ) -> Result<Vec<(String, String, f32)>> {
+        assert_eq!(query_embedding.len(), 384, "Query embedding dimension must be exactly 384");
+        const RRF_K: f64 = 60.0;
+        let fetch = limit.saturating_mul(4).max(limit);
+        let fts_ranks = self.search_fts_ranked_scoped(session_id, query_text, fetch)?;
+        let vec_ranks = self
+            .search_semantic_memory_linear_scoped(session_id, query_embedding, fetch)?;
+        let mut scores: std::collections::HashMap<String, (String, f64)> =
+            std::collections::HashMap::new();
+        let mut similarities = std::collections::HashMap::new();
+        for (rank, (id, text, _)) in fts_ranks.into_iter().enumerate() {
+            scores
+                .entry(id)
+                .and_modify(|(_, score)| *score += 1.0 / (RRF_K + rank as f64 + 1.0))
+                .or_insert((text, 1.0 / (RRF_K + rank as f64 + 1.0)));
+        }
+        for (rank, (id, text, similarity)) in vec_ranks.into_iter().enumerate() {
+            similarities.insert(id.clone(), similarity);
+            scores
+                .entry(id)
+                .and_modify(|(_, score)| *score += 1.0 / (RRF_K + rank as f64 + 1.0))
+                .or_insert((text, 1.0 / (RRF_K + rank as f64 + 1.0)));
+        }
+        let mut fused: Vec<_> = scores
+            .into_iter()
+            .map(|(id, (text, score))| {
+                let similarity = similarities.get(&id).copied().unwrap_or(0.0);
+                (id, text, score, similarity)
+            })
+            .collect();
+        fused.sort_by(|left, right| {
+            right.2.partial_cmp(&left.2).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        fused.truncate(limit);
+        Ok(fused
+            .into_iter()
+            .map(|(id, text, _, similarity)| (id, text, similarity))
+            .collect())
+    }
+
     /// Hybrid retrieval with optional 1-hop graph RRF (Phase 6).
     ///
     /// When `query_policy.graph_hop_depth = 0`, returns the same ranking as
@@ -461,14 +683,19 @@ impl Database {
 
         let policy = self.get_query_policy(policy_name)?;
         if policy.graph_hop_depth == 0 {
-            return self.search_semantic_memory_hybrid(query_text, query_embedding, limit);
+            return self.search_semantic_memory_hybrid_scoped(
+                session_id,
+                query_text,
+                query_embedding,
+                limit,
+            );
         }
 
         let fetch = limit.saturating_mul(4).max(limit);
 
-        let fts_ranks = self.search_fts_ranked(query_text, fetch)?;
-        let vec_ranks = self.search_semantic_memory_knn(query_embedding, fetch)
-            .or_else(|_| self.search_semantic_memory_linear(query_embedding, fetch))?;
+        let fts_ranks = self.search_fts_ranked_scoped(session_id, query_text, fetch)?;
+        let vec_ranks =
+            self.search_semantic_memory_linear_scoped(session_id, query_embedding, fetch)?;
 
         let mut seed_chunk_ids: Vec<String> = Vec::new();
         for (chunk_id, _, _) in fts_ranks.iter().chain(vec_ranks.iter()) {
@@ -551,12 +778,40 @@ impl Database {
             .collect())
     }
 
+    fn search_fts_ranked_scoped(
+        &self,
+        session_id: &str,
+        query_text: &str,
+        limit: usize,
+    ) -> Result<Vec<(String, String, f32)>> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let fts_query = fts5_query_from_text(query_text);
+        if fts_query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut stmt = conn.prepare(
+            "SELECT sm.chunk_id, sm.chunk_text, bm25(semantic_memory_fts) AS rank
+             FROM semantic_memory_fts
+             JOIN semantic_memory sm ON sm.id = semantic_memory_fts.rowid
+             WHERE semantic_memory_fts MATCH ?1 AND sm.session_id = ?2
+             ORDER BY rank LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(
+            rusqlite::params![fts_query, session_id, limit as i64],
+            |row| {
+                let rank: f64 = row.get(2)?;
+                Ok((row.get(0)?, row.get(1)?, (-rank).max(0.0) as f32))
+            },
+        )?;
+        rows.collect()
+    }
+
     fn search_fts_ranked(
         &self,
         query_text: &str,
         limit: usize,
     ) -> Result<Vec<(String, String, f32)>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let fts_query = fts5_query_from_text(query_text);
         if fts_query.is_empty() {
             return Ok(Vec::new());
@@ -602,7 +857,7 @@ impl Database {
         query_embedding: &[f32],
         limit: usize,
     ) -> Result<Vec<(String, String, f32)>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let embedding_bytes: &[u8] = unsafe {
             std::slice::from_raw_parts(
                 query_embedding.as_ptr() as *const u8,
@@ -632,12 +887,49 @@ impl Database {
         Ok(results)
     }
 
+    fn search_semantic_memory_linear_scoped(
+        &self,
+        session_id: &str,
+        query_embedding: &[f32],
+        limit: usize,
+    ) -> Result<Vec<(String, String, f32)>> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut stmt = conn.prepare(
+            "SELECT sm.chunk_id, sm.chunk_text, v.embedding
+             FROM semantic_memory_vec v
+             JOIN semantic_memory sm ON sm.id = v.rowid
+             WHERE sm.session_id = ?1",
+        )?;
+        let mut rows = stmt.query(rusqlite::params![session_id])?;
+        let mut results = Vec::new();
+        while let Some(row) = rows.next()? {
+            let blob: Vec<u8> = row.get(2)?;
+            if blob.len() != 384 * std::mem::size_of::<f32>() {
+                continue;
+            }
+            let vector: Vec<f32> = blob
+                .chunks_exact(4)
+                .map(|bytes| f32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+                .collect();
+            results.push((
+                row.get(0)?,
+                row.get(1)?,
+                cosine_similarity(query_embedding, &vector),
+            ));
+        }
+        results.sort_by(|left, right| {
+            right.2.partial_cmp(&left.2).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        results.truncate(limit);
+        Ok(results)
+    }
+
     fn search_semantic_memory_linear(
         &self,
         query_embedding: &[f32],
         limit: usize,
     ) -> Result<Vec<(String, String, f32)>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut stmt = conn.prepare(
             "SELECT sm.chunk_id, sm.chunk_text, v.embedding
              FROM semantic_memory_vec v
@@ -653,14 +945,14 @@ impl Database {
             let embedding_blob: Vec<u8> = row.get(2)?;
 
             if embedding_blob.len() == 384 * std::mem::size_of::<f32>() {
-                let db_vec: &[f32] = unsafe {
-                    std::slice::from_raw_parts(
-                        embedding_blob.as_ptr() as *const f32,
-                        384
-                    )
-                };
-
-                let similarity = cosine_similarity(query_embedding, db_vec);
+                // SQLite returns a byte-aligned Vec<u8>; casting it to &[f32] can create a
+                // misaligned reference (undefined behavior). Decode explicit native-endian words
+                // instead. Embeddings are stored from native f32 bytes by this same binary.
+                let db_vec: Vec<f32> = embedding_blob
+                    .chunks_exact(std::mem::size_of::<f32>())
+                    .map(|bytes| f32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+                    .collect();
+                let similarity = cosine_similarity(query_embedding, &db_vec);
                 scored_results.push((chunk_id, chunk_text, similarity));
             }
         }
@@ -918,20 +1210,24 @@ mod tests {
     #[test]
     fn test_hybrid_with_graph_hop_zero_parity_with_phase5_hybrid() {
         let db = Database::open_in_memory().unwrap();
+        let session_id = "sess-hybrid-zero-hop";
+        seed_session(&db, session_id);
         set_graph_hop_depth(&db, 0);
 
         let emb_a = vec![1.0f32; 384];
         let mut emb_b = vec![0.0f32; 384];
         emb_b[0] = 1.0;
 
-        db.insert_memory_chunk(
+        db.insert_memory_chunk_scoped(
+            session_id,
             "chk-fact-a",
             "memory://fact-a",
             "AetherForge secure local Mac agent runtime",
             &emb_a,
         )
         .unwrap();
-        db.insert_memory_chunk(
+        db.insert_memory_chunk_scoped(
+            session_id,
             "chk-fact-b",
             "memory://fact-b",
             "Python data science web backend programming",
@@ -943,10 +1239,10 @@ mod tests {
         let query = "AetherForge Mac agent platform";
 
         let baseline = db
-            .search_semantic_memory_hybrid(query, &query_emb, 2)
+            .search_semantic_memory_hybrid_scoped(session_id, query, &query_emb, 2)
             .unwrap();
         let with_graph = db
-            .search_hybrid_with_graph("unused-session", query, &query_emb, 2)
+            .search_hybrid_with_graph(session_id, query, &query_emb, 2)
             .unwrap();
 
         assert_eq!(with_graph.len(), baseline.len());
@@ -970,14 +1266,16 @@ mod tests {
         emb_noise[0] = 1.0;
         let emb_maintainer = vec![0.0f32; 384];
 
-        db.insert_memory_chunk(
+        db.insert_memory_chunk_scoped(
+            "sess-hybrid-graph",
             "chk-noise",
             "memory://noise",
             "Generic platform runtime overview",
             &emb_noise,
         )
         .unwrap();
-        db.insert_memory_chunk(
+        db.insert_memory_chunk_scoped(
+            "sess-hybrid-graph",
             "chk-maintainer",
             "memory://maintainer",
             "Alex keeps the forge service healthy",

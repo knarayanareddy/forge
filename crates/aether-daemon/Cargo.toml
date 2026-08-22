@@ -2,6 +2,9 @@
 name = "aether-daemon"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/knarayanareddy/forge"
 
 [lib]
 name = "aether_daemon"
@@ -31,6 +34,7 @@ aether-mcp = { path = "../aether-mcp" }
 aether-skills = { path = "../aether-skills" }
 aether-sandbox = { path = "../aether-sandbox" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+sha2 = "0.10"
 
 [dev-dependencies]
 tempfile = "3.10"

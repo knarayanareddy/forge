@@ -3,6 +3,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
+use crate::webhook_auth::{constant_time_eq, env_channel_suffix};
+
 use crate::gateway::inbound;
 use crate::gateway::GatewayChannelType;
 use crate::DaemonState;
@@ -43,10 +45,7 @@ pub fn normalize_message(task_prompt: &str, user_text: &str) -> String {
 }
 
 fn gateway_token_env_key(channel_id: &str) -> String {
-    format!(
-        "AETHER_GATEWAY_TOKEN_{}",
-        channel_id.to_ascii_uppercase().replace('-', "_")
-    )
+    format!("AETHER_GATEWAY_TOKEN_{}", env_channel_suffix(channel_id))
 }
 
 pub fn resolve_bot_token(channel_id: &str) -> Result<Option<String>, String> {
@@ -68,7 +67,7 @@ pub fn resolve_bot_token(channel_id: &str) -> Result<Option<String>, String> {
 fn webhook_secret_env_key(channel_id: &str) -> String {
     format!(
         "AETHER_GATEWAY_WEBHOOK_SECRET_{}",
-        channel_id.to_ascii_uppercase().replace('-', "_")
+        env_channel_suffix(channel_id)
     )
 }
 
@@ -83,10 +82,10 @@ pub fn verify_webhook_secret(provided: Option<&str>, channel_id: &str) -> Result
         });
 
     let Some(expected) = expected else {
-        return Ok(());
+        return Err("telegram webhook secret is not configured; webhook disabled".into());
     };
 
-    if provided == Some(expected.as_str()) {
+    if provided.is_some_and(|value| constant_time_eq(value, &expected)) {
         Ok(())
     } else {
         Err("invalid telegram webhook secret".into())
@@ -162,6 +161,19 @@ pub async fn run_long_poll(state: Arc<DaemonState>, channel_id: String) {
                 offset = update_id + 1;
             }
             let update_json = update.to_string();
+            let authorization = {
+                let conn = state.db.conn();
+                inbound::authorize_and_claim_remote_event(
+                    &conn,
+                    GatewayChannelType::Telegram,
+                    &channel_id,
+                    &update_json,
+                )
+            };
+            if let Err(error) = authorization {
+                warn!(channel_id = %channel_id, error = %error, "telegram update rejected");
+                continue;
+            }
             match inbound::handle_inbound_and_run(
                 &state,
                 GatewayChannelType::Telegram,

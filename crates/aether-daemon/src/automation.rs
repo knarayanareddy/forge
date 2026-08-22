@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use crate::webhook_auth::{constant_time_eq, hmac_sha256_hex};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TriggerType {
@@ -255,13 +257,14 @@ impl AutomationScheduler {
         Ok(outcomes)
     }
 
-    /// Slice 7.2: PR webhook stub — validate optional secret and enqueue.
+    /// Authenticate a GitHub-compatible PR webhook, reject replay, and enqueue.
     pub fn handle_pr_webhook(
         &mut self,
         conn: &Connection,
         trigger_id: &str,
         payload: &str,
-        provided_secret: Option<&str>,
+        provided_signature: Option<&str>,
+        delivery_id: Option<&str>,
     ) -> Result<AutomationOutcome, String> {
         let trigger = Self::load_trigger(conn, trigger_id)?
             .ok_or_else(|| format!("unknown trigger_id {}", trigger_id))?;
@@ -270,26 +273,45 @@ impl AutomationScheduler {
             return Err(format!("trigger {} is not pr_webhook", trigger_id));
         }
 
-        if let Some(expected) = trigger.config.webhook_secret.as_deref() {
-            if provided_secret != Some(expected) {
-                AutomationGrant::audit_event(
-                    conn,
-                    &trigger.session_id,
-                    trigger_id,
-                    "webhook_denied",
-                    &PermissionDecision::Denied,
-                    &serde_json::json!({"reason": "invalid webhook secret"}),
-                )
-                .map_err(|e| e.to_string())?;
-                return Ok(AutomationOutcome::Denied {
-                    trigger_id: trigger_id.to_string(),
-                    reason: "invalid webhook secret".into(),
-                });
-            }
+        let Some(secret) = trigger.config.webhook_secret.as_deref() else {
+            return Ok(AutomationOutcome::Denied {
+                trigger_id: trigger_id.to_string(),
+                reason: "webhook signing secret is not configured; trigger disabled".into(),
+            });
+        };
+        let expected_signature = format!(
+            "sha256={}",
+            hmac_sha256_hex(secret.as_bytes(), payload.as_bytes())
+        );
+        if !provided_signature
+            .is_some_and(|provided| constant_time_eq(provided, &expected_signature))
+        {
+            AutomationGrant::audit_event(
+                conn,
+                &trigger.session_id,
+                trigger_id,
+                "webhook_denied",
+                &PermissionDecision::Denied,
+                &serde_json::json!({"reason": "invalid webhook signature"}),
+            )
+            .map_err(|e| e.to_string())?;
+            return Ok(AutomationOutcome::Denied {
+                trigger_id: trigger_id.to_string(),
+                reason: "invalid webhook signature".into(),
+            });
         }
+        let delivery_id = delivery_id
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "missing X-GitHub-Delivery id".to_string())?;
 
         let _: serde_json::Value =
             serde_json::from_str(payload).map_err(|e| format!("invalid webhook JSON: {}", e))?;
+        conn.execute(
+            "INSERT INTO automation_webhook_events (trigger_id, provider_event_id)
+             VALUES (?1, ?2)",
+            params![trigger_id, delivery_id],
+        )
+        .map_err(|_| "automation webhook replay detected".to_string())?;
 
         self.fire_trigger(
             conn,
@@ -390,6 +412,13 @@ impl AutomationScheduler {
     where
         F: FnMut(&AutomationTrigger) -> Result<(), String>,
     {
+        conn.execute(
+            "UPDATE automation_queue
+             SET status = 'pending', started_at = NULL, lease_expires_at = NULL
+             WHERE status = 'running' AND lease_expires_at < strftime('%s','now')",
+            [],
+        )
+        .map_err(|error| error.to_string())?;
         let mut stmt = conn
             .prepare(
                 "SELECT q.id, t.trigger_id, t.trigger_type, t.session_id, t.config_json,
@@ -442,17 +471,25 @@ impl AutomationScheduler {
                 continue;
             }
 
-            conn.execute(
-                "UPDATE automation_queue SET status = 'running', started_at = CURRENT_TIMESTAMP
-                 WHERE id = ?1",
+            let claimed = conn.execute(
+                "UPDATE automation_queue
+                 SET status = 'running', started_at = CURRENT_TIMESTAMP,
+                     lease_expires_at = strftime('%s','now') + 120,
+                     attempt_count = attempt_count + 1
+                 WHERE id = ?1 AND status = 'pending'",
                 params![queue_id],
             )
             .map_err(|e| e.to_string())?;
+            if claimed != 1 {
+                continue;
+            }
 
             let run_result = runner(&trigger);
             let status = if run_result.is_ok() { "completed" } else { "failed" };
             conn.execute(
-                "UPDATE automation_queue SET status = ?1, finished_at = CURRENT_TIMESTAMP WHERE id = ?2",
+                "UPDATE automation_queue
+                 SET status = ?1, finished_at = CURRENT_TIMESTAMP, lease_expires_at = NULL
+                 WHERE id = ?2",
                 params![status, queue_id],
             )
             .map_err(|e| e.to_string())?;
@@ -619,10 +656,9 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         let conn = db.conn();
         seed_session(&conn);
-        AutomationGrant::grant(&conn, "trg-cron-ok", "sess-auto").unwrap();
-
         let trigger = sample_trigger("trg-cron-ok", TriggerType::Cron);
         AutomationScheduler::register_trigger(&conn, &trigger).unwrap();
+        AutomationGrant::grant(&conn, "trg-cron-ok", "sess-auto").unwrap();
 
         let mut scheduler = AutomationScheduler::new();
         let outcomes = scheduler
@@ -645,7 +681,6 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         let conn = db.conn();
         seed_session(&conn);
-        AutomationGrant::grant(&conn, "trg-drain", "sess-auto").unwrap();
 
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().to_path_buf();
@@ -681,6 +716,7 @@ mod tests {
             last_fired_at: None,
         };
         AutomationScheduler::register_trigger(&conn, &trigger).unwrap();
+        AutomationGrant::grant(&conn, "trg-drain", "sess-auto").unwrap();
 
         let mut scheduler = AutomationScheduler::new();
         scheduler
@@ -714,7 +750,6 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         let conn = db.conn();
         seed_session(&conn);
-        AutomationGrant::grant(&conn, "trg-file", "sess-auto").unwrap();
 
         let dir = tempfile::tempdir().unwrap();
         let watch = dir.path().join("watch.txt");
@@ -723,6 +758,7 @@ mod tests {
         let mut trigger = sample_trigger("trg-file", TriggerType::FileWatch);
         trigger.config.watch_path = Some(watch.to_string_lossy().to_string());
         AutomationScheduler::register_trigger(&conn, &trigger).unwrap();
+        AutomationGrant::grant(&conn, "trg-file", "sess-auto").unwrap();
 
         let mut scheduler = AutomationScheduler::new();
         let baseline = scheduler.poll_file_watchers(&conn).unwrap();
@@ -755,8 +791,50 @@ mod tests {
 
         let mut scheduler = AutomationScheduler::new();
         let outcome = scheduler
-            .handle_pr_webhook(&conn, "trg-pr", r#"{"action":"opened"}"#, Some("wrong"))
+            .handle_pr_webhook(
+                &conn,
+                "trg-pr",
+                r#"{"action":"opened"}"#,
+                Some("sha256=wrong"),
+                Some("delivery-bad-signature"),
+            )
             .unwrap();
         assert!(matches!(outcome, AutomationOutcome::Denied { .. }));
+    }
+
+    #[test]
+    fn pr_webhook_accepts_valid_signature_once_and_rejects_replay() {
+        let db = Database::open_in_memory().unwrap();
+        let conn = db.conn();
+        seed_session(&conn);
+        let trigger = sample_trigger("trg-pr-valid", TriggerType::PrWebhook);
+        AutomationScheduler::register_trigger(&conn, &trigger).unwrap();
+        AutomationGrant::grant(&conn, "trg-pr-valid", "sess-auto").unwrap();
+
+        let payload = r#"{"action":"opened"}"#;
+        let signature = format!(
+            "sha256={}",
+            hmac_sha256_hex(b"secret", payload.as_bytes())
+        );
+        let mut scheduler = AutomationScheduler::new();
+        let first = scheduler
+            .handle_pr_webhook(
+                &conn,
+                "trg-pr-valid",
+                payload,
+                Some(&signature),
+                Some("delivery-once"),
+            )
+            .unwrap();
+        assert!(matches!(first, AutomationOutcome::Enqueued { .. }));
+        assert!(scheduler
+            .handle_pr_webhook(
+                &conn,
+                "trg-pr-valid",
+                payload,
+                Some(&signature),
+                Some("delivery-once"),
+            )
+            .is_err());
     }
 }

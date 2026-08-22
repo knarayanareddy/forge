@@ -2,6 +2,9 @@
 name = "aether-db"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/knarayanareddy/forge"
 
 [[bin]]
 name = "consolidate-memory"
@@ -13,6 +16,7 @@ sqlite-vec = "0.1.6"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
+sha2 = "0.10"
 tokio = { version = "1.38", features = ["full"] }
 
 [dev-dependencies]

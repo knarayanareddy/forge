@@ -8,6 +8,7 @@
 
 use aether_core::LoopStreamEvent;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -15,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Bump when the on-disk record shape changes. Readers must reject unknown versions rather than
 /// guess — silent schema drift is exactly the kind of theater this project's docs warn against.
-pub const SESSION_LOG_SCHEMA_VERSION: u32 = 2;
+pub const SESSION_LOG_SCHEMA_VERSION: u32 = 3;
 
 /// One entry in a session's JSONL transcript. `TurnStart` brackets every other payload so a
 /// session log with N turns always contains exactly N `TurnStart` records.
@@ -82,6 +83,10 @@ pub struct SessionLogRecord {
     pub seq: u64,
     pub unix_ms: u128,
     pub payload: SessionLogPayload,
+    #[serde(default)]
+    pub prev_hash: String,
+    #[serde(default)]
+    pub content_hash: String,
 }
 
 fn now_ms() -> u128 {
@@ -93,22 +98,62 @@ fn now_ms() -> u128 {
 
 /// Session ids can be attacker-influenced (IPC params, gateway/automation config). Never let one
 /// escape the log directory via path separators or traversal segments.
-fn sanitize_session_id(session_id: &str) -> String {
-    let cleaned: String = session_id
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    if cleaned.is_empty() {
-        "unknown-session".to_string()
+fn session_file_key(session_id: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"aether-session-file-v1\0");
+    hasher.update(session_id.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+fn integrity_key() -> Vec<u8> {
+    std::env::var("AETHER_LOG_INTEGRITY_KEY")
+        .unwrap_or_else(|_| "aether-test-log-key".into())
+        .into_bytes()
+}
+
+fn hmac_sha256_hex(key: &[u8], message: &[u8]) -> String {
+    const BLOCK: usize = 64;
+    let mut normalized = [0u8; BLOCK];
+    if key.len() > BLOCK {
+        let digest = Sha256::digest(key);
+        normalized[..digest.len()].copy_from_slice(&digest);
     } else {
-        cleaned
+        normalized[..key.len()].copy_from_slice(key);
     }
+    let mut inner_pad = [0x36u8; BLOCK];
+    let mut outer_pad = [0x5cu8; BLOCK];
+    for index in 0..BLOCK {
+        inner_pad[index] ^= normalized[index];
+        outer_pad[index] ^= normalized[index];
+    }
+    let mut inner = Sha256::new();
+    inner.update(inner_pad);
+    inner.update(message);
+    let mut outer = Sha256::new();
+    outer.update(outer_pad);
+    outer.update(inner.finalize());
+    format!("{:x}", outer.finalize())
+}
+
+fn record_hash(
+    key: &[u8],
+    prev_hash: &str,
+    session_id: &str,
+    turn_index: u32,
+    seq: u64,
+    unix_ms: u128,
+    payload: &SessionLogPayload,
+) -> io::Result<String> {
+    let payload = serde_json::to_vec(payload)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(prev_hash.as_bytes());
+    bytes.extend_from_slice(session_id.as_bytes());
+    bytes.extend_from_slice(&turn_index.to_le_bytes());
+    bytes.extend_from_slice(&seq.to_le_bytes());
+    bytes.extend_from_slice(&unix_ms.to_le_bytes());
+    bytes.extend_from_slice(&payload);
+    Ok(hmac_sha256_hex(key, &bytes))
 }
 
 pub fn default_log_dir() -> PathBuf {
@@ -121,23 +166,53 @@ pub fn default_log_dir() -> PathBuf {
 
 pub struct SessionLogWriter {
     dir: PathBuf,
+    enabled: bool,
 }
 
 impl SessionLogWriter {
     pub fn new(dir: PathBuf) -> Self {
-        Self { dir }
+        Self { dir, enabled: true }
     }
 
     /// Resolves `AETHER_SESSION_LOG_DIR`, falling back to `~/.aether/sessions`. Production code
     /// (`task_runner::execute_structured_loop`) uses this; tests that need isolation should use
     /// [`SessionLogWriter::new`] with an explicit temp directory instead of mutating process env.
     pub fn from_env() -> Self {
-        Self::new(default_log_dir())
+        let enabled = std::env::var("AETHER_ENABLE_SESSION_LOGS")
+            .is_ok_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+            || std::env::var_os("AETHER_SESSION_LOG_DIR").is_some();
+        Self {
+            dir: default_log_dir(),
+            enabled,
+        }
+    }
+
+    pub fn purge_expired_logs(&self, retention_days: u32) -> io::Result<usize> {
+        if !self.enabled || !self.dir.is_dir() {
+            return Ok(0);
+        }
+        let cutoff = SystemTime::now()
+            .checked_sub(std::time::Duration::from_secs(
+                retention_days.max(1) as u64 * 86_400,
+            ))
+            .unwrap_or(UNIX_EPOCH);
+        let mut removed = 0;
+        for entry in fs::read_dir(&self.dir)? {
+            let entry = entry?;
+            if entry.path().extension().and_then(|value| value.to_str()) != Some("jsonl") {
+                continue;
+            }
+            if entry.metadata()?.modified().unwrap_or(SystemTime::now()) < cutoff {
+                fs::remove_file(entry.path())?;
+                removed += 1;
+            }
+        }
+        Ok(removed)
     }
 
     pub fn path_for_session(&self, session_id: &str) -> PathBuf {
         self.dir
-            .join(format!("{}.jsonl", sanitize_session_id(session_id)))
+            .join(format!("{}.jsonl", session_file_key(session_id)))
     }
 
     /// Append one turn (a `TurnStart` record followed by every emitted event, in order) to the
@@ -152,7 +227,15 @@ impl SessionLogWriter {
         prompt: &str,
         events: &[LoopStreamEvent],
     ) -> io::Result<u32> {
+        if !self.enabled {
+            return Ok(0);
+        }
         fs::create_dir_all(&self.dir)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&self.dir, fs::Permissions::from_mode(0o700))?;
+        }
         let path = self.path_for_session(session_id);
         let existing = self.read_session_log(session_id).unwrap_or_default();
         let turn_index = existing
@@ -162,17 +245,42 @@ impl SessionLogWriter {
             + 1;
         let mut seq = existing.len() as u64;
 
-        let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
+        let mut options = OpenOptions::new();
+        options.create(true).append(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&path)?;
+        let key = integrity_key();
+        let mut prev_hash = existing
+            .last()
+            .map(|record| record.content_hash.clone())
+            .unwrap_or_else(|| "GENESIS".into());
 
         let mut write_record = |seq: &mut u64, payload: SessionLogPayload| -> io::Result<()> {
+            let timestamp = now_ms();
+            let content_hash = record_hash(
+                &key,
+                &prev_hash,
+                session_id,
+                turn_index,
+                *seq,
+                timestamp,
+                &payload,
+            )?;
             let record = SessionLogRecord {
                 schema_version: SESSION_LOG_SCHEMA_VERSION,
                 session_id: session_id.to_string(),
                 turn_index,
                 seq: *seq,
-                unix_ms: now_ms(),
+                unix_ms: timestamp,
                 payload,
+                prev_hash: prev_hash.clone(),
+                content_hash: content_hash.clone(),
             };
+            prev_hash = content_hash;
             let line = serde_json::to_string(&record)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
             writeln!(file, "{line}")?;
@@ -201,6 +309,9 @@ impl SessionLogWriter {
     /// `keep_turns = 0` empties the log entirely (matching "never ran" read semantics). A missing
     /// log is a no-op, not an error.
     pub fn truncate_after_turn(&self, session_id: &str, keep_turns: u32) -> io::Result<()> {
+        if !self.enabled {
+            return Ok(());
+        }
         let path = self.path_for_session(session_id);
         if !path.exists() {
             return Ok(());
@@ -218,19 +329,31 @@ impl SessionLogWriter {
             buf.push_str(&line);
             buf.push('\n');
         }
-        fs::write(&path, buf)
+        let temporary = path.with_extension(format!("jsonl.{}.tmp", std::process::id()));
+        fs::write(&temporary, buf)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))?;
+        }
+        fs::rename(temporary, path)
     }
 
     /// Parse the full on-disk log for a session. Returns an empty vec if no log exists yet —
     /// "never ran" and "ran with zero events" are different states callers can still tell apart
     /// via the caller's own bookkeeping, but for read purposes both yield no records.
     pub fn read_session_log(&self, session_id: &str) -> io::Result<Vec<SessionLogRecord>> {
+        if !self.enabled {
+            return Ok(Vec::new());
+        }
         let path = self.path_for_session(session_id);
         if !path.exists() {
             return Ok(Vec::new());
         }
         let content = fs::read_to_string(&path)?;
         let mut records = Vec::with_capacity(content.lines().count());
+        let key = integrity_key();
+        let mut expected_prev = "GENESIS".to_string();
         for line in content.lines() {
             let line = line.trim();
             if line.is_empty() {
@@ -247,10 +370,59 @@ impl SessionLogWriter {
                     ),
                 ));
             }
+            if record.session_id != session_id || record.seq != records.len() as u64 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "session log owner or sequence mismatch",
+                ));
+            }
+            let expected_hash = record_hash(
+                &key,
+                &expected_prev,
+                &record.session_id,
+                record.turn_index,
+                record.seq,
+                record.unix_ms,
+                &record.payload,
+            )?;
+            if record.prev_hash != expected_prev || record.content_hash != expected_hash {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "session log integrity verification failed",
+                ));
+            }
+            expected_prev = record.content_hash.clone();
             records.push(record);
         }
         Ok(records)
     }
+}
+
+pub(crate) fn rechain_records(
+    records: impl IntoIterator<Item = SessionLogRecord>,
+    session_id: &str,
+) -> io::Result<Vec<SessionLogRecord>> {
+    let key = integrity_key();
+    let mut previous = "GENESIS".to_string();
+    let mut output = Vec::new();
+    for (sequence, mut record) in records.into_iter().enumerate() {
+        record.schema_version = SESSION_LOG_SCHEMA_VERSION;
+        record.session_id = session_id.to_string();
+        record.seq = sequence as u64;
+        record.prev_hash = previous.clone();
+        record.content_hash = record_hash(
+            &key,
+            &previous,
+            session_id,
+            record.turn_index,
+            record.seq,
+            record.unix_ms,
+            &record.payload,
+        )?;
+        previous = record.content_hash.clone();
+        output.push(record);
+    }
+    Ok(output)
 }
 
 /// Reconstruct the ordered tool-invocation trajectory purely from a parsed log — no re-execution
