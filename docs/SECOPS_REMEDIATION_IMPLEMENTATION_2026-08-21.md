@@ -1,6 +1,6 @@
 # SecOps Remediation Implementation Evidence
 
-This document records the implementation response to all 20 findings in `OWASP_SECOPS_REVIEW_2026-08-21.md`. Status is **implemented, pending independent CI validation**.
+This document records the implementation response to all 20 findings in `OWASP_SECOPS_REVIEW_2026-08-21.md`. Status is **implemented; 19 findings are independently validated by Linux and Darwin-fast CI**. Finding 12 workflow enforcement is permission-blocked. Release status remains **NO-GO** pending the final gates below.
 
 1. **Skill/MCP admission:** persisted `installed_skills`, signed-source digest registry, production pre-execution admission, mandatory curated MCP policy, pinned overrides, 30s/1MiB MCP response boundary.
 2. **Context/approval:** initial recalled-memory induction check; every file write and skill execution is risky; exact plan approval required.
@@ -23,10 +23,15 @@ This document records the implementation response to all 20 findings in `OWASP_S
 19. **Session log integrity:** collision-resistant hashed filenames, strict session/sequence checks, HMAC chain, 0600 files and atomic rewrite.
 20. **Governance:** Apache-2.0 license, SECURITY policy/SLAs, CONTRIBUTING secure-review rules, CODEOWNERS, threat model and remediation ledger.
 
-## Remaining validation gates
+## Independent CI evidence
 
-- Linux build/unit/golden under the new default-deny Linux policy.
-- Darwin Rust/unit/Swift/DIST-01.
+Exact revision `71c6ce1afd5702acc5ee333b00ebe11c1067f41c` passed GitHub Actions run <https://github.com/knarayanareddy/forge/actions/runs/32568751214> on 2026-08-22:
+
+- Linux build, workspace unit tests, and fail-closed golden harness.
+- Darwin Rust build/unit tests, Swift build, and DIST-01 release-path smoke.
+
+## Remaining final release gates
+
 - Full Darwin 51/51 canonical.
 - Installed signed-app fake-daemon, approval, skill/MCP rug-pull, memory-poisoning and artifact-tamper E2E.
 - Workflow changes require GitHub App `workflows` permission before they can be pushed.
