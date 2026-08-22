@@ -1210,20 +1210,24 @@ mod tests {
     #[test]
     fn test_hybrid_with_graph_hop_zero_parity_with_phase5_hybrid() {
         let db = Database::open_in_memory().unwrap();
+        let session_id = "sess-hybrid-zero-hop";
+        seed_session(&db, session_id);
         set_graph_hop_depth(&db, 0);
 
         let emb_a = vec![1.0f32; 384];
         let mut emb_b = vec![0.0f32; 384];
         emb_b[0] = 1.0;
 
-        db.insert_memory_chunk(
+        db.insert_memory_chunk_scoped(
+            session_id,
             "chk-fact-a",
             "memory://fact-a",
             "AetherForge secure local Mac agent runtime",
             &emb_a,
         )
         .unwrap();
-        db.insert_memory_chunk(
+        db.insert_memory_chunk_scoped(
+            session_id,
             "chk-fact-b",
             "memory://fact-b",
             "Python data science web backend programming",
@@ -1235,10 +1239,10 @@ mod tests {
         let query = "AetherForge Mac agent platform";
 
         let baseline = db
-            .search_semantic_memory_hybrid(query, &query_emb, 2)
+            .search_semantic_memory_hybrid_scoped(session_id, query, &query_emb, 2)
             .unwrap();
         let with_graph = db
-            .search_hybrid_with_graph("unused-session", query, &query_emb, 2)
+            .search_hybrid_with_graph(session_id, query, &query_emb, 2)
             .unwrap();
 
         assert_eq!(with_graph.len(), baseline.len());
@@ -1262,14 +1266,16 @@ mod tests {
         emb_noise[0] = 1.0;
         let emb_maintainer = vec![0.0f32; 384];
 
-        db.insert_memory_chunk(
+        db.insert_memory_chunk_scoped(
+            "sess-hybrid-graph",
             "chk-noise",
             "memory://noise",
             "Generic platform runtime overview",
             &emb_noise,
         )
         .unwrap();
-        db.insert_memory_chunk(
+        db.insert_memory_chunk_scoped(
+            "sess-hybrid-graph",
             "chk-maintainer",
             "memory://maintainer",
             "Alex keeps the forge service healthy",
