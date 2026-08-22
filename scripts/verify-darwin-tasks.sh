@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 export AETHER_MCP_NODE="${AETHER_MCP_NODE:-$(command -v node)}"
+export AETHER_MCP_NODE_SHA256="${AETHER_MCP_NODE_SHA256:-$(shasum -a 256 "$AETHER_MCP_NODE" | awk '{print $1}')}"
 if [[ -z "${AETHER_MCP_FILESYSTEM_SCRIPT:-}" ]]; then
   npm_root="$(npm root -g 2>/dev/null || true)"
   export AETHER_MCP_FILESYSTEM_SCRIPT="${npm_root}/@modelcontextprotocol/server-filesystem/dist/index.js"

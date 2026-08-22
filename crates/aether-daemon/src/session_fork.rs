@@ -1,7 +1,6 @@
 //! Session resume / fork / side-branch over JSONL (Phase 10 slice 10.2 / FORK-01).
 
 use crate::session_log::{SessionLogPayload, SessionLogRecord, SessionLogWriter};
-use std::io;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForkReport {
@@ -47,24 +46,16 @@ pub fn fork_session_at_turn(
         ));
     }
 
-    let kept: Vec<SessionLogRecord> = source
-        .iter()
-        .filter(|r| r.turn_index <= keep_turns)
-        .enumerate()
-        .map(|(seq, record)| SessionLogRecord {
-            schema_version: record.schema_version,
-            session_id: fork_session_id.to_string(),
-            turn_index: record.turn_index,
-            seq: seq as u64,
-            unix_ms: record.unix_ms,
-            payload: record.payload.clone(),
-        })
-        .collect();
+    let kept = crate::session_log::rechain_records(
+        source
+            .iter()
+            .filter(|record| record.turn_index <= keep_turns)
+            .cloned(),
+        fork_session_id,
+    )
+    .map_err(|error| error.to_string())?;
 
     let path = writer.path_for_session(fork_session_id);
-    if path.exists() {
-        std::fs::remove_file(&path).map_err(|e| e.to_string())?;
-    }
     if !kept.is_empty() {
         let mut buf = String::new();
         for record in &kept {
@@ -72,7 +63,12 @@ pub fn fork_session_at_turn(
             buf.push_str(&line);
             buf.push('\n');
         }
-        std::fs::write(&path, buf).map_err(|e| e.to_string())?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        let temporary = path.with_extension(format!("jsonl.{}.tmp", std::process::id()));
+        std::fs::write(&temporary, buf).map_err(|error| error.to_string())?;
+        std::fs::rename(&temporary, &path).map_err(|error| error.to_string())?;
     }
 
     Ok(ForkReport {

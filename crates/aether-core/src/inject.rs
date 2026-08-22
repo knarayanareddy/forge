@@ -287,10 +287,12 @@ pub fn admit_plan_against_observations(
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
+    let mut characters = s.chars();
+    let prefix: String = characters.by_ref().take(max).collect();
+    if characters.next().is_some() {
+        format!("{prefix}…")
     } else {
-        format!("{}…", &s[..max])
+        prefix
     }
 }
 

@@ -2,6 +2,9 @@
 name = "aether-core"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/knarayanareddy/forge"
 
 [dependencies]
 tokio = { version = "1.38", features = ["full"] }
@@ -21,6 +24,7 @@ aether-skills = { path = "../aether-skills" }
 aether-sandbox = { path = "../aether-sandbox" }
 keyring = { version = "3.6", features = ["apple-native"] }
 sha2 = "0.10"
+getrandom = "0.2"
 toml = "0.8"
 
 [dev-dependencies]

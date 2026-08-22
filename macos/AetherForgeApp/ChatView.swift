@@ -30,8 +30,22 @@ struct ChatView: View {
 
             Divider()
 
-            HStack {
-                TextField("Prompt…", text: $model.prompt, axis: .vertical)
+            HStack(spacing: 12) {
+                Picker("Execution mode", selection: $model.executionMode) {
+                    ForEach(AppModel.ExecutionMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 180)
+                .help("Agent plans workspace tools; Chat generates text without tools.")
+                .disabled(model.isRunningTask)
+
+                TextField(
+                    model.executionMode == .agent ? "Ask the agent to work in this workspace…" : "Chat prompt…",
+                    text: $model.prompt,
+                    axis: .vertical
+                )
                     .lineLimit(1...4)
                     .disabled(model.isRunningTask)
                 Button(model.isRunningTask ? "Running…" : "Send") {

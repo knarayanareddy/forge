@@ -2,14 +2,15 @@
 name = "aether-skills"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/knarayanareddy/forge"
 
 [dependencies]
 rusqlite = { version = "0.31", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "2.0"
 sha2 = "0.10"
+serde_json = "1.0"
 aether-permissions = { path = "../aether-permissions" }
 aether-sandbox = { path = "../aether-sandbox" }
-
-[dev-dependencies]
-serde_json = "1.0"

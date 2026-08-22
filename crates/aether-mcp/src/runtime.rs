@@ -8,7 +8,11 @@ use sha2::{Digest, Sha256};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
-use std::time::Instant;
+use std::sync::mpsc::{self, Receiver};
+use std::time::{Duration, Instant};
+
+const MCP_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
+const MCP_MAX_LINE_BYTES: usize = 1_048_576;
 
 const MCP_PROTOCOL_VERSION: &str = "2024-11-05";
 
@@ -27,7 +31,7 @@ pub struct McpToolsAudit {
 
 pub struct McpClient {
     child: Child,
-    reader: BufReader<std::process::ChildStdout>,
+    responses: Receiver<Result<String, String>>,
     next_id: u64,
     initialized: bool,
 }
@@ -112,10 +116,41 @@ impl McpClient {
         let stdout = child.stdout.take().ok_or_else(|| {
             McpError::SecurityViolation("MCP server missing stdout".into())
         })?;
+        let (sender, responses) = mpsc::channel();
+        std::thread::Builder::new()
+            .name(format!("mcp-reader-{}", config.name))
+            .spawn(move || {
+                let mut reader = BufReader::new(stdout);
+                loop {
+                    let mut line = String::new();
+                    match reader.read_line(&mut line) {
+                        Ok(0) => {
+                            let _ = sender.send(Err("MCP server closed stdout".into()));
+                            break;
+                        }
+                        Ok(_) if line.len() > MCP_MAX_LINE_BYTES => {
+                            let _ = sender.send(Err("MCP response exceeded 1 MiB".into()));
+                            break;
+                        }
+                        Ok(_) => {
+                            if sender.send(Ok(line.trim().to_string())).is_err() {
+                                break;
+                            }
+                        }
+                        Err(error) => {
+                            let _ = sender.send(Err(error.to_string()));
+                            break;
+                        }
+                    }
+                }
+            })
+            .map_err(|error| {
+                McpError::SecurityViolation(format!("failed to start MCP reader: {error}"))
+            })?;
 
         Ok(Self {
             child,
-            reader: BufReader::new(stdout),
+            responses,
             next_id: 1,
             initialized: false,
         })
@@ -263,9 +298,12 @@ impl McpClient {
     }
 
     fn read_line(&mut self) -> Result<String, McpError> {
-        let mut line = String::new();
-        self.reader.read_line(&mut line)?;
-        Ok(line.trim().to_string())
+        self.responses
+            .recv_timeout(MCP_RESPONSE_TIMEOUT)
+            .map_err(|_| {
+                McpError::SecurityViolation("MCP response timed out after 30 seconds".into())
+            })?
+            .map_err(McpError::SecurityViolation)
     }
 }
 
@@ -331,6 +369,11 @@ pub fn invoke_with_grant(
     let tools_audit = client.list_tools()?;
 
     let config = allowlist.verify_and_get(server_name)?;
+    if !tools_audit.tools.iter().any(|tool| tool.name == tool_name) {
+        return Err(McpError::SecurityViolation(format!(
+            "MCP tool '{tool_name}' is not present in the verified tools inventory"
+        )));
+    }
     if let Some(pin) = &config.tools_hash_pin {
         if pin.starts_with("PENDING")
             || pin.starts_with("REPLACE_WITH_")

@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "skills": {
+    "changelog": {
+      "sha256": "12709e389ed76f51a9778e32c3e671e2390e73e9701163718549096404d69e9a",
+      "source": "aetherforge-curated-v1"
+    }
+  }
+}

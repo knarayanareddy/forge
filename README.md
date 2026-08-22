@@ -31,8 +31,7 @@ cargo run -p golden-harness --bin golden-harness
   CONS-01 proves apply supersedes exactly the reviewed diff (ignoring later graph drift),
   apply is idempotent, reject mutates no node, and a rejected run can never later be applied,
   PERM-02 proves a plan that would overwrite an existing file (or call an external MCP tool)
-  is blocked with zero side effects until explicitly approved, while a plan touching only new files
-  needs no approval at all,
+  and every persistent file write is blocked with zero side effects until explicitly approved,
   SUB-01 proves a subagent's distilled summary is a fraction of the raw content it read,
   every delegated file is still named in the summary, and the subagent's own file-count budget is
   enforced independent of the parent's iteration budget,
@@ -145,7 +144,7 @@ cargo run -p golden-harness --bin golden-harness
 
 **ToolRegistry** wires grant-checked: FS read/write, git (`GitOps`), MCP (`invoke_with_grant`), skills (`SkillExecutor`), Python lint (`PythonLinter`).
 
-Plain-text prompts route through `NlPlanner` (LOOP-02) when no `{"loop":...}` JSON is present — same verify shell as LOOP-01.
+The Swift app exposes explicit **Agent** and **Chat** modes. Agent-mode text routes through `NlPlanner` (LOOP-02) and the same verify shell as LOOP-01; Chat mode streams model text without tools. IPC clients select this with `execution_mode` (`chat` remains the compatibility default).
 
 Send a JSON loop plan via daemon `run_task`:
 
@@ -225,14 +224,13 @@ user action, the app sends authenticated `grant_workspace` before `run_task`. Ex
 require the pre-existing grant and never grant themselves authority. All agent execution goes
 through the daemon — the Swift app never calls git/fs tools directly.
 
-**Tabs:** Chat, Workspace, Permissions, Activity, and **Safety** (`SafetyView.swift`/`SafetyModel.swift`) —
-undo the session's last writes, create a checkpoint, and rewind to one, calling the daemon's
-`undo_writes`/`create_checkpoint`/`rewind_checkpoint` IPC methods (Phase 9/10's `UNDO-01`/`CKPT-01`
-backends). Compiles clean on Darwin CI (`main` @ `51658d0`, run
-[`30838281310`](https://github.com/knarayanareddy/forge/actions/runs/30838281310)); still needs a
-manual Xcode smoke test of the actual undo/checkpoint/rewind round-trip against a live daemon, which
-no CI job does yet. No UI yet for the approval gate (`PERM-02`), consolidation review (`CONS-01`),
-or subagent delegation (`SUB-01`) — those remain daemon/harness-only.
+**Tabs:** Chat, Workspace, Settings, Memory, Subagents, Activity, and **Safety**. Chat exposes explicit
+Agent/Chat routing and a batched approval sheet. Risky plans are persisted by the daemon and approved
+with a single-use ID, so approval executes the reviewed plan without re-planning. Safety can undo
+session writes, create a checkpoint, and rewind via `undo_writes`/`create_checkpoint`/
+`rewind_checkpoint`; Memory reviews consolidation runs. The Subagents tab currently reports
+subagent events rather than initiating delegation. A real SwiftUI↔daemon integration/UI test remains
+a release gate; source compilation alone is not treated as product E2E evidence.
 
 FFI (`aether_ffi_daemon_ipc`, `aether_daemon_default_port`) provides default host/port hints only; streaming uses TCP.
 

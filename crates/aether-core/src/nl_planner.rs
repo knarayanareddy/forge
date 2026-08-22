@@ -6,7 +6,7 @@
 
 use crate::cost::ProviderTokenUsage;
 use crate::graph_extract::strip_json_fence;
-use crate::{ModelRouter, ToolInvocation};
+use crate::{classify_prompt_complexity, ModelRouter, ToolInvocation};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -108,9 +108,9 @@ Rules:
 - If the goal explicitly names a skill, use skill_execute with that skill id then done.
 - If the goal explicitly asks for an MCP server/tool, use mcp_call then done. Do not add fs_read
   merely because the MCP tool may inspect files.
-- If the goal writes a file, use fs_write, optionally verify_contains, then done.
-- Add verify_contains ONLY after an fs_write whose content you can confirm, and only with a
-  non-empty "text" you just wrote. Never emit verify_contains after fs_read.
+- If the goal writes a file, use fs_write, then verify_contains for that same path, then done.
+- Add verify_contains after every fs_write with a non-empty substring from the content you just
+  wrote. Never emit verify_contains after fs_read.
 - Every field listed for an action is required. Never emit an empty string for a required field.
 - Do not repeat the same action on the same target twice in a row.
 - Keep every path relative to the workspace. Never use absolute paths or "..".
@@ -356,7 +356,15 @@ pub async fn run_nl_planner(
     let mut total_usage = ProviderTokenUsage::default();
 
     for attempt in 0..=MAX_PLAN_REPAIRS {
-        let completion = router.complete_json_schema(&prompt, NL_PLAN_NUM_PREDICT, &schema).await.map_err(|e| NlPlanError::Ollama(e.to_string()))?;
+        let completion = router
+            .complete_json_schema_with_complexity(
+                &prompt,
+                NL_PLAN_NUM_PREDICT,
+                &schema,
+                classify_prompt_complexity(nl_goal),
+            )
+            .await
+            .map_err(|error| NlPlanError::Ollama(error.to_string()))?;
         if let Some(u) = completion.token_usage { total_usage.merge(u); }
         let raw = completion.content;
         let json = strip_json_fence(&raw);
@@ -439,7 +447,15 @@ pub async fn run_nl_planner_repair(
     let mut total_usage = ProviderTokenUsage::default();
 
     for attempt in 0..=MAX_PLAN_REPAIRS {
-        let completion = router.complete_json_schema(&prompt, NL_PLAN_NUM_PREDICT, &schema).await.map_err(|e| NlPlanError::Ollama(e.to_string()))?;
+        let completion = router
+            .complete_json_schema_with_complexity(
+                &prompt,
+                NL_PLAN_NUM_PREDICT,
+                &schema,
+                classify_prompt_complexity(nl_goal),
+            )
+            .await
+            .map_err(|error| NlPlanError::Ollama(error.to_string()))?;
         if let Some(u) = completion.token_usage { total_usage.merge(u); }
         let raw = completion.content;
         let json = strip_json_fence(&raw);

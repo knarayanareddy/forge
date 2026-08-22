@@ -88,20 +88,59 @@ fn load_checkpoint(conn: &Connection, checkpoint_id: i64) -> Result<CheckpointRe
 /// `applied` past the watermark, and re-truncating an already-truncated log is a no-op.
 pub fn rewind_to_checkpoint(conn: &Connection, checkpoint_id: i64) -> Result<RewindReport, String> {
     let checkpoint = load_checkpoint(conn, checkpoint_id)?;
+    conn.execute(
+        "INSERT INTO checkpoint_operations (checkpoint_id, session_id, state)
+         VALUES (?1, ?2, 'started')",
+        params![checkpoint_id, checkpoint.session_id],
+    )
+    .map_err(|error| error.to_string())?;
+    let operation_id = conn.last_insert_rowid();
 
-    let undo_report = undo_since(conn, &checkpoint.session_id, checkpoint.undo_watermark)?;
+    let undo_report = match undo_since(conn, &checkpoint.session_id, checkpoint.undo_watermark) {
+        Ok(report) => report,
+        Err(error) => {
+            let _ = conn.execute(
+                "UPDATE checkpoint_operations SET state = 'failed', error = ?1, finished_at = CURRENT_TIMESTAMP WHERE id = ?2",
+                params![error, operation_id],
+            );
+            return Err(error);
+        }
+    };
+    conn.execute(
+        "UPDATE checkpoint_operations SET state = 'files_reverted' WHERE id = ?1",
+        params![operation_id],
+    )
+    .map_err(|error| error.to_string())?;
 
     let current_turns = current_turn_count(&checkpoint.session_id)?;
     let turns_truncated = current_turns.saturating_sub(checkpoint.turn_watermark);
-    SessionLogWriter::from_env()
+    if let Err(error) = SessionLogWriter::from_env()
         .truncate_after_turn(&checkpoint.session_id, checkpoint.turn_watermark)
-        .map_err(|e| e.to_string())?;
+    {
+        let message = error.to_string();
+        let _ = conn.execute(
+            "UPDATE checkpoint_operations SET state = 'failed', error = ?1, finished_at = CURRENT_TIMESTAMP WHERE id = ?2",
+            params![message, operation_id],
+        );
+        return Err(message);
+    }
+    conn.execute(
+        "UPDATE checkpoint_operations SET state = 'log_truncated' WHERE id = ?1",
+        params![operation_id],
+    )
+    .map_err(|error| error.to_string())?;
 
     conn.execute(
         "UPDATE checkpoints SET last_rewound_at = CURRENT_TIMESTAMP WHERE id = ?1",
         params![checkpoint_id],
     )
     .map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE checkpoint_operations
+         SET state = 'completed', finished_at = CURRENT_TIMESTAMP WHERE id = ?1",
+        params![operation_id],
+    )
+    .map_err(|error| error.to_string())?;
 
     Ok(RewindReport {
         reverted_paths: undo_report.reverted,

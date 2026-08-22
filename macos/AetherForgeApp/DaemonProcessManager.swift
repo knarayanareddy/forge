@@ -33,9 +33,21 @@ final class DaemonProcessManager: @unchecked Sendable {
         let proc = Process()
         proc.executableURL = url
         proc.environment = Self.daemonEnvironment(base: ProcessInfo.processInfo.environment)
-        proc.standardOutput = FileHandle.nullDevice
-        proc.standardError = FileHandle.nullDevice
-        do { try proc.run(); process = proc; return true } catch { return false }
+        let logURL = AppPaths.supportDirectory.appendingPathComponent("daemon.log")
+        if !FileManager.default.fileExists(atPath: logURL.path) {
+            FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        }
+        do {
+            let log = try FileHandle(forWritingTo: logURL)
+            try log.seekToEnd()
+            proc.standardOutput = log
+            proc.standardError = log
+            try proc.run()
+            process = proc
+            return true
+        } catch {
+            return false
+        }
     }
 
     static func daemonEnvironment(base: [String: String]) -> [String: String] {

@@ -1,0 +1,10 @@
+# Security-critical code requires maintainer and SecOps review.
+* @knarayanareddy
+/crates/aether-daemon/ @knarayanareddy
+/crates/aether-core/ @knarayanareddy
+/crates/aether-permissions/ @knarayanareddy
+/crates/aether-sandbox/ @knarayanareddy
+/crates/aether-mcp/ @knarayanareddy
+/crates/aether-skills/ @knarayanareddy
+/.github/workflows/ @knarayanareddy
+/packaging/ @knarayanareddy

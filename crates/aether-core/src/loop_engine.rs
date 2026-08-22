@@ -6,7 +6,7 @@ use aether_permissions::{path_is_subpath, PermissionDecision, PermissionManager}
 use aether_sandbox::ProductionSandbox;
 use aether_skills::{SkillDefinition, SkillExecutor};
 use rusqlite::Connection;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -71,7 +71,7 @@ pub struct ToolObservation {
     pub output: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum ToolInvocation {
     FsWrite {
@@ -248,8 +248,27 @@ impl ToolRegistry {
                 )
                 .map_err(|e| e.to_string())?;
                 if decision != PermissionDecision::Approved {
+                    let _ = PermissionManager::audit_decision(
+                        conn,
+                        &config.session_id,
+                        "fs_write",
+                        &serde_json::json!({"path": full_str}).to_string(),
+                        &PermissionDecision::Denied,
+                        Some(1),
+                        None,
+                    );
                     return Err(format!("Write denied for target path {}", full_str));
                 }
+                PermissionManager::audit_decision(
+                    conn,
+                    &config.session_id,
+                    "fs_write",
+                    &serde_json::json!({"path": full_str, "content_bytes": content.len()}).to_string(),
+                    &PermissionDecision::Approved,
+                    None,
+                    None,
+                )
+                .map_err(|error| error.to_string())?;
                 aether_permissions::journal_file_write(
                     conn,
                     &config.session_id,
@@ -279,8 +298,27 @@ impl ToolRegistry {
                 )
                 .map_err(|e| e.to_string())?;
                 if decision != PermissionDecision::Approved {
+                    let _ = PermissionManager::audit_decision(
+                        conn,
+                        &config.session_id,
+                        "fs_read",
+                        &serde_json::json!({"path": full_str}).to_string(),
+                        &PermissionDecision::Denied,
+                        Some(1),
+                        None,
+                    );
                     return Err(format!("Read denied for {}", full_str));
                 }
+                PermissionManager::audit_decision(
+                    conn,
+                    &config.session_id,
+                    "fs_read",
+                    &serde_json::json!({"path": full_str}).to_string(),
+                    &PermissionDecision::Approved,
+                    None,
+                    None,
+                )
+                .map_err(|error| error.to_string())?;
                 let content = ProductionSandbox::read_to_string(&config.workspace, &full)
                     .map_err(|e| e.to_string())?;
                 Ok(observation(
@@ -406,6 +444,8 @@ impl ToolRegistry {
                 let skill = skills
                     .get(skill_id)
                     .ok_or_else(|| format!("Unknown skill_id {}", skill_id))?;
+                aether_skills::admit_skill_persisted(conn, skill)
+                    .map_err(|error| error.to_string())?;
                 match SkillExecutor::execute(
                     conn,
                     &config.session_id,
@@ -721,21 +761,44 @@ fn verify_shell_before_done(observations: &[ToolObservation]) -> Result<(), Stri
     if !verified {
         return Err("Loop blocked: done before verify_contains after fs_write".into());
     }
-    let linted = observations
-        .iter()
-        .any(|o| o.tool == "python_lint" && o.success);
-    if !linted {
-        return Err("Loop blocked: done before python_lint after fs_write".into());
-    }
     Ok(())
 }
 
 fn validate_mcp_arguments_in_workspace(workspace: &Path, args: &Value) -> Result<(), String> {
-    let Some(path_val) = args.get("path").and_then(|v| v.as_str()) else {
-        return Ok(());
-    };
-    resolve_workspace_path(&workspace.to_path_buf(), path_val)?;
-    Ok(())
+    fn walk(workspace: &Path, key: Option<&str>, value: &Value) -> Result<(), String> {
+        let path_key = key.is_some_and(|key| {
+            matches!(
+                key,
+                "path" | "paths" | "source" | "destination" | "from" | "to"
+            )
+        });
+        match value {
+            Value::String(path) if path_key => {
+                resolve_workspace_path(&workspace.to_path_buf(), path)?;
+            }
+            Value::Array(values) if path_key => {
+                for value in values {
+                    let path = value
+                        .as_str()
+                        .ok_or("MCP path arrays must contain only strings")?;
+                    resolve_workspace_path(&workspace.to_path_buf(), path)?;
+                }
+            }
+            Value::Object(map) => {
+                for (child_key, child) in map {
+                    walk(workspace, Some(child_key), child)?;
+                }
+            }
+            Value::Array(values) => {
+                for child in values {
+                    walk(workspace, key, child)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    walk(workspace, None, args)
 }
 
 fn require_verified_writes(pending_writes: &[String]) -> Result<(), String> {

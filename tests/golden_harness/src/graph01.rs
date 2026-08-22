@@ -202,7 +202,8 @@ pub async fn seed_memory_chunks(
         .await
         .map_err(|e| format!("Ollama embed failed for {}: {}", chunk.chunk_id, e))?;
 
-        db.insert_memory_chunk(
+        db.insert_memory_chunk_scoped(
+            &fixture.session_id,
             &chunk.chunk_id,
             &chunk.source_uri,
             &chunk.text,

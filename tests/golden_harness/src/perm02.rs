@@ -138,7 +138,19 @@ pub fn test_perm02_impl(db: &Database) -> Result<(), String> {
         return Err("expected approval to clear the mcp_call gate".into());
     }
 
-    // --- Case 3: a plan writing only brand-new files needs no approval at all. ---
+    // --- Case 3: git_init is persistent/non-undoable and always requires approval. ---
+    let workspace_git = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let git_plan = vec![
+        ToolInvocation::GitInit {
+            branch: "main".into(),
+        },
+        ToolInvocation::Done,
+    ];
+    if evaluate_approval_gate(&workspace_git.path().to_path_buf(), &git_plan, false).is_none() {
+        return Err("expected git_init to require approval".into());
+    }
+
+    // --- Case 4: brand-new file writes are also persistent and require approval. ---
     let session_ok = "sess-perm02-ok";
     let tmp_ok = tempfile::tempdir().map_err(|e| e.to_string())?;
     let workspace_ok = tmp_ok.path().to_path_buf();
@@ -158,13 +170,22 @@ pub fn test_perm02_impl(db: &Database) -> Result<(), String> {
         },
         ToolInvocation::Done,
     ];
-    let unapproved_new_file_run =
-        run_with_gate(db, session_ok, workspace_ok.clone(), plan_new_file, false)?;
-    if !unapproved_new_file_run.done {
-        return Err("expected a new-file-only plan to run without needing approval".into());
+    let blocked_new = run_with_gate(
+        db,
+        session_ok,
+        workspace_ok.clone(),
+        plan_new_file.clone(),
+        false,
+    );
+    if !matches!(blocked_new, Err(ref message) if message.starts_with("BLOCKED")) {
+        return Err("expected a new-file write to require approval".into());
     }
-    if !workspace_ok.join("brand_new.txt").exists() {
-        return Err("expected brand_new.txt to actually be written".into());
+    if workspace_ok.join("brand_new.txt").exists() {
+        return Err("new file appeared before approval".into());
+    }
+    let approved_new = run_with_gate(db, session_ok, workspace_ok.clone(), plan_new_file, true)?;
+    if !approved_new.done || !workspace_ok.join("brand_new.txt").exists() {
+        return Err("approved new-file plan did not complete".into());
     }
 
     Ok(())

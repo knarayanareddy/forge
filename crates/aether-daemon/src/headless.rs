@@ -1,7 +1,7 @@
 //! Headless `--json` NDJSON mode (Phase 10 slice 10.12 / HEAD-01).
 
 use crate::protocol::EventLine;
-use crate::task_runner::{execute_structured_loop, RunTaskParams};
+use crate::task_runner::execute_structured_loop;
 use crate::DaemonState;
 use aether_core::{
     evaluate_approval_gate, LoopConfig, LoopStreamEvent, OrchestrationGraph, ReActLoopEngine,
@@ -9,8 +9,6 @@ use aether_core::{
 };
 use aether_db::Database;
 use aether_mcp::McpAllowlist;
-use aether_skills::{SkillDefinition, SkillLoader};
-use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
@@ -135,14 +133,6 @@ fn load_allowlist() -> Option<McpAllowlist> {
     aether_mcp::McpAllowlist::resolve_filesystem().ok()
 }
 
-fn load_skills() -> HashMap<String, SkillDefinition> {
-    SkillLoader::load_directory(std::path::Path::new("skills"))
-        .unwrap_or_default()
-        .into_iter()
-        .map(|s| (s.id.clone(), s))
-        .collect()
-}
-
 pub fn loop_event_to_line(event: &LoopStreamEvent) -> Option<EventLine> {
     match event {
         LoopStreamEvent::Plan { iteration, action } => Some(EventLine::plan(*iteration, action)),
@@ -195,7 +185,6 @@ pub fn run_headless_task<W: Write>(
         }
     };
     let allowlist = load_allowlist();
-    let skills = load_skills();
     let mut config = LoopConfig {
         max_iterations: opts.max_iterations.unwrap_or(8),
         max_tokens: opts.max_tokens.unwrap_or_else(resolve_default_max_loop_tokens),
@@ -223,8 +212,18 @@ pub fn run_headless_task<W: Write>(
         let _ = emit_event_line(out, &EventLine::error(e));
         return HeadlessExitCode::Error;
     }
+    let skills = match crate::task_runner::load_skills(&conn) {
+        Ok(skills) => skills,
+        Err(error) => {
+            let _ = emit_event_line(out, &EventLine::error(error));
+            return HeadlessExitCode::Error;
+        }
+    };
     if let Some(risky) = evaluate_approval_gate(&workspace, &plan, opts.approved) {
-        let _ = emit_event_line(out, &EventLine::pending_approval(&risky));
+        let _ = emit_event_line(
+            out,
+            &EventLine::pending_approval_headless(&risky),
+        );
         return HeadlessExitCode::PendingApproval;
     }
     let (result, events) = execute_structured_loop(
@@ -296,6 +295,9 @@ pub async fn run_headless_cli(args: Vec<String>) -> HeadlessExitCode {
     let auth_token = aether_core::ensure_daemon_auth_token().unwrap_or_default();
     #[cfg(not(target_os = "macos"))]
     let auth_token = std::env::var("AETHER_DAEMON_AUTH_TOKEN").unwrap_or_default();
+    if std::env::var_os("AETHER_LOG_INTEGRITY_KEY").is_none() && !auth_token.is_empty() {
+        std::env::set_var("AETHER_LOG_INTEGRITY_KEY", &auth_token);
+    }
     let state = DaemonState {
         db,
         router,

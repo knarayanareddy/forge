@@ -245,7 +245,25 @@ impl ProductionSandbox {
         };
 
         #[cfg(not(target_os = "macos"))]
-        let mut command = Command::new(binary);
+        let mut command = {
+            let truthy = |name: &str| {
+                std::env::var(name)
+                    .is_ok_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+            };
+            // Linux has no Seatbelt equivalent in this crate. Keep production fail-closed, while
+            // permitting the repository's isolated GitHub Actions runner where command execution
+            // is itself the subject of the unit/golden tests. Requiring both runner-owned markers
+            // avoids treating an arbitrary generic CI environment as trusted policy.
+            let explicitly_allowed = truthy("AETHER_ALLOW_UNSANDBOXED_LINUX");
+            let github_actions_runner = truthy("CI") && truthy("GITHUB_ACTIONS");
+            if !explicitly_allowed && !github_actions_runner {
+                return Err(SandboxError::MissingSandboxExec(
+                    "Linux tool execution is disabled without an OS sandbox; set AETHER_ALLOW_UNSANDBOXED_LINUX=1 only for isolated CI"
+                        .into(),
+                ));
+            }
+            Command::new(binary)
+        };
 
         command.args(args);
         command.env_clear();

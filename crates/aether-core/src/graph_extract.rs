@@ -94,6 +94,8 @@ pub enum GraphExtractError {
     DuplicateNodeId { id: String },
     #[error("Invalid edge weight at index {index}: {weight}")]
     InvalidEdgeWeight { index: usize, weight: f64 },
+    #[error("Extracted evidence on {kind} at index {index} is not an exact source span")]
+    EvidenceNotGrounded { kind: &'static str, index: usize },
     #[error("Entity cap exceeded: {count} nodes (max {max})")]
     TooManyEntities { count: usize, max: usize },
     #[error("Ollama graph_extract failed: {0}")]
@@ -110,6 +112,7 @@ Return ONLY valid JSON matching this schema (no markdown fences):
 Rules:
 - Emit at most {max_entities} nodes; prefer highest-signal entities.
 - Every node and edge MUST include non-empty evidence_text and provenance ("extracted" or "inferred").
+- For provenance "extracted", evidence_text MUST be an exact contiguous quote from the Session turn.
 - Node ids must be stable slugs (e.g. "node-forge", "node-alex").
 - entity_type: person | project | concept | file | tool | event | other
 - relation_type: related_to | part_of | authored_by | depends_on | located_in | implements | contradicts | other
@@ -148,6 +151,33 @@ pub fn enforce_max_entities(
     Ok(())
 }
 
+pub fn validate_evidence_grounding(
+    payload: &GraphExtractPayload,
+    normalized_text: &str,
+) -> Result<(), GraphExtractError> {
+    for (index, node) in payload.nodes.iter().enumerate() {
+        if node.provenance == Provenance::Extracted
+            && !normalized_text.contains(node.evidence_text.trim())
+        {
+            return Err(GraphExtractError::EvidenceNotGrounded {
+                kind: "node",
+                index,
+            });
+        }
+    }
+    for (index, edge) in payload.edges.iter().enumerate() {
+        if edge.provenance == Provenance::Extracted
+            && !normalized_text.contains(edge.evidence_text.trim())
+        {
+            return Err(GraphExtractError::EvidenceNotGrounded {
+                kind: "edge",
+                index,
+            });
+        }
+    }
+    Ok(())
+}
+
 /// Call Ollama via `ModelRouter`, validate JSON, and enforce entity cap.
 pub async fn run_graph_extract(
     router: &ModelRouter,
@@ -158,6 +188,7 @@ pub async fn run_graph_extract(
     let raw = call_graph_extract_json(router, &prompt).await?;
     let json = strip_json_fence(&raw);
     let payload = validate_graph_extract(&json)?;
+    validate_evidence_grounding(&payload, normalized_text)?;
     enforce_max_entities(&payload, max_entities)?;
     Ok(payload)
 }

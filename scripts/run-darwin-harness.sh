@@ -4,6 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 export AETHER_MCP_NODE="${AETHER_MCP_NODE:-$(command -v node)}"
+export AETHER_MCP_NODE_SHA256="${AETHER_MCP_NODE_SHA256:-$(shasum -a 256 "$AETHER_MCP_NODE" | awk '{print $1}')}"
 export AETHER_MCP_FILESYSTEM_SCRIPT="${AETHER_MCP_FILESYSTEM_SCRIPT:-$(npm root -g 2>/dev/null)/@modelcontextprotocol/server-filesystem/dist/index.js}"
 
 LOG="${1:-/tmp/golden-final.log}"

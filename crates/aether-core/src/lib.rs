@@ -20,7 +20,8 @@ pub use cost::{audit_loop_token_usage, ollama_token_usage, openai_token_usage, P
 
 pub use graph_extract::{
     build_graph_extract_prompt, enforce_max_entities, graph_extract_schema_json,
-    payload_to_graph_inserts, run_graph_extract, strip_json_fence, validate_graph_extract,
+    payload_to_graph_inserts, run_graph_extract, strip_json_fence, validate_evidence_grounding,
+    validate_graph_extract,
     ExtractEdge, ExtractNode, GraphExtractError, GraphExtractPayload, PreparedGraphEdge,
     PreparedGraphNode, Provenance, GRAPH_EXTRACT_SCHEMA_PATH,
 };
@@ -74,9 +75,9 @@ pub use subagent::{
 
 pub use keychain::{
     ensure_daemon_auth_token, load_byok_key, load_daemon_auth_token, load_daemon_auth_token_file,
-    delete_named_secret, load_gateway_token, load_named_secret, require_byok_key_if_configured,
-    store_byok_key, store_daemon_auth_token, store_gateway_token, store_named_secret,
-    verify_daemon_auth_token,
+    daemon_server_proof, delete_named_secret, load_gateway_token, load_named_secret,
+    require_byok_key_if_configured, secure_random_token, store_byok_key, store_daemon_auth_token,
+    store_gateway_token, store_named_secret, verify_daemon_auth_token,
     verify_daemon_auth_token_expected, KeychainError, BYOK_ACCOUNT, BYOK_SERVICE,
     DAEMON_AUTH_ACCOUNT,
 };
@@ -120,6 +121,29 @@ pub enum ModelBackend {
 pub enum PromptComplexity {
     Simple,
     Complex,
+}
+
+/// Deterministic routing policy shared by chat and structured planning. It intentionally uses only
+/// trusted user text—not tool output—so an untrusted observation cannot upgrade itself to a more
+/// capable backend.
+pub fn classify_prompt_complexity(prompt: &str) -> PromptComplexity {
+    let lower = prompt.to_ascii_lowercase();
+    let complex_markers = [
+        "architecture",
+        "refactor",
+        "migration",
+        "root cause",
+        "security review",
+        "entire repository",
+        "multi-step",
+    ];
+    if prompt.chars().count() > 1_000
+        || complex_markers.iter().any(|marker| lower.contains(marker))
+    {
+        PromptComplexity::Complex
+    } else {
+        PromptComplexity::Simple
+    }
 }
 
 pub struct ModelRouter {
@@ -220,6 +244,17 @@ impl ModelRouter {
         OllamaProvider::complete_stream_backend(backend, prompt).await
     }
 
+    /// Dedicated low-output stream for TTFT probes. Benchmark constraints must never leak into the
+    /// production chat path.
+    pub async fn complete_stream_benchmark(
+        &self,
+        prompt: &str,
+        complexity: PromptComplexity,
+    ) -> Result<TokenStream, CompleteError> {
+        let backend = self.route_backend(complexity);
+        OllamaProvider::complete_stream_backend_with_limits(backend, prompt, 16, 512).await
+    }
+
     /// Non-streaming JSON-mode completion for structured extraction (Slice 6.4 graph_extract).
     pub async fn complete_json(
         &self,
@@ -238,8 +273,29 @@ impl ModelRouter {
         num_predict: u32,
         schema: &serde_json::Value,
     ) -> Result<CompletionResult, CompleteError> {
-        OllamaProvider::complete_json_backend(self.primary(), prompt, num_predict, Some(schema))
-            .await
+        self.complete_json_schema_with_complexity(
+            prompt,
+            num_predict,
+            schema,
+            PromptComplexity::Simple,
+        )
+        .await
+    }
+
+    pub async fn complete_json_schema_with_complexity(
+        &self,
+        prompt: &str,
+        num_predict: u32,
+        schema: &serde_json::Value,
+        complexity: PromptComplexity,
+    ) -> Result<CompletionResult, CompleteError> {
+        OllamaProvider::complete_json_backend(
+            self.route_backend(complexity),
+            prompt,
+            num_predict,
+            Some(schema),
+        )
+        .await
     }
 }
 
@@ -281,12 +337,53 @@ pub(crate) fn ollama_client() -> &'static reqwest::Client {
     })
 }
 
+fn chat_num_predict() -> u32 {
+    std::env::var("AETHER_CHAT_NUM_PREDICT")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(1_024)
+        .clamp(1, 8_192)
+}
+
+fn chat_context_len() -> u32 {
+    std::env::var("AETHER_CHAT_CONTEXT_LEN")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(8_192)
+        .clamp(512, 131_072)
+}
+
 /// Prompt used for ROUT-01 TTFT warmup and measurement (must match harness).
 pub const ROUT_TTFT_PROMPT: &str = "forge";
 
 /// Max Ollama `load_duration` (ns) to treat a sample as warm (model already resident).
 /// Apple Silicon often reports 100–250ms load overhead even when `/api/ps` shows the model loaded.
 pub const ROUT_WARM_LOAD_MAX_NS: u64 = 300_000_000;
+
+fn validated_byok_endpoint(provider: &str) -> Result<String, CompleteError> {
+    let default = match provider {
+        "openai" => "https://api.openai.com/v1".to_string(),
+        other => format!("https://api.{other}.com/v1"),
+    };
+    let configured = std::env::var("AETHER_BYOK_ENDPOINT").unwrap_or(default.clone());
+    let url = reqwest::Url::parse(&configured)
+        .map_err(|error| CompleteError::Api(format!("invalid BYOK endpoint: {error}")))?;
+    if url.scheme() != "https" || url.host_str().is_none() || url.username() != "" || url.password().is_some() {
+        return Err(CompleteError::Api(
+            "BYOK endpoint must be credential-free HTTPS with a valid host".into(),
+        ));
+    }
+    let is_default = configured.trim_end_matches('/') == default.trim_end_matches('/');
+    let custom_allowed = std::env::var("AETHER_ALLOW_CUSTOM_BYOK_ENDPOINT")
+        .is_ok_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));
+    if !is_default && !custom_allowed {
+        return Err(CompleteError::Api(
+            "custom BYOK endpoint requires explicit AETHER_ALLOW_CUSTOM_BYOK_ENDPOINT=1 enrollment"
+                .into(),
+        ));
+    }
+    Ok(configured)
+}
 
 pub struct OllamaProvider;
 
@@ -318,7 +415,9 @@ impl OllamaProvider {
         rounds: usize,
     ) -> Result<(), CompleteError> {
         for _ in 0..rounds {
-            let mut stream = Box::pin(Self::complete_stream(endpoint, model, prompt).await?);
+            let mut stream = Box::pin(
+                Self::complete_stream_ollama(endpoint, model, prompt, 16, 512).await?,
+            );
             while let Some(chunk) = stream.next().await {
                 let chunk = chunk?;
                 if chunk.done {
@@ -386,15 +485,30 @@ impl OllamaProvider {
         backend: &ModelBackend,
         prompt: &str,
     ) -> Result<TokenStream, CompleteError> {
+        Self::complete_stream_backend_with_limits(
+            backend,
+            prompt,
+            chat_num_predict(),
+            chat_context_len(),
+        )
+        .await
+    }
+
+    pub async fn complete_stream_backend_with_limits(
+        backend: &ModelBackend,
+        prompt: &str,
+        num_predict: u32,
+        context_len: u32,
+    ) -> Result<TokenStream, CompleteError> {
         match backend {
             ModelBackend::OllamaMlx { endpoint, model } => {
-                Self::complete_stream_ollama(endpoint, model, prompt).await
+                Self::complete_stream_ollama(endpoint, model, prompt, num_predict, context_len).await
             }
             ModelBackend::ByokCloud {
                 provider,
                 api_key,
                 model,
-            } => Self::complete_stream_byok(provider, api_key, model, prompt).await,
+            } => Self::complete_stream_byok(provider, api_key, model, prompt, num_predict).await,
             ModelBackend::LlamaCpp { model_path } => Err(CompleteError::Api(format!("GGUF backend not wired for inference yet (registry path: {model_path})"))),
             ModelBackend::MlxLocal { model_path } => Err(CompleteError::Api(format!("MLX backend not wired for inference yet (registry path: {model_path})"))),
         }
@@ -452,7 +566,7 @@ impl OllamaProvider {
         let resp = client.post(&url).json(&req).send().await?;
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body: String = resp.text().await.unwrap_or_default().chars().take(4_096).collect();
             return Err(CompleteError::Api(format!("HTTP status {}: {}", status, body)));
         }
 
@@ -477,12 +591,7 @@ impl OllamaProvider {
         num_predict: u32,
         schema: Option<&serde_json::Value>,
     ) -> Result<CompletionResult, CompleteError> {
-        let base = std::env::var("AETHER_BYOK_ENDPOINT").unwrap_or_else(|_| {
-            match provider {
-                "openai" => "https://api.openai.com/v1".into(),
-                other => format!("https://api.{}.com/v1", other),
-            }
-        });
+        let base = validated_byok_endpoint(provider)?;
         let url = format!("{}/chat/completions", base.trim_end_matches('/'));
         let client = ollama_client();
         let req = OpenAiChatRequest {
@@ -519,7 +628,7 @@ impl OllamaProvider {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body: String = resp.text().await.unwrap_or_default().chars().take(4_096).collect();
             return Err(CompleteError::Api(format!(
                 "BYOK {} HTTP {}: {}",
                 provider, status, body
@@ -548,6 +657,8 @@ impl OllamaProvider {
         endpoint: &str,
         model: &str,
         prompt: &str,
+        num_predict: u32,
+        context_len: u32,
     ) -> Result<TokenStream, CompleteError> {
         let client = ollama_client();
         let url = format!("{}/api/chat", endpoint.trim_end_matches('/'));
@@ -561,9 +672,9 @@ impl OllamaProvider {
             keep_alive: Some("30m".to_string()),
             format: None,
             options: Some(ChatOptions {
-                num_predict: 16,
+                num_predict,
                 temperature: 0.0,
-                num_ctx: Some(512),
+                num_ctx: Some(context_len),
             }),
         };
 
@@ -572,7 +683,7 @@ impl OllamaProvider {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body: String = resp.text().await.unwrap_or_default().chars().take(4_096).collect();
             return Err(CompleteError::Api(format!("HTTP status {}: {}", status, body)));
         }
 
@@ -640,13 +751,9 @@ impl OllamaProvider {
         api_key: &str,
         model: &str,
         prompt: &str,
+        num_predict: u32,
     ) -> Result<TokenStream, CompleteError> {
-        let base = std::env::var("AETHER_BYOK_ENDPOINT").unwrap_or_else(|_| {
-            match provider {
-                "openai" => "https://api.openai.com/v1".into(),
-                other => format!("https://api.{}.com/v1", other),
-            }
-        });
+        let base = validated_byok_endpoint(provider)?;
         let url = format!("{}/chat/completions", base.trim_end_matches('/'));
         let client = ollama_client();
         let req = OpenAiChatRequest {
@@ -656,7 +763,7 @@ impl OllamaProvider {
                 content: prompt.to_string(),
             }],
             stream: true,
-            max_tokens: None,
+            max_tokens: Some(num_predict),
             response_format: None,
         };
 
@@ -670,7 +777,7 @@ impl OllamaProvider {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body: String = resp.text().await.unwrap_or_default().chars().take(4_096).collect();
             return Err(CompleteError::Api(format!(
                 "BYOK {} HTTP {}: {}",
                 provider, status, body
@@ -978,7 +1085,7 @@ pub async fn fetch_ollama_embedding(endpoint: &str, model: &str, text: &str) -> 
 
     if !resp.status().is_success() {
         let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
+        let body: String = resp.text().await.unwrap_or_default().chars().take(4_096).collect();
         return Err(EmbedderError::Api(format!("HTTP status {}: {}", status, body)));
     }
 
@@ -1108,15 +1215,21 @@ impl GitOps {
             )));
         }
 
-        run_git(&workspace, &["init"])?;
-
-        let readme = workspace.join("README.md");
-        ProductionSandbox::write_file(&workspace, &readme, b"# AetherForge GIT-01\n")
-            .map_err(|e| GitError::Command(e.to_string()))?;
-
-        run_git(&workspace, &["add", "README.md"])?;
-        run_git(&workspace, &["commit", "-m", "Initial commit"])?;
-        run_git(&workspace, &["checkout", "-b", branch_name])?;
+        if workspace.join(".git").exists() {
+            return Err(GitError::Command(
+                "Refusing git_init: workspace is already a Git repository".into(),
+            ));
+        }
+        if branch_name.trim().is_empty() {
+            return Err(GitError::Command("Git branch name cannot be empty".into()));
+        }
+        // Validate the ref before creating any repository state. User-controlled branch names are
+        // passed as an argument (never a shell fragment), but Git's own ref grammar is canonical.
+        run_git(&workspace, &["check-ref-format", "--branch", branch_name])?;
+        run_git(&workspace, &["init", "--initial-branch", branch_name])?;
+        // Do not invent or overwrite a README. An explicit empty commit establishes the requested
+        // branch without an implicit workspace file mutation.
+        run_git(&workspace, &["commit", "--allow-empty", "-m", "Initial commit"])?;
 
         let current = run_git_output(&workspace, &["branch", "--show-current"])?;
         if current.trim() != branch_name {

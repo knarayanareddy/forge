@@ -1,6 +1,9 @@
 use std::fs;
 use std::path::PathBuf;
 use sha2::Digest;
+
+const AUTH_TOKEN_PREFIX: &str = "v2.";
+const AUTH_TOKEN_BYTES: usize = 32;
 use thiserror::Error;
 
 pub const BYOK_SERVICE: &str = "AetherForge";
@@ -69,32 +72,6 @@ fn test_keychain_delete(service: &str, account: &str) -> Result<(), KeychainErro
 }
 
 #[cfg(not(test))]
-fn security_cli_set(service: &str, account: &str, password: &str) -> Result<(), KeychainError> {
-    use std::process::Command;
-    let _ = security_cli_delete(service, account);
-    let output = Command::new("security")
-        .args([
-            "add-generic-password",
-            "-U",
-            "-s",
-            service,
-            "-a",
-            account,
-            "-w",
-            password,
-        ])
-        .output()
-        .map_err(|e| KeychainError::Access(e.to_string()))?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(KeychainError::Access(
-            String::from_utf8_lossy(&output.stderr).into_owned(),
-        ))
-    }
-}
-
-#[cfg(not(test))]
 fn security_cli_get(service: &str, account: &str) -> Result<Option<String>, KeychainError> {
     use std::process::Command;
     let output = Command::new("security")
@@ -136,33 +113,23 @@ fn security_cli_delete(service: &str, account: &str) -> Result<(), KeychainError
 
 #[cfg(not(test))]
 fn platform_keychain_set(service: &str, account: &str, password: &str) -> Result<(), KeychainError> {
-    match security_cli_set(service, account, password) {
-        Ok(()) => Ok(()),
-        Err(cli_err) => {
-            let _ = security_cli_delete(service, account);
-            let entry = keyring::Entry::new(service, account)
-                .map_err(|e| KeychainError::Access(e.to_string()))?;
-            entry.set_password(password).map_err(|e| {
-                KeychainError::Access(format!("{cli_err}; keyring fallback: {e}"))
-            })
-        }
-    }
+    // Never pass secrets in process argv. The apple-native keyring backend calls Security.framework.
+    let entry = keyring::Entry::new(service, account)
+        .map_err(|error| KeychainError::Access(error.to_string()))?;
+    entry
+        .set_password(password)
+        .map_err(|error| KeychainError::Access(error.to_string()))
 }
 
 #[cfg(not(test))]
 fn platform_keychain_get(service: &str, account: &str) -> Result<Option<String>, KeychainError> {
-    match security_cli_get(service, account) {
-        Ok(value) => Ok(value),
-        Err(cli_err) => {
-            let entry = keyring::Entry::new(service, account)
-                .map_err(|e| KeychainError::Access(e.to_string()))?;
-            match entry.get_password() {
-                Ok(value) if !value.is_empty() => Ok(Some(value)),
-                Ok(_) => Ok(None),
-                Err(keyring::Error::NoEntry) => Ok(None),
-                Err(e) => Err(KeychainError::Access(format!("{cli_err}; keyring fallback: {e}"))),
-            }
-        }
+    let entry = keyring::Entry::new(service, account)
+        .map_err(|error| KeychainError::Access(error.to_string()))?;
+    match entry.get_password() {
+        Ok(value) if !value.is_empty() => Ok(Some(value)),
+        Ok(_) => Ok(None),
+        Err(keyring::Error::NoEntry) => security_cli_get(service, account),
+        Err(error) => Err(KeychainError::Access(error.to_string())),
     }
 }
 
@@ -281,16 +248,53 @@ pub fn load_named_secret(name: &str) -> Result<Option<String>, KeychainError> {
     keychain_get(BYOK_SERVICE, &named_secret_account(name))
 }
 
-fn random_auth_token() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let seed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let mut hasher = sha2::Sha256::new();
-    hasher.update(seed.to_le_bytes());
-    hasher.update(std::process::id().to_le_bytes());
-    format!("{:x}", hasher.finalize())
+/// Generate a versioned 256-bit token using the operating system CSPRNG.
+///
+/// The version prefix lets startup rotate legacy tokens that were derived from timestamp/PID
+/// state rather than trusting them indefinitely.
+pub fn secure_random_token() -> Result<String, KeychainError> {
+    let mut bytes = [0u8; AUTH_TOKEN_BYTES];
+    getrandom::getrandom(&mut bytes)
+        .map_err(|e| KeychainError::Access(format!("OS random source failed: {e}")))?;
+    let encoded: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+    Ok(format!("{AUTH_TOKEN_PREFIX}{encoded}"))
+}
+
+/// Challenge proof used by the Swift client to authenticate the process answering on the local
+/// daemon port. The auth token never crosses the wire during ping; only this nonce-bound digest
+/// does. This is a proof-of-possession protocol for the local shared secret, not a replacement for
+/// transport encryption.
+pub fn daemon_server_proof(token: &str, client_nonce: &str) -> Option<String> {
+    if token.is_empty()
+        || client_nonce.len() < 32
+        || client_nonce.len() > 256
+        || !client_nonce.chars().all(|c| c.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    const BLOCK: usize = 64;
+    let key = token.as_bytes();
+    let mut normalized = [0u8; BLOCK];
+    if key.len() > BLOCK {
+        let digest = sha2::Sha256::digest(key);
+        normalized[..digest.len()].copy_from_slice(&digest);
+    } else {
+        normalized[..key.len()].copy_from_slice(key);
+    }
+    let mut inner_pad = [0x36u8; BLOCK];
+    let mut outer_pad = [0x5cu8; BLOCK];
+    for index in 0..BLOCK {
+        inner_pad[index] ^= normalized[index];
+        outer_pad[index] ^= normalized[index];
+    }
+    let mut inner = sha2::Sha256::new();
+    inner.update(inner_pad);
+    inner.update(b"aether-daemon-proof-v2\0");
+    inner.update(client_nonce.as_bytes());
+    let mut outer = sha2::Sha256::new();
+    outer.update(outer_pad);
+    outer.update(inner.finalize());
+    Some(format!("{:x}", outer.finalize()))
 }
 
 /// Load daemon IPC auth token from Keychain. Returns `None` if unset.
@@ -304,9 +308,17 @@ pub fn ensure_daemon_auth_token() -> Result<String, KeychainError> {
         return Err(KeychainError::UnavailableOnPlatform);
     }
     if let Some(token) = load_daemon_auth_token()? {
-        return Ok(token);
+        if token.starts_with(AUTH_TOKEN_PREFIX) {
+            // Keep the manual-client fallback synchronized with Keychain without changing the
+            // token. The file writer is atomic and mode-restricted.
+            if auth_token_file_enabled() {
+                write_daemon_auth_token_file(&token)?;
+            }
+            return Ok(token);
+        }
+        // Rotate legacy timestamp/PID-derived tokens on first startup after this upgrade.
     }
-    let token = random_auth_token();
+    let token = secure_random_token()?;
     store_daemon_auth_token(&token)?;
     Ok(token)
 }
@@ -314,8 +326,15 @@ pub fn ensure_daemon_auth_token() -> Result<String, KeychainError> {
 /// Store daemon IPC auth token in Keychain and a user-readable fallback file.
 pub fn store_daemon_auth_token(token: &str) -> Result<(), KeychainError> {
     keychain_set(BYOK_SERVICE, DAEMON_AUTH_ACCOUNT, token)?;
-    write_daemon_auth_token_file(token);
+    if auth_token_file_enabled() {
+        write_daemon_auth_token_file(token)?;
+    }
     Ok(())
+}
+
+fn auth_token_file_enabled() -> bool {
+    std::env::var("AETHER_WRITE_AUTH_TOKEN_FILE")
+        .is_ok_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
 }
 
 fn daemon_auth_token_file() -> Option<PathBuf> {
@@ -324,19 +343,48 @@ fn daemon_auth_token_file() -> Option<PathBuf> {
         .map(|home| PathBuf::from(home).join(".aether/daemon_auth_token"))
 }
 
-fn write_daemon_auth_token_file(token: &str) {
+fn write_daemon_auth_token_file(token: &str) -> Result<(), KeychainError> {
     let Some(path) = daemon_auth_token_file() else {
-        return;
+        return Err(KeychainError::Access(
+            "HOME is unavailable for daemon auth token fallback".into(),
+        ));
     };
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
+    let parent = path
+        .parent()
+        .ok_or_else(|| KeychainError::Access("daemon auth token path has no parent".into()))?;
+    fs::create_dir_all(parent).map_err(|e| KeychainError::Access(e.to_string()))?;
+
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+        fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
+            .map_err(|e| KeychainError::Access(e.to_string()))?;
+        let tmp = parent.join(format!(".daemon_auth_token.{}.tmp", std::process::id()));
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true).mode(0o600);
+        let mut file = match options.open(&tmp) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                fs::remove_file(&tmp).map_err(|e| KeychainError::Access(e.to_string()))?;
+                options
+                    .open(&tmp)
+                    .map_err(|e| KeychainError::Access(e.to_string()))?
+            }
+            Err(error) => return Err(KeychainError::Access(error.to_string())),
+        };
+        file.write_all(token.as_bytes())
+            .and_then(|_| file.sync_all())
+            .map_err(|e| KeychainError::Access(e.to_string()))?;
+        fs::rename(&tmp, &path).map_err(|e| KeychainError::Access(e.to_string()))?;
+        return Ok(());
     }
-    if fs::write(&path, token).is_ok() {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
-        }
+
+    #[cfg(not(unix))]
+    {
+        fs::write(&path, token).map_err(|e| KeychainError::Access(e.to_string()))?;
+        Ok(())
     }
 }
 
@@ -501,5 +549,25 @@ mod tests {
         store_gateway_token(&channel_id, &token).expect("store gateway token");
         let loaded = load_gateway_token(&channel_id).expect("load gateway token");
         assert_eq!(loaded.as_deref(), Some(token.as_str()));
+    }
+
+    #[test]
+    fn secure_tokens_are_versioned_unique_and_full_entropy_length() {
+        let first = secure_random_token().unwrap();
+        let second = secure_random_token().unwrap();
+        assert!(first.starts_with(AUTH_TOKEN_PREFIX));
+        assert_eq!(first.len(), AUTH_TOKEN_PREFIX.len() + AUTH_TOKEN_BYTES * 2);
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn daemon_proof_is_nonce_bound_and_rejects_invalid_nonce() {
+        let token = "v2.test-token";
+        let nonce_a = "a".repeat(64);
+        let nonce_b = "b".repeat(64);
+        let proof_a = daemon_server_proof(token, &nonce_a).unwrap();
+        assert_eq!(proof_a.len(), 64);
+        assert_ne!(proof_a, daemon_server_proof(token, &nonce_b).unwrap());
+        assert!(daemon_server_proof(token, "short").is_none());
     }
 }

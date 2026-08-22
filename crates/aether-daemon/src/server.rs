@@ -1,12 +1,26 @@
 use crate::automation::{AutomationScheduler, AutomationTrigger, TriggerConfig, TriggerType};
 use crate::automation_webhook;
 use crate::protocol::{EventLine, RequestLine};
-use crate::task_runner::{run_task, RunTaskParams};
+use crate::task_runner::{run_task, ExecutionMode, RunTaskParams};
 use crate::DaemonState;
-use aether_permissions::{PermissionDecision, PermissionManager};
+use aether_permissions::{PermissionDecision, PermissionManager, PrincipalAuthorization};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Semaphore;
+use tokio::time::{timeout, Duration};
+
+const DEFAULT_MAX_IPC_CONNECTIONS: usize = 64;
+const DEFAULT_MAX_IPC_LINE_BYTES: usize = 1_048_576;
+const DEFAULT_IPC_READ_TIMEOUT_SECS: u64 = 30;
+
+fn principal_id(auth_token: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"aether-principal-v1\0");
+    hasher.update(auth_token.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
 
 /// Returns true when the caller supplied a valid daemon auth token, or auth is disabled.
 pub fn ipc_auth_ok(provided: Option<&str>, expected: &str) -> bool {
@@ -14,6 +28,55 @@ pub fn ipc_auth_ok(provided: Option<&str>, expected: &str) -> bool {
         return true;
     }
     aether_core::verify_daemon_auth_token_expected(provided.unwrap_or(""), expected)
+}
+
+fn bounded_env_usize(name: &str, default: usize, maximum: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(default)
+        .clamp(1, maximum)
+}
+
+async fn read_bounded_line<R: AsyncBufRead + Unpin>(
+    reader: &mut R,
+    max_bytes: usize,
+    read_timeout: Duration,
+) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>> {
+    let mut line = Vec::new();
+    loop {
+        let available = timeout(read_timeout, reader.fill_buf())
+            .await
+            .map_err(|_| "IPC read timed out")??;
+        if available.is_empty() {
+            if line.is_empty() {
+                return Ok(None);
+            }
+            break;
+        }
+        let take = available
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map(|position| position + 1)
+            .unwrap_or(available.len());
+        if line.len().saturating_add(take) > max_bytes {
+            return Err("IPC request exceeded configured line limit".into());
+        }
+        line.extend_from_slice(&available[..take]);
+        reader.consume(take);
+        if line.last() == Some(&b'\n') {
+            break;
+        }
+    }
+    if line.last() == Some(&b'\n') {
+        line.pop();
+        if line.last() == Some(&b'\r') {
+            line.pop();
+        }
+    }
+    String::from_utf8(line)
+        .map(Some)
+        .map_err(|_| "IPC request must be UTF-8".into())
 }
 
 pub async fn serve(addr: String, state: Arc<DaemonState>) -> Result<(), Box<dyn std::error::Error>> {
@@ -59,11 +122,22 @@ pub async fn serve(addr: String, state: Arc<DaemonState>) -> Result<(), Box<dyn 
 
 
     let listener = TcpListener::bind(&addr).await?;
+    let connection_limit = Arc::new(Semaphore::new(bounded_env_usize(
+        "AETHER_MAX_IPC_CONNECTIONS",
+        DEFAULT_MAX_IPC_CONNECTIONS,
+        1_024,
+    )));
     loop {
         let (socket, peer) = listener.accept().await?;
+        let Ok(permit) = Arc::clone(&connection_limit).try_acquire_owned() else {
+            tracing::warn!("rejecting IPC connection: concurrency limit reached");
+            drop(socket);
+            continue;
+        };
         tracing::info!("client connected: {}", peer);
         let state = Arc::clone(&state);
         tokio::spawn(async move {
+            let _permit = permit;
             if let Err(e) = handle_client(socket, state).await {
                 tracing::warn!("client session ended: {}", e);
             }
@@ -76,9 +150,21 @@ async fn handle_client(
     state: Arc<DaemonState>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (reader, mut writer) = socket.into_split();
-    let mut lines = BufReader::new(reader).lines();
+    let mut reader = BufReader::new(reader);
+    let max_line = bounded_env_usize(
+        "AETHER_MAX_IPC_LINE_BYTES",
+        DEFAULT_MAX_IPC_LINE_BYTES,
+        8 * 1_048_576,
+    );
+    let read_timeout = Duration::from_secs(
+        bounded_env_usize(
+            "AETHER_IPC_READ_TIMEOUT_SECS",
+            DEFAULT_IPC_READ_TIMEOUT_SECS as usize,
+            300,
+        ) as u64,
+    );
 
-    while let Some(line) = lines.next_line().await? {
+    while let Some(line) = read_bounded_line(&mut reader, max_line, read_timeout).await? {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -97,6 +183,18 @@ async fn handle_client(
         };
 
         if request.method != "ping" && !ipc_auth_ok(request.params.auth_token.as_deref(), &state.auth_token) {
+            {
+                let conn = state.db.conn();
+                let _ = PermissionManager::audit_decision(
+                    &conn,
+                    request.params.session_id.as_deref().unwrap_or("__daemon__"),
+                    "ipc_authentication",
+                    &serde_json::json!({"method": request.method}).to_string(),
+                    &PermissionDecision::Denied,
+                    Some(1),
+                    None,
+                );
+            }
             write_event(
                 &mut writer,
                 EventLine::error("Invalid or missing auth_token".into()),
@@ -105,24 +203,64 @@ async fn handle_client(
             continue;
         }
 
+        let caller_principal = principal_id(&state.auth_token);
         match request.method.as_str() {
             "run_task" => {
-                if request.params.prompt.is_empty() {
+                if request.params.approved.unwrap_or(false) {
                     write_event(
                         &mut writer,
-                        EventLine::error("Missing prompt parameter".into()),
+                        EventLine::error(
+                            "bare approved=true is forbidden; submit the daemon-issued approval_id"
+                                .into(),
+                        ),
                     )
                     .await?;
                     continue;
                 }
+                if request.params.prompt.is_empty() && request.params.approval_id.is_none() {
+                    write_event(
+                        &mut writer,
+                        EventLine::error("Missing prompt or approval_id parameter".into()),
+                    )
+                    .await?;
+                    continue;
+                }
+                let execution_mode = match ExecutionMode::parse(
+                    request.params.execution_mode.as_deref(),
+                ) {
+                    Ok(mode) => mode,
+                    Err(error) => {
+                        write_event(&mut writer, EventLine::error(error)).await?;
+                        continue;
+                    }
+                };
 
+                let max_iterations = request.params.max_iterations.unwrap_or(8);
+                if !(1..=64).contains(&max_iterations) {
+                    write_event(
+                        &mut writer,
+                        EventLine::error("max_iterations must be between 1 and 64".into()),
+                    )
+                    .await?;
+                    continue;
+                }
+                if request.params.max_tokens.is_some_and(|value| value == 0 || value > 1_000_000) {
+                    write_event(
+                        &mut writer,
+                        EventLine::error("max_tokens must be between 1 and 1,000,000".into()),
+                    )
+                    .await?;
+                    continue;
+                }
                 let params = RunTaskParams {
                     prompt: request.params.prompt,
                     session_id: request.params.session_id,
                     workspace_path: request.params.workspace_path,
-                    max_iterations: request.params.max_iterations,
+                    max_iterations: Some(max_iterations),
                     max_tokens: request.params.max_tokens,
-                    approved: request.params.approved.unwrap_or(false),
+                    execution_mode,
+                    approval_id: request.params.approval_id,
+                    principal_id: caller_principal.clone(),
                 };
 
                 if let Err(e) = run_task(&mut writer, &state, &params).await {
@@ -130,9 +268,14 @@ async fn handle_client(
                 }
             }
             "ping" => {
-                write_event(&mut writer, EventLine::pong()).await?;
+                let proof = request
+                    .params
+                    .client_nonce
+                    .as_deref()
+                    .and_then(|nonce| aether_core::daemon_server_proof(&state.auth_token, nonce));
+                write_event(&mut writer, EventLine::pong(proof)).await?;
             }
-            "grant_workspace" => match handle_grant_workspace(&state, &request) {
+            "grant_workspace" => match handle_grant_workspace(&state, &request, &caller_principal) {
                 Ok(path) => {
                     write_event(&mut writer, EventLine::workspace_granted(&path)).await?;
                 }
@@ -144,7 +287,7 @@ async fn handle_client(
                     .await?;
                 }
             },
-            "create_checkpoint" => match handle_create_checkpoint(&state, &request) {
+            "create_checkpoint" => match handle_create_checkpoint(&state, &request, &caller_principal) {
                 Ok(checkpoint_id) => {
                     write_event(&mut writer, EventLine::checkpoint_created(checkpoint_id)).await?;
                 }
@@ -156,7 +299,7 @@ async fn handle_client(
                     .await?;
                 }
             },
-            "rewind_checkpoint" => match handle_rewind_checkpoint(&state, &request) {
+            "rewind_checkpoint" => match handle_rewind_checkpoint(&state, &request, &caller_principal) {
                 Ok(report) => {
                     let not_undone = report
                         .not_undone
@@ -181,7 +324,7 @@ async fn handle_client(
                     .await?;
                 }
             },
-            "undo_writes" => match handle_undo_writes(&state, &request) {
+            "undo_writes" => match handle_undo_writes(&state, &request, &caller_principal) {
                 Ok(report) => {
                     let not_undone = report
                         .not_undone
@@ -203,7 +346,7 @@ async fn handle_client(
                 }
             },
             "register_automation" => {
-                if let Err(e) = handle_register_automation(&state, &request).await {
+                if let Err(e) = handle_register_automation(&state, &request, &caller_principal).await {
                     write_event(
                         &mut writer,
                         EventLine::error(format!("register_automation failed: {}", e)),
@@ -243,7 +386,10 @@ async fn handle_client(
                     .await?;
                 }
             }
-            "list_consolidation_pending" => match handle_list_consolidation_pending(&state) {
+            "list_consolidation_pending" => match handle_list_consolidation_pending(
+                &state,
+                &caller_principal,
+            ) {
                 Ok(runs) => {
                     write_event(&mut writer, EventLine::consolidation_list(runs)).await?;
                 }
@@ -255,7 +401,7 @@ async fn handle_client(
                     .await?;
                 }
             },
-            "apply_consolidation" => match handle_apply_consolidation(&state, &request) {
+            "apply_consolidation" => match handle_apply_consolidation(&state, &request, &caller_principal) {
                 Ok(applied) => {
                     let run_id = request.params.run_id.unwrap_or(0);
                     write_event(
@@ -272,7 +418,7 @@ async fn handle_client(
                     .await?;
                 }
             },
-            "reject_consolidation" => match handle_reject_consolidation(&state, &request) {
+            "reject_consolidation" => match handle_reject_consolidation(&state, &request, &caller_principal) {
                 Ok(()) => {
                     let run_id = request.params.run_id.unwrap_or(0);
                     write_event(
@@ -305,6 +451,7 @@ async fn handle_client(
 fn handle_grant_workspace(
     state: &Arc<DaemonState>,
     request: &RequestLine,
+    principal_id: &str,
 ) -> Result<String, String> {
     let session_id = request
         .params
@@ -332,6 +479,12 @@ fn handle_grant_workspace(
         rusqlite::params![session_id],
     )
     .map_err(|e| e.to_string())?;
+    if PrincipalAuthorization::claim_or_check_session(&conn, session_id, principal_id)
+        .map_err(|error| error.to_string())?
+        != PermissionDecision::Approved
+    {
+        return Err("session belongs to another principal".into());
+    }
     for capability in ["read", "write"] {
         conn.execute(
             "INSERT INTO capability_grants (session_id, resource_path, permission_type)
@@ -363,7 +516,11 @@ fn handle_grant_workspace(
     Ok(workspace)
 }
 
-fn handle_create_checkpoint(state: &Arc<DaemonState>, request: &RequestLine) -> Result<i64, String> {
+fn handle_create_checkpoint(
+    state: &Arc<DaemonState>,
+    request: &RequestLine,
+    principal_id: &str,
+) -> Result<i64, String> {
     let session_id = request
         .params
         .session_id
@@ -371,21 +528,42 @@ fn handle_create_checkpoint(state: &Arc<DaemonState>, request: &RequestLine) -> 
         .filter(|id| !id.trim().is_empty())
         .ok_or("missing session_id")?;
     let conn = state.db.conn();
+    if PrincipalAuthorization::check_session(&conn, session_id, principal_id)
+        .map_err(|error| error.to_string())?
+        != PermissionDecision::Approved
+    {
+        return Err("session ownership check failed".into());
+    }
     crate::checkpoint::create_checkpoint(&conn, session_id).map(|c| c.id)
 }
 
 fn handle_rewind_checkpoint(
     state: &Arc<DaemonState>,
     request: &RequestLine,
+    principal_id: &str,
 ) -> Result<crate::checkpoint::RewindReport, String> {
     let checkpoint_id = request.params.checkpoint_id.ok_or("missing checkpoint_id")?;
     let conn = state.db.conn();
+    let session_id: String = conn
+        .query_row(
+            "SELECT session_id FROM checkpoints WHERE id = ?1",
+            rusqlite::params![checkpoint_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| "checkpoint not found".to_string())?;
+    if PrincipalAuthorization::check_session(&conn, &session_id, principal_id)
+        .map_err(|error| error.to_string())?
+        != PermissionDecision::Approved
+    {
+        return Err("checkpoint ownership check failed".into());
+    }
     crate::checkpoint::rewind_to_checkpoint(&conn, checkpoint_id)
 }
 
 fn handle_undo_writes(
     state: &Arc<DaemonState>,
     request: &RequestLine,
+    principal_id: &str,
 ) -> Result<aether_permissions::UndoReport, String> {
     let session_id = request
         .params
@@ -394,23 +572,47 @@ fn handle_undo_writes(
         .filter(|id| !id.trim().is_empty())
         .ok_or("missing session_id")?;
     let conn = state.db.conn();
+    if PrincipalAuthorization::check_session(&conn, session_id, principal_id)
+        .map_err(|error| error.to_string())?
+        != PermissionDecision::Approved
+    {
+        return Err("session ownership check failed".into());
+    }
     aether_permissions::undo_pending_writes(&conn, session_id)
 }
 
 fn handle_list_consolidation_pending(
     state: &Arc<DaemonState>,
+    principal_id: &str,
 ) -> Result<Vec<aether_db::ConsolidationRunListItem>, String> {
     state
         .db
-        .list_consolidation_runs_by_status("review_pending")
+        .list_consolidation_runs_for_principal("review_pending", principal_id)
         .map_err(|e| e.to_string())
 }
 
 fn handle_apply_consolidation(
     state: &Arc<DaemonState>,
     request: &RequestLine,
+    principal_id: &str,
 ) -> Result<usize, String> {
     let run_id = request.params.run_id.ok_or("missing run_id")?;
+    {
+        let conn = state.db.conn();
+        let session_id: String = conn
+            .query_row(
+                "SELECT session_id FROM consolidation_runs WHERE id = ?1",
+                rusqlite::params![run_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| "consolidation run not found".to_string())?;
+        if PrincipalAuthorization::check_session(&conn, &session_id, principal_id)
+            .map_err(|error| error.to_string())?
+            != PermissionDecision::Approved
+        {
+            return Err("consolidation ownership check failed".into());
+        }
+    }
     state
         .db
         .apply_consolidation_run(run_id)
@@ -420,8 +622,25 @@ fn handle_apply_consolidation(
 fn handle_reject_consolidation(
     state: &Arc<DaemonState>,
     request: &RequestLine,
+    principal_id: &str,
 ) -> Result<(), String> {
     let run_id = request.params.run_id.ok_or("missing run_id")?;
+    {
+        let conn = state.db.conn();
+        let session_id: String = conn
+            .query_row(
+                "SELECT session_id FROM consolidation_runs WHERE id = ?1",
+                rusqlite::params![run_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| "consolidation run not found".to_string())?;
+        if PrincipalAuthorization::check_session(&conn, &session_id, principal_id)
+            .map_err(|error| error.to_string())?
+            != PermissionDecision::Approved
+        {
+            return Err("consolidation ownership check failed".into());
+        }
+    }
     state
         .db
         .reject_consolidation_run(run_id)
@@ -452,6 +671,7 @@ async fn handle_automation_run(
 async fn handle_register_automation(
     state: &Arc<DaemonState>,
     request: &RequestLine,
+    principal_id: &str,
 ) -> Result<(), String> {
     if request.params.grant_automation.unwrap_or(false) {
         return Err(
@@ -502,6 +722,12 @@ async fn handle_register_automation(
     };
 
     let conn = state.db.conn();
+    if PrincipalAuthorization::claim_or_check_session(&conn, session_id, principal_id)
+        .map_err(|error| error.to_string())?
+        != PermissionDecision::Approved
+    {
+        return Err("automation session ownership check failed".into());
+    }
     AutomationScheduler::register_trigger(&conn, &trigger)?;
 
     Ok(())
@@ -554,7 +780,7 @@ mod tests {
             router: aether_core::ModelRouter::from_env().expect("router"),
             auth_token: "tok".into(),
         });
-        let pending = handle_register_automation(&state, &request);
+        let pending = handle_register_automation(&state, &request, "test-principal");
         let rt = tokio::runtime::Runtime::new().expect("runtime");
         let err = rt.block_on(pending).expect_err("must reject grant_automation");
         assert!(err.contains("grant_automation via IPC is forbidden"));
@@ -578,8 +804,9 @@ mod tests {
             auth_token: "tok".into(),
         });
 
-        let canonical = handle_grant_workspace(&state, &request).expect("grant");
-        handle_grant_workspace(&state, &request).expect("idempotent grant");
+        let canonical = handle_grant_workspace(&state, &request, "test-principal").expect("grant");
+        handle_grant_workspace(&state, &request, "test-principal")
+            .expect("idempotent grant");
         assert_eq!(
             canonical,
             workspace.path().canonicalize().unwrap().to_string_lossy()

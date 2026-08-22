@@ -1,5 +1,17 @@
 use serde_json::Value;
 
+/// Discord interactions require Ed25519 verification over timestamp + raw body. Until a reviewed
+/// verifier and key configuration are present, the production webhook route is deliberately
+/// disabled rather than accepting unsigned requests.
+pub fn verify_interaction_signature(
+    _channel_id: &str,
+    _signature: Option<&str>,
+    _timestamp: Option<&str>,
+    _body: &str,
+) -> Result<(), String> {
+    Err("Discord webhook disabled: Ed25519 interaction verification is not configured".into())
+}
+
 pub fn parse_discord_payload(body: &str) -> Result<String, String> {
     let value: Value =
         serde_json::from_str(body).map_err(|e| format!("invalid discord json: {}", e))?;

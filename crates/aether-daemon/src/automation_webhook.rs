@@ -3,6 +3,10 @@ use crate::DaemonState;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+use tokio::time::{timeout, Duration};
+
+const HTTP_READ_TIMEOUT: Duration = Duration::from_secs(10);
+const MAX_WEBHOOK_BODY_BYTES: usize = 65_536;
 
 /// Minimal HTTP POST stub for PR webhook triggers (Slice 7.2).
 pub async fn serve_webhook(
@@ -28,7 +32,9 @@ async fn handle_webhook_connection(
     state: &Arc<DaemonState>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut buf = vec![0u8; 8192];
-    let n = socket.read(&mut buf).await?;
+    let n = timeout(HTTP_READ_TIMEOUT, socket.read(&mut buf))
+        .await
+        .map_err(|_| "automation webhook read timed out")??;
     if n == 0 {
         return Ok(());
     }
@@ -53,7 +59,8 @@ async fn handle_webhook_connection(
     }
 
     let mut content_length = 0usize;
-    let mut secret = None;
+    let mut signature = None;
+    let mut delivery_id = None;
     for line in lines.by_ref() {
         if line.is_empty() {
             break;
@@ -65,13 +72,23 @@ async fn handle_webhook_connection(
                 .trim()
                 .parse()
                 .unwrap_or(0);
-        } else if lower.starts_with("x-aether-webhook-secret:") {
-            secret = Some(
+        } else if lower.starts_with("x-hub-signature-256:") {
+            signature = Some(
                 line.split_once(':')
-                    .map(|(_, v)| v.trim().to_string())
+                    .map(|(_, value)| value.trim().to_string())
+                    .unwrap_or_default(),
+            );
+        } else if lower.starts_with("x-github-delivery:") {
+            delivery_id = Some(
+                line.split_once(':')
+                    .map(|(_, value)| value.trim().to_string())
                     .unwrap_or_default(),
             );
         }
+    }
+
+    if content_length > MAX_WEBHOOK_BODY_BYTES {
+        return Err("automation webhook body exceeds 64 KiB".into());
     }
 
     let body_start = request
@@ -81,13 +98,18 @@ async fn handle_webhook_connection(
         .unwrap_or(n);
     let mut body = request[body_start..].to_string();
     while body.len() < content_length && body.len() < 65536 {
-        let extra = socket.read(&mut buf).await?;
+        let extra = timeout(HTTP_READ_TIMEOUT, socket.read(&mut buf))
+            .await
+            .map_err(|_| "automation webhook body read timed out")??;
         if extra == 0 {
             break;
         }
         body.push_str(&String::from_utf8_lossy(&buf[..extra]));
     }
     if content_length > 0 && body.len() > content_length {
+        if !body.is_char_boundary(content_length) {
+            return Err("automation Content-Length splits UTF-8 sequence".into());
+        }
         body.truncate(content_length);
     }
 
@@ -97,8 +119,9 @@ async fn handle_webhook_connection(
         let outcome = scheduler.handle_pr_webhook(
             &conn,
             trigger_id,
-            body.trim(),
-            secret.as_deref(),
+            &body,
+            signature.as_deref(),
+            delivery_id.as_deref(),
         )?;
         match outcome {
             crate::automation::AutomationOutcome::Enqueued { .. } => (202, "Accepted"),
@@ -172,7 +195,6 @@ mod tests {
                 [],
             )
             .unwrap();
-            AutomationGrant::grant(&conn, "trg-pr", "sess-auto").unwrap();
             let trigger = AutomationTrigger {
                 trigger_id: "trg-pr".into(),
                 trigger_type: TriggerType::PrWebhook,
@@ -187,6 +209,7 @@ mod tests {
                 last_fired_at: None,
             };
             AutomationScheduler::register_trigger(&conn, &trigger).unwrap();
+            AutomationGrant::grant(&conn, "trg-pr", "sess-auto").unwrap();
         }
 
         let state = Arc::new(DaemonState {
@@ -213,7 +236,8 @@ mod tests {
         let req = "POST /automation/webhook/trg-pr HTTP/1.1\r\n\
                    Host: localhost\r\n\
                    Content-Type: application/json\r\n\
-                   X-Aether-Webhook-Secret: secret\r\n\
+                   X-Hub-Signature-256: sha256=d42142b53efbc7cf5cd20b6e074eb33707e0de3b368f698e6d6f6c824ffb8d37\r\n\
+                   X-GitHub-Delivery: delivery-test-1\r\n\
                    Content-Length: 19\r\n\r\n\
                    {\"action\":\"opened\"}";
         stream.write_all(req.as_bytes()).await.unwrap();

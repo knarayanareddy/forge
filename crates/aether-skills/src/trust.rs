@@ -259,6 +259,68 @@ pub fn admit_skill(pins: &SkillPinStore, skill: &SkillDefinition) -> Result<(), 
     Ok(())
 }
 
+/// Persist an explicitly reviewed skill pin. Production execution uses this database record rather
+/// than an ephemeral in-memory store, so process restart cannot erase the admission decision.
+pub fn install_skill_persisted(
+    conn: &rusqlite::Connection,
+    skill: &SkillDefinition,
+    expected_hash: Option<&str>,
+    source: &str,
+) -> Result<String, SkillError> {
+    let mut pins = SkillPinStore::new();
+    let actual = install_skill(&mut pins, skill)?;
+    if let Some(expected) = expected_hash {
+        if actual != expected {
+            return Err(SkillError::SecurityViolation(format!(
+                "skill '{}' curated digest mismatch: expected {expected}, got {actual}",
+                skill.id
+            )));
+        }
+    }
+    let manifest = skill.capabilities.as_ref().ok_or_else(|| {
+        SkillError::SecurityViolation(format!("skill '{}' missing manifest", skill.id))
+    })?;
+    let manifest_json = serde_json::json!({
+        "filesystem": manifest.filesystem,
+        "network": manifest.network,
+        "tools": manifest.tools,
+    })
+    .to_string();
+    conn.execute(
+        "INSERT INTO installed_skills (skill_id, content_hash, manifest_json, source, installed_at)
+         VALUES (?1, ?2, ?3, ?4, CURRENT_TIMESTAMP)
+         ON CONFLICT(skill_id) DO UPDATE SET
+           content_hash = excluded.content_hash,
+           manifest_json = excluded.manifest_json,
+           source = excluded.source,
+           installed_at = CURRENT_TIMESTAMP",
+        rusqlite::params![skill.id, actual, manifest_json, source],
+    )?;
+    Ok(actual)
+}
+
+/// Require a persisted pin and re-run every trust check immediately before production execution.
+pub fn admit_skill_persisted(
+    conn: &rusqlite::Connection,
+    skill: &SkillDefinition,
+) -> Result<(), SkillError> {
+    let expected: String = conn
+        .query_row(
+            "SELECT content_hash FROM installed_skills WHERE skill_id = ?1",
+            rusqlite::params![skill.id],
+            |row| row.get(0),
+        )
+        .map_err(|_| {
+            SkillError::SecurityViolation(format!(
+                "skill '{}' is not installed in the production pin registry",
+                skill.id
+            ))
+        })?;
+    let mut pins = SkillPinStore::new();
+    pins.pin(&skill.id, expected);
+    admit_skill(&pins, skill)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,6 +351,53 @@ tools: append_file
         let hash = install_skill(&mut pins, &skill).unwrap();
         assert_eq!(pins.get("test"), Some(hash.as_str()));
         admit_skill(&pins, &skill).unwrap();
+    }
+
+    #[test]
+    fn persisted_production_pin_survives_process_store_and_blocks_rug_pull() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE installed_skills (
+                skill_id TEXT PRIMARY KEY,
+                content_hash TEXT NOT NULL,
+                manifest_json TEXT NOT NULL,
+                source TEXT NOT NULL,
+                installed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );",
+        )
+        .unwrap();
+        let benign = parse(
+            r#"---
+name: test
+description: Append a note
+filesystem: notes.txt
+network: false
+tools: append_file
+---
+## Steps
+- action: append_file
+  path: notes.txt
+  template: "hi\n"
+"#,
+        );
+        install_skill_persisted(&conn, &benign, None, "unit-test").unwrap();
+        admit_skill_persisted(&conn, &benign).unwrap();
+
+        let mutated = parse(
+            r#"---
+name: test
+description: Append a note
+filesystem: notes.txt
+network: false
+tools: append_file
+---
+## Steps
+- action: append_file
+  path: notes.txt
+  template: "changed\n"
+"#,
+        );
+        assert!(admit_skill_persisted(&conn, &mutated).is_err());
     }
 
     #[test]

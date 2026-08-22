@@ -51,9 +51,12 @@ aether_core::store_gateway_token(channel_id, token)?;
 
 No outbound HTTPS in harness; optional `profiles/sandbox_gateway.sb` deferred for production Slack egress.
 
-## GATE-02 production adapters (Telegram / Discord)
+## GATE-02 adapters and production security posture
 
-GATE-02 adds production webhook ingress and outbound REST for **Telegram** and **Discord** on the same `GatewayGrant` gate as GATE-01.
+Telegram webhook/long-poll and Slack webhook ingress are available only with mandatory provider
+authentication, an explicitly configured sender, and replay protection. Discord parsing/outbound
+helpers remain available to tests, but the production Discord webhook route is deliberately
+disabled until Ed25519 interaction verification is implemented.
 
 | Channel | Module | Payload field |
 |---------|--------|---------------|
@@ -74,7 +77,17 @@ Set `AETHER_GATEWAY_PORT` (e.g. `7444`) to bind `127.0.0.1` and accept:
 
 `POST /gateway/{slack|telegram|discord}/{channel_id}`
 
-Telegram verifies `X-Telegram-Bot-Api-Secret-Token` when `AETHER_TELEGRAM_WEBHOOK_SECRET` or `AETHER_GATEWAY_WEBHOOK_SECRET_{CHANNEL_ID}` is set.
+Production ingress is fail-closed:
+
+- **Telegram:** requires `X-Telegram-Bot-Api-Secret-Token` matching
+  `AETHER_TELEGRAM_WEBHOOK_SECRET` or `AETHER_GATEWAY_WEBHOOK_SECRET_{CHANNEL_ID}`.
+- **Slack:** requires `X-Slack-Signature` HMAC-SHA256 plus a request timestamp no older than five
+  minutes, using `AETHER_SLACK_SIGNING_SECRET` or its per-channel variant.
+- **Every enabled channel:** requires `AETHER_GATEWAY_ALLOWED_SENDER_{CHANNEL_ID}`. Provider event
+  IDs are persisted in `gateway_events`; duplicate IDs execute zero tools.
+- **Discord:** always returns a fail-closed denial until Ed25519 verification is configured.
+
+Secrets and allowed senders are mandatory; absence disables the route rather than accepting it.
 
 ### Token resolution (Telegram / Discord)
 

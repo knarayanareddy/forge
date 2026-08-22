@@ -103,6 +103,11 @@ pub fn registry_search_paths() -> Vec<PathBuf> {
     if let Ok(v) = std::env::var(ENV_REGISTRY_PATH) { p.push(PathBuf::from(v)); }
     if let Ok(cwd) = std::env::current_dir() { p.push(cwd.join(DEFAULT_REGISTRY_REL_PATH)); }
     if let Ok(h) = std::env::var("HOME") { p.push(PathBuf::from(h).join(".aether/registry.toml")); }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            p.push(dir.join("../Resources/models/registry.toml"));
+        }
+    }
     p
 }
 pub fn discover_registry_path() -> Option<PathBuf> { registry_search_paths().into_iter().find(|p| p.is_file()) }

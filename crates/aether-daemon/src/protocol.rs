@@ -37,6 +37,15 @@ pub struct RequestParams {
     pub approved: Option<bool>,
     #[serde(default)]
     pub run_id: Option<i64>,
+    /// Random client challenge used by authenticated ping. The token itself is never sent.
+    #[serde(default)]
+    pub client_nonce: Option<String>,
+    /// Single-use server-issued approval identifier. A bare `approved: true` is rejected.
+    #[serde(default)]
+    pub approval_id: Option<String>,
+    /// Explicit product routing mode (`agent` or `chat`). Defaults to backward-compatible chat.
+    #[serde(default)]
+    pub execution_mode: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -99,6 +108,18 @@ pub struct EventLine {
     pub nodes_superseded: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runs: Option<Vec<aether_db::ConsolidationRunListItem>>,
+    /// Nonce-bound daemon identity proof returned by authenticated ping.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server_proof: Option<String>,
+    /// Opaque, single-use identifier bound to the exact server-stored plan awaiting approval.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval_plan: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval_digest: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval_expires_at: Option<u64>,
 }
 
 impl EventLine {
@@ -132,6 +153,11 @@ impl EventLine {
             run_id: None,
             nodes_superseded: None,
             runs: None,
+            server_proof: None,
+            approval_id: None,
+            approval_plan: None,
+            approval_digest: None,
+            approval_expires_at: None,
         }
     }
 
@@ -216,8 +242,10 @@ impl EventLine {
         e
     }
 
-    pub fn pong() -> Self {
-        Self::base("pong")
+    pub fn pong(server_proof: Option<String>) -> Self {
+        let mut event = Self::base("pong");
+        event.server_proof = server_proof;
+        event
     }
 
     pub fn automation_registered(trigger_id: &str) -> Self {
@@ -265,15 +293,33 @@ impl EventLine {
         e
     }
 
-    pub fn pending_approval(risky: &[aether_core::RiskyStep]) -> Self {
-        let mut e = Self::base("pending_approval");
-        e.risky_steps = Some(
+    pub fn pending_approval(
+        approval: &crate::approval::PendingApprovalEnvelope,
+        risky: &[aether_core::RiskyStep],
+    ) -> Self {
+        let mut event = Self::base("pending_approval");
+        event.approval_id = Some(approval.approval_id.clone());
+        event.approval_plan = Some(approval.plan_json.clone());
+        event.approval_digest = Some(approval.plan_digest.clone());
+        event.approval_expires_at = Some(approval.expires_at);
+        event.risky_steps = Some(
             risky
                 .iter()
-                .map(|r| format!("{}: {} - {}", r.index, r.tool, r.reason))
+                .map(|risk| format!("{}: {} - {}", risk.index, risk.tool, risk.reason))
                 .collect(),
         );
-        e
+        event
+    }
+
+    pub fn pending_approval_headless(risky: &[aether_core::RiskyStep]) -> Self {
+        let mut event = Self::base("pending_approval");
+        event.risky_steps = Some(
+            risky
+                .iter()
+                .map(|risk| format!("{}: {} - {}", risk.index, risk.tool, risk.reason))
+                .collect(),
+        );
+        event
     }
 
     pub fn consolidation_list(runs: Vec<aether_db::ConsolidationRunListItem>) -> Self {

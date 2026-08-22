@@ -1,3 +1,4 @@
+pub mod approval;
 pub mod automation;
 pub mod automation_webhook;
 pub mod checkpoint;
@@ -10,6 +11,7 @@ pub mod protocol;
 pub mod server;
 pub mod session_log;
 pub mod task_runner;
+pub(crate) mod webhook_auth;
 
 use aether_core::ModelRouter;
 use aether_db::Database;

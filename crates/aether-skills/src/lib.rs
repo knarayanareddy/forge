@@ -7,7 +7,8 @@ pub use disclosure::{
 };
 
 pub use trust::{
-    admit_skill, install_skill, scan_credential_paths, scan_skill_injection, skill_content_hash,
+    admit_skill, admit_skill_persisted, install_skill, install_skill_persisted,
+    scan_credential_paths, scan_skill_injection, skill_content_hash,
     validate_manifest_not_overbroad, validate_steps_within_manifest, SkillCapabilityManifest,
     SkillPinStore, CREDENTIAL_PATH_PATTERNS, INJECTION_PATTERNS,
 };

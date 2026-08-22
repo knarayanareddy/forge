@@ -136,7 +136,7 @@ pub struct NewGraphEdge<'a> {
 
 impl Database {
     pub fn insert_graph_node(&self, node: NewGraphNode<'_>) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         conn.execute(
             "INSERT INTO graph_nodes (
                 id, session_id, entity_type, canonical_name,
@@ -161,7 +161,7 @@ impl Database {
     }
 
     pub fn insert_graph_edge(&self, edge: NewGraphEdge<'_>) -> Result<i64> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         conn.execute(
             "INSERT INTO graph_edges (
                 session_id, src_node_id, dst_node_id, relation_type,
@@ -185,7 +185,7 @@ impl Database {
     }
 
     pub fn link_graph_chunk(&self, chunk_id: &str, node_id: &str, link_confidence: f64) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         conn.execute(
             "INSERT OR REPLACE INTO graph_chunk_links (chunk_id, node_id, link_confidence)
              VALUES (?1, ?2, ?3)",
@@ -195,7 +195,7 @@ impl Database {
     }
 
     pub fn get_graph_node(&self, node_id: &str) -> Result<Option<GraphNode>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut stmt = conn.prepare(
             "SELECT id, session_id, entity_type, canonical_name, aliases_json,
                     properties_json, source_uri, valid_from, valid_to,
@@ -213,7 +213,7 @@ impl Database {
 
     /// Active nodes at query time `as_of` (defaults to SQLite `datetime('now')`).
     pub fn get_active_graph_nodes(&self, session_id: &str, as_of: Option<&str>) -> Result<Vec<GraphNode>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let (sql, query_params): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(ts) = as_of {
             (
                 "SELECT id, session_id, entity_type, canonical_name, aliases_json,
@@ -273,7 +273,7 @@ impl Database {
             .collect::<Vec<_>>()
             .join(", ");
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
 
         let sql = format!(
             "SELECT DISTINCT e.id, e.session_id, e.src_node_id, e.dst_node_id,
@@ -329,7 +329,7 @@ impl Database {
     }
 
     pub fn supersede_graph_node(&self, old_id: &str, new_id: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         conn.execute(
             "UPDATE graph_nodes SET superseded_by = ?1 WHERE id = ?2",
             params![new_id, old_id],
@@ -339,7 +339,7 @@ impl Database {
 
     /// Active edges for a session at query time `as_of`.
     pub fn get_active_graph_edges(&self, session_id: &str, as_of: Option<&str>) -> Result<Vec<GraphEdge>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let (sql, query_params): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(ts) = as_of {
             (
                 "SELECT e.id, e.session_id, e.src_node_id, e.dst_node_id,
@@ -410,7 +410,7 @@ impl Database {
     }
 
     pub fn get_query_policy(&self, policy_name: &str) -> Result<QueryPolicy> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         conn.query_row(
             "SELECT policy_name, rrf_k, graph_hop_depth, fts_weight, vec_weight,
                     graph_weight, max_graph_expansion
@@ -441,7 +441,7 @@ impl Database {
             .collect::<Vec<_>>()
             .join(", ");
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let sql = format!(
             "SELECT DISTINCT node_id FROM graph_chunk_links
              WHERE chunk_id IN ({placeholders})
@@ -476,7 +476,7 @@ impl Database {
             .collect::<Vec<_>>()
             .join(", ");
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let sql = format!(
             "SELECT gcl.node_id, sm.chunk_id, sm.chunk_text, gcl.link_confidence
              FROM graph_chunk_links gcl
