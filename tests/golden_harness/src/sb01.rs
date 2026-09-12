@@ -39,6 +39,8 @@ pub fn test_sb01_impl(db: &Database) -> Result<(), String> {
         },
         ToolInvocation::FsRead {
             path: "sb01.py".into(),
+            offset: None,
+            limit: None,
         },
         ToolInvocation::VerifyContains {
             path: "sb01.py".into(),

@@ -78,8 +78,21 @@ pub enum ToolInvocation {
         path: String,
         content: String,
     },
+    /// Read a file, optionally a window of it (P1-6 / READ-01).
+    ///
+    /// `offset`/`limit` are in **characters** and both optional, so every existing plan shape
+    /// (`{"action":"fs_read","path":"…"}`) still decodes. They exist because a bounded read that
+    /// cannot be paged turns "not in the first 500 chars" into "not in the file": without a window
+    /// the only recovery is to give up, and a model that cannot distinguish *absent* from
+    /// *truncated* confidently reports absence.
     FsRead {
         path: String,
+        /// Character offset to start from. `None` = start of file.
+        #[serde(default)]
+        offset: Option<usize>,
+        /// Maximum characters to return. `None` = [`FS_READ_MAX_CHARS`].
+        #[serde(default)]
+        limit: Option<usize>,
     },
     PythonLint {
         source: String,
@@ -234,6 +247,90 @@ impl StopHook for MaxIterationStopHook {
 
 pub struct ToolRegistry;
 
+/// Character budget for one `fs_read` observation when the plan does not request a window (P1-6).
+///
+/// Bounded on purpose — an unbounded read is how a 40 KB file eats a small local model's whole
+/// context. The bound is only honest if the observation *reports* it, which is what
+/// [`render_read_window`] does.
+pub const FS_READ_MAX_CHARS: usize = 500;
+
+/// Share of the budget given to the tail when a read is truncated without an explicit window.
+///
+/// Truncation is from the middle, not the head: the tail of a source file carries `return`,
+/// `main`, and the closing brace, which is exactly what a summarising goal needs and exactly what
+/// head-only truncation throws away.
+const FS_READ_TAIL_DIVISOR: usize = 3;
+
+/// Render one `fs_read` observation body. Returns `(text, success)`.
+///
+/// Three guarantees, all asserted by READ-01:
+///
+/// 1. a window that fits is returned **verbatim** — no marker, no decoration, so a small file read
+///    is still byte-identical to the file;
+/// 2. anything cut is cut **from the middle** (head + tail) unless the caller asked for an explicit
+///    window, in which case exactly that window is returned;
+/// 3. every cut **says it was cut**, with the true character count, how much was omitted, and the
+///    literal next step that pages further. An offset past the end is a failed observation naming
+///    the real size, never an empty string that reads as "not present".
+pub fn render_read_window(
+    path: &str,
+    content: &str,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> (String, bool) {
+    let chars: Vec<char> = content.chars().collect();
+    let total = chars.len();
+    let start = offset.unwrap_or(0);
+
+    if start > total {
+        return (
+            format!(
+                "offset {start} is past the end of {path} ({total} chars) — re-read from offset 0, \
+                 or page inside that size with \"offset\"/\"limit\"",
+            ),
+            false,
+        );
+    }
+
+    let budget = limit.unwrap_or(FS_READ_MAX_CHARS).max(1);
+    let available = total - start;
+    if available <= budget {
+        return (chars[start..].iter().collect::<String>(), true);
+    }
+
+    if limit.is_some() {
+        // An explicit window is exactly what was asked for: return it undecorated except for the
+        // bound report, so a caller paging through a file can concatenate the windows.
+        let window: String = chars[start..start + budget].iter().collect();
+        let remaining = available - budget;
+        let next = start + budget;
+        return (
+            format!(
+                "{window}\n[truncated: showing {budget} of {total} chars from offset {start}; \
+                 {remaining} chars remain — next page {{\"action\":\"fs_read\",\"path\":\"{path}\",\
+                 \"offset\":{next},\"limit\":{budget}}}]",
+            ),
+            true,
+        );
+    }
+
+    // No window requested: head + tail, with the omitted middle reported.
+    let tail = (budget / FS_READ_TAIL_DIVISOR).max(1);
+    let head = (budget - tail).max(1);
+    let head_text: String = chars[start..start + head].iter().collect();
+    let tail_start = total - tail;
+    let tail_text: String = chars[tail_start..].iter().collect();
+    let omitted = tail_start - (start + head);
+    (
+        format!(
+            "{head_text}\n[truncated from the middle: showing {head} head + {tail} tail of \
+             {total} chars, {omitted} omitted — page with {{\"action\":\"fs_read\",\
+             \"path\":\"{path}\",\"offset\":<n>,\"limit\":<n>}}]\n{tail_text}",
+        ),
+        true,
+    )
+}
+
 impl ToolRegistry {
     pub fn execute(
         conn: &Connection,
@@ -258,7 +355,9 @@ impl ToolRegistry {
                 )
                 .map_err(|e| e.to_string())?;
                 if decision != PermissionDecision::Approved {
-                    return Err(format!("Write denied for target path {}", full_str));
+                    // Remedy-bearing at the producing site (P1-9): the reason stays the leading
+                    // substring, so every existing assertion and audit row still matches.
+                    return Err(crate::ToolError::write_denied(&full_str).render());
                 }
                 aether_permissions::journal_file_write(
                     conn,
@@ -275,7 +374,11 @@ impl ToolRegistry {
                     format!("Wrote {} bytes to {}", content.len(), path),
                 ))
             }
-            ToolInvocation::FsRead { path } => {
+            ToolInvocation::FsRead {
+                path,
+                offset,
+                limit,
+            } => {
                 let full = resolve_workspace_path(&config.workspace, path)?;
                 let full_str = full.to_string_lossy().to_string();
                 if let crate::HookDecision::Deny(reason) = crate::HookEngine::production().run_pre_tool_use(&full) {
@@ -289,16 +392,12 @@ impl ToolRegistry {
                 )
                 .map_err(|e| e.to_string())?;
                 if decision != PermissionDecision::Approved {
-                    return Err(format!("Read denied for {}", full_str));
+                    return Err(crate::ToolError::read_denied(&full_str).render());
                 }
                 let content = ProductionSandbox::read_to_string(&config.workspace, &full)
                     .map_err(|e| e.to_string())?;
-                Ok(observation(
-                    iteration,
-                    "fs_read",
-                    true,
-                    content.chars().take(500).collect(),
-                ))
+                let (text, ok) = render_read_window(path, &content, *offset, *limit);
+                Ok(observation(iteration, "fs_read", ok, text))
             }
             ToolInvocation::PythonLint { source } => {
                 match PythonLinter::check_syntax_in_workspace(source, &config.workspace) {
@@ -338,7 +437,7 @@ impl ToolRegistry {
                 )
                 .map_err(|e| e.to_string())?;
                 if decision != PermissionDecision::Approved {
-                    return Err(format!("Read denied for {}", full_str));
+                    return Err(crate::ToolError::read_denied(&full_str).render());
                 }
                 // Lint the artifact *as written*. `check_syntax_in_workspace` copies the source
                 // into `.aether-tmp` and runs `py_compile` there, so this adds no new side effect
@@ -521,7 +620,7 @@ impl ToolRegistry {
                     )
                     .map_err(|e| e.to_string())?;
                     if decision != PermissionDecision::Approved {
-                        return Err(format!("Read denied for {}", full_str));
+                        return Err(crate::ToolError::read_denied(&full_str).render());
                     }
                 }
                 match crate::run_subagent_read_task(&config.workspace, paths) {
@@ -964,7 +1063,7 @@ fn estimate_invocation_tokens(step: &ToolInvocation) -> usize {
         ToolInvocation::FsWrite { content, path } => {
             estimate_tokens(content) + estimate_tokens(path)
         }
-        ToolInvocation::FsRead { path } => estimate_tokens(path),
+        ToolInvocation::FsRead { path, .. } => estimate_tokens(path),
         ToolInvocation::PythonLint { source } => estimate_tokens(source),
         ToolInvocation::PythonLintFile { path } => estimate_tokens(path),
         ToolInvocation::GitInit { branch } => estimate_tokens(branch),

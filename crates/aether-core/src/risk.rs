@@ -149,7 +149,11 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().to_path_buf();
         let plan = vec![
-            ToolInvocation::FsRead { path: "a.txt".into() },
+            ToolInvocation::FsRead {
+                path: "a.txt".into(),
+                offset: None,
+                limit: None,
+            },
             ToolInvocation::VerifyContains { path: "a.txt".into(), text: "x".into() },
             ToolInvocation::PythonLint { source: "def ok(): pass".into() },
             ToolInvocation::GitInit { branch: "main".into() },

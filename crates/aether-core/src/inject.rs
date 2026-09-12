@@ -96,7 +96,7 @@ fn step_fingerprint(step: &ToolInvocation) -> String {
 fn tool_target_key(step: &ToolInvocation) -> String {
     match step {
         ToolInvocation::FsWrite { path, .. } => path.clone(),
-        ToolInvocation::FsRead { path } => path.clone(),
+        ToolInvocation::FsRead { path, .. } => path.clone(),
         ToolInvocation::VerifyContains { path, text } => format!("{path}|{text}"),
         ToolInvocation::PythonLint { source } => source.chars().take(48).collect(),
         ToolInvocation::PythonLintFile { path } => path.clone(),
@@ -113,7 +113,7 @@ fn tool_target_key(step: &ToolInvocation) -> String {
 fn step_arg_blob(step: &ToolInvocation) -> String {
     match step {
         ToolInvocation::FsWrite { path, content } => format!("{path}\n{content}"),
-        ToolInvocation::FsRead { path } => path.clone(),
+        ToolInvocation::FsRead { path, .. } => path.clone(),
         ToolInvocation::VerifyContains { path, text } => format!("{path}\n{text}"),
         ToolInvocation::PythonLint { source } => source.clone(),
         ToolInvocation::PythonLintFile { path } => path.clone(),
@@ -326,6 +326,8 @@ mod tests {
         let original = vec![
             ToolInvocation::FsRead {
                 path: "notes.txt".into(),
+                offset: None,
+                limit: None,
             },
             ToolInvocation::Done,
         ];
@@ -395,6 +397,8 @@ mod tests {
         let original = vec![
             ToolInvocation::FsRead {
                 path: "readme.txt".into(),
+                offset: None,
+                limit: None,
             },
             ToolInvocation::Done,
         ];
@@ -407,6 +411,8 @@ mod tests {
         let candidate = vec![
             ToolInvocation::FsRead {
                 path: secret_path.into(),
+                offset: None,
+                limit: None,
             },
             ToolInvocation::Done,
         ];

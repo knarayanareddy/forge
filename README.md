@@ -1,13 +1,13 @@
 # forge
 
-AetherForge MVP — **1.0 engineering complete** · **Darwin canonical 54/54** (44 hard / 10 soft: REG-01, SLEEP-01, RELY-01, FORENSIC-01, MCP-02, COMPACT-01, HOOK-02, MEM-03, MCPS-01, OFFLINE-01).
-The harness covers all **54 tasks** including **CHECK-02**, **GATE-03**, **RED-02**, **GATE-02**, **COST-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **DIST-01**, **MCP-02**, **COMPACT-01**, **HOOK-02**, **MEM-03**, **MCPS-01**, and **OFFLINE-01**.
+AetherForge MVP — **1.0 engineering complete** · **Darwin canonical 56/56** (46 hard / 10 soft: REG-01, SLEEP-01, RELY-01, FORENSIC-01, MCP-02, COMPACT-01, HOOK-02, MEM-03, MCPS-01, OFFLINE-01).
+The harness covers all **56 tasks** including **LOOP-05**, **READ-01**, **CHECK-02**, **GATE-03**, **RED-02**, **GATE-02**, **COST-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **DIST-01**, **MCP-02**, **COMPACT-01**, **HOOK-02**, **MEM-03**, **MCPS-01**, and **OFFLINE-01**.
 
 ## Harness score (Darwin, canonical)
 
 ```text
 cargo run -p golden-harness --bin golden-harness
-→ 54/54 harness (44 hard / 10 soft) when ROUT-01 median warm TTFT ≤ 200ms,
+→ 56/56 harness (46 hard / 10 soft) when ROUT-01 median warm TTFT ≤ 200ms,
   GRAPH-01 recall@3 ≥ 1.0, LOOP-02 NL plan through verify shell (gold trajectory in harness eval only),
   RED-01 blocks all frozen adversarial cases (≥12, currently 14),
   RED-02 proves a denial tells a remote requester only the policy category plus a correlation
@@ -62,24 +62,24 @@ cargo run -p golden-harness --bin golden-harness
 
 | Platform | Expected score | Hard / soft |
 |----------|----------------|-------------|
-| **Darwin** (Ollama + `sandbox-exec`) | **54/54** | 44 hard / 10 soft (REG-01, SLEEP-01, RELY-01, FORENSIC-01, MCP-02, COMPACT-01, HOOK-02, MEM-03, MCPS-01, OFFLINE-01 soft green) |
-| **Linux CI** (full matrix) | **41/54** | 30 hard-green / 11 soft-green — measured on run [`34712522700`](https://github.com/knarayanareddy/forge/actions/runs/34712522700) (PR #52, `ubuntu-24.04`) · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01, GRAPH-02, DIST-01 **FAIL-CLOSED**; MCP-01/MCP-02 **FAIL** the entry-script hash pin after upstream npm drift (see [docs/LINUX_CI.md](docs/LINUX_CI.md)) |
-| **Linux Ollama-independent** | **43 tasks · 41 pass** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, **RED-02**, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, **CHECK-02**, GATE-01, **GATE-02**, **GATE-03**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **BUDG-01**, **COST-01**, **REG-01**, **SLEEP-01**, **RELY-01**, **FORENSIC-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **MCP-02**, **COMPACT-01**, **HOOK-02**, **MEM-03**, **MCPS-01**, **OFFLINE-01** |
+| **Darwin** (Ollama + `sandbox-exec`) | **56/56** | 46 hard / 10 soft (REG-01, SLEEP-01, RELY-01, FORENSIC-01, MCP-02, COMPACT-01, HOOK-02, MEM-03, MCPS-01, OFFLINE-01 soft green) |
+| **Linux CI** (full matrix) | **43/56** | 32 hard-green / 11 soft-green — **LOOP-05** and **READ-01** are deterministic, so they pass off Darwin; last *measured* Linux run is [`34712522700`](https://github.com/knarayanareddy/forge/actions/runs/34712522700) (PR #52, `ubuntu-24.04`) at 41/54, before those two existed · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01, GRAPH-02, DIST-01 **FAIL-CLOSED**; MCP-01/MCP-02 **FAIL** the entry-script hash pin after upstream npm drift (see [docs/LINUX_CI.md](docs/LINUX_CI.md)) |
+| **Linux Ollama-independent** | **45 tasks · 43 pass** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, **RED-02**, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, **CHECK-02**, GATE-01, **GATE-02**, **GATE-03**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **BUDG-01**, **COST-01**, **REG-01**, **SLEEP-01**, **RELY-01**, **FORENSIC-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **MCP-02**, **COMPACT-01**, **HOOK-02**, **MEM-03**, **MCPS-01**, **OFFLINE-01** |
 
 ## Darwin canonical verification
 
 | Baseline | Value |
 |----------|-------|
-| **Registry @ main** | **54 tasks** (44 hard / 10 soft) · **`7486762`** (PR #49) + CHECK-02 / GATE-03 / RED-02 |
-| **Added since last cited run** | **CHECK-02**, **GATE-03**, **RED-02** (wave 1 of [docs/REVIEW_FABLE51_HARNESS.md](docs/REVIEW_FABLE51_HARNESS.md)) — all deterministic (no model, no network), and all three measured **PASS [hard]** on Linux in run [`34712522700`](https://github.com/knarayanareddy/forge/actions/runs/34712522700) (PR #52). Darwin PR jobs do not run the harness, so the **54/54** gate has **not** yet been re-cited from a full Darwin run; the last cited run below predates these three tasks. |
+| **Registry @ main** | **56 tasks** (46 hard / 10 soft) · **`7486762`** (PR #49) + CHECK-02 / GATE-03 / RED-02 (wave 1) + LOOP-05 / READ-01 (wave 2) |
+| **Added since last cited run** | **CHECK-02**, **GATE-03**, **RED-02** (wave 1) — all deterministic (no model, no network), and all three measured **PASS [hard]** on Linux in run [`34712522700`](https://github.com/knarayanareddy/forge/actions/runs/34712522700) (PR #52). **LOOP-05**, **READ-01** (wave 2 of [docs/REVIEW_FABLE51_HARNESS.md](docs/REVIEW_FABLE51_HARNESS.md)) are deterministic too. Darwin PR jobs do not run the harness, so the **56/56** gate has **not** yet been re-cited from a full Darwin run; the last cited run below predates all five tasks. |
 | **Last cited full Darwin run** | **51/51 @ `d38ba6e`** (PR #50) — 42 hard / 9 soft; ROUT-01 median warm TTFT 27ms (local 2026-08-07) |
-| **CI gate** | Push/nightly Darwin **54/54** — [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
+| **CI gate** | Push/nightly Darwin **56/56** — [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
 | **Wave 6 probes** | MEM-03, MCPS-01, OFFLINE-01 soft-green @ `608ac77` (PR #46) |
 | **Scoreboard** | `./scripts/check-doc-scoreboard.sh` PASS |
 
 Run locally: `cargo run -p golden-harness --bin golden-harness` (requires Ollama + `sandbox-exec` on macOS).
 
-Tasks (54): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, **RED-02**, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **CHECK-02**, **GATE-01**, **GATE-02**, **GATE-03**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **INGEST-01**, **BUDG-01**, **COST-01**, **GRAPH-02**, **REG-01**, **SLEEP-01**, **RELY-01**, **FORENSIC-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **DIST-01**, **MCP-02**, **COMPACT-01**, **HOOK-02**, **MEM-03**, **MCPS-01**, **OFFLINE-01**
+Tasks (56): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, **RED-02**, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **LOOP-05**, **READ-01**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **CHECK-02**, **GATE-01**, **GATE-02**, **GATE-03**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **INGEST-01**, **BUDG-01**, **COST-01**, **GRAPH-02**, **REG-01**, **SLEEP-01**, **RELY-01**, **FORENSIC-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **DIST-01**, **MCP-02**, **COMPACT-01**, **HOOK-02**, **MEM-03**, **MCPS-01**, **OFFLINE-01**
 
 ROUT-01 runs first, warms the chat model, drains eight discard streams, then records **seven**
 server-side warm TTFT samples. When the model is resident in Ollama memory (`/api/ps`), the
@@ -116,7 +116,7 @@ See [docs/ROADMAP_PHASE_7.md](docs/ROADMAP_PHASE_7.md) for Phase 7 orchestration
 See [docs/ROADMAP_PHASE_8.0.md](docs/ROADMAP_PHASE_8.0.md) for the Phase 8.0 honesty wedge (**closed** — Darwin 22/22 verified) and [docs/PHASE_8_0_CLOSURE.md](docs/PHASE_8_0_CLOSURE.md) for the closure evidence.
 See [docs/PHASE_8_0_CLOSURE.md](docs/PHASE_8_0_CLOSURE.md) for code-grounded closure evidence and remaining gates.
 See [docs/ROADMAP_PHASES_9-13.md](docs/ROADMAP_PHASES_9-13.md) for the Phases 9–13 product wedge (planner robustness, session log, undo, table stakes, supply chain, local-first differentiators) plus parallel distribution and interop tracks.  
-See [docs/ROADMAP_REMAINING.md](docs/ROADMAP_REMAINING.md) for **1.0 engineering closure** — blockers are Apple creds + SwiftUI E2E only (54-task harness).
+See [docs/ROADMAP_REMAINING.md](docs/ROADMAP_REMAINING.md) for **1.0 engineering closure** — blockers are Apple creds + SwiftUI E2E only (56-task harness).
 See [docs/SANDBOX.md](docs/SANDBOX.md) for the production tool boundary, platform behavior, and SB-01 contract.
 
 ## Phase 7 — Orchestration + gateway (complete)
@@ -263,7 +263,7 @@ FFI (`aether_ffi_daemon_ipc`, `aether_daemon_default_port`) provides default hos
 - **GATE-03:** a granted gateway run returns a real reply and journals it; the inbound envelope is never echoed into the workspace
 - **SKILL-02:** book-to-skill progressive disclosure — [docs/RATEL_TOOL_INDEX.md](docs/RATEL_TOOL_INDEX.md)
 - **Consolidate offline:** `./scripts/consolidate_memory.sh` → `review_pending` until human apply
-- **CI:** `.github/workflows/ci.yml` — Linux gate **≥30/54** · Darwin push/nightly **54/54** ([docs/LINUX_CI.md](docs/LINUX_CI.md))
+- **CI:** `.github/workflows/ci.yml` — Linux gate **≥30/56** · Darwin push/nightly **56/56** ([docs/LINUX_CI.md](docs/LINUX_CI.md))
 
 Install guide: [docs/INSTALL.md](docs/INSTALL.md)
 

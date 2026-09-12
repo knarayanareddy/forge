@@ -166,6 +166,18 @@ this example omitted the lint step and would have been refused):
   quoted in the plan, so it certifies a string, not the artifact on disk; the refusal names the path and
   the exact step to add.
 - `python_lint_file` reads through the same `PreToolUse` sensitive-path hook and read grant as `fs_read`.
+  Because the read grant is checked with an exact `permission_type` match, a session needs **both** a
+  `read` and a `write` grant on the workspace — which is what `select_workspace` creates — for an
+  on-disk lint to run at all.
+- `fs_read` accepts an optional character window: `{"action":"fs_read","path":"big.txt","offset":9900,
+  "limit":400}` (`READ-01`). Anything cut carries a `[truncated …]` marker naming the true character
+  count and the next page, and the default cut is from the middle so a source file's tail survives.
+  An offset past the end fails with the real size rather than returning an empty read.
+- Tool failures are remedy-bearing (`LOOP-05`): `reason | remedy: … | constraint: {…} | retryable:
+  yes|no` from `aether_core::ToolError`, with the producing site's own message kept as the leading
+  substring. The `nl:` replan path classifies before spending an attempt, so a failure no plan can
+  repair (missing grant, unconnected MCP server, pin violation, exhausted budget) returns with
+  `replans == 0` and the remedy instead of consuming `MAX_LOOP_REPLANS`.
 
 ```json
 {"loop":[

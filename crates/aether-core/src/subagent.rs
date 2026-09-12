@@ -83,7 +83,15 @@ pub fn run_subagent_read_task(
         let content =
             ProductionSandbox::read_to_string(workspace, &full).map_err(|e| e.to_string())?;
         total_raw_bytes += content.len();
-        let preview: String = content.chars().take(PREVIEW_CHARS).collect();
+        let total_chars = content.chars().count();
+        let mut preview: String = content.chars().take(PREVIEW_CHARS).collect();
+        if total_chars > PREVIEW_CHARS {
+            // A preview that does not say it is a preview reads as the whole file (P1-6).
+            preview.push_str(&format!(
+                " [preview: {} of {} chars — read the file directly for the rest]",
+                PREVIEW_CHARS, total_chars
+            ));
+        }
         files.push(SubagentFileSummary {
             path: path.clone(),
             bytes: content.len(),
@@ -102,12 +110,18 @@ pub fn run_subagent_read_task(
             file.path, file.bytes, file.preview
         ));
     }
-    if distilled.chars().count() > MAX_DISTILLED_CHARS {
+    let distilled_chars = distilled.chars().count();
+    if distilled_chars > MAX_DISTILLED_CHARS {
         distilled = distilled
             .chars()
             .take(MAX_DISTILLED_CHARS)
             .collect::<String>();
-        distilled.push_str("...[truncated]");
+        // Report the bound, not just the fact of it: the parent cannot ask for "more" if it does
+        // not know how much was cut (P1-6).
+        distilled.push_str(&format!(
+            "...[truncated: showing {} of {} chars]",
+            MAX_DISTILLED_CHARS, distilled_chars
+        ));
     }
 
     Ok(SubagentResult {

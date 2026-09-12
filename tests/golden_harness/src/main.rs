@@ -43,6 +43,12 @@ use undo01::test_undo01_impl;
 mod loop04;
 use loop04::test_loop04_impl;
 
+mod loop05;
+use loop05::test_loop05_impl;
+
+mod read01;
+use read01::test_read01_impl;
+
 mod hook01;
 use hook01::test_hook01_impl;
 
@@ -156,7 +162,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 54] = [
+const TASKS: [TaskSpec; 56] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -178,6 +184,8 @@ const TASKS: [TaskSpec; 54] = [
     TaskSpec { name: "LOOP-02", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "PLAN-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "LOOP-04", hard_on_darwin: true, fail_closed_off_darwin: true },
+    TaskSpec { name: "LOOP-05", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "READ-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "SESS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "UNDO-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "AUTO-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -538,6 +546,8 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
             }
             test_loop04_impl(db).await.map(|_| true)
         }
+        "LOOP-05" => test_loop05(db).await.map(|_| true),
+        "READ-01" => test_read01(db).await.map(|_| true),
         "SESS-01" => test_sess01_impl(db).map(|_| true),
         "UNDO-01" => test_undo01_impl(db).map(|_| true),
         "AUTO-01" => test_auto01(db).await.map(|_| true),
@@ -1110,4 +1120,16 @@ async fn test_gate02(db: &Database) -> Result<(), String> {
 /// GATE-03 exercises the gateway reply contract without a transport, so it is deterministic.
 async fn test_gate03(db: &Database) -> Result<(), String> {
     test_gate03_impl(db)
+}
+
+/// LOOP-05 is deterministic: every case it runs breaks out of the replan loop *before* a planner
+/// call, so it needs no model and no network. LOOP-04 keeps the live self-correction half.
+async fn test_loop05(db: &Database) -> Result<(), String> {
+    test_loop05_impl(db).await
+}
+
+/// READ-01 is deterministic: it drives `render_read_window`, the production loop's `fs_read`, the
+/// memory injection, and the subagent preview — all bounded surfaces, none of them model-backed.
+async fn test_read01(db: &Database) -> Result<(), String> {
+    test_read01_impl(db)
 }

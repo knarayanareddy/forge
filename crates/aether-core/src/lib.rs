@@ -14,6 +14,7 @@ mod nl_planner;
 mod orchestration_graph;
 mod risk;
 mod subagent;
+mod tool_error;
 mod tool_reliability;
 mod verifier_node;
 
@@ -47,6 +48,10 @@ pub use inject::{
 
 pub use error_detail::{
     classify_denial, reference_id, render_denial, DenialCategory, ErrorDetailLevel,
+};
+
+pub use tool_error::{
+    failure_category, is_non_retryable, Inventory, ToolError, REMEDY_SEPARATOR,
 };
 
 pub use hf_hub::{download_file, sha256_hex, DownloadPlan, HfHubError};
@@ -90,6 +95,7 @@ pub use loop_engine::{
     GoalStopHook, LoopConfig, LoopRunResult, LoopStreamEvent, PythonLintVerifier, ReActLoopEngine,
     record_provider_token_usage, resolve_default_max_loop_tokens, StopHook, ToolInvocation, ToolObservation, ToolRegistry,
     Verifier, DEFAULT_MAX_LOOP_TOKENS, LINTABLE_ARTIFACT_EXTENSIONS, is_lintable_artifact,
+    render_read_window, FS_READ_MAX_CHARS,
 };
 
 pub use nl_planner::{

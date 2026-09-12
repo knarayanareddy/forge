@@ -82,8 +82,10 @@ Return ONLY valid JSON, no prose and no markdown fences, shaped as {{"loop":[ ..
 
 Each step is an object with an "action" field. Use only these actions, with exactly these fields:
 
-- {{"action":"fs_read","path":"<relative path>"}}
-    Read a file. Use this for goals that only inspect or summarise existing files.
+- {{"action":"fs_read","path":"<relative path>","offset":<int>,"limit":<int>}}
+    Read a file. Use this for goals that only inspect or summarise existing files. "offset" and
+    "limit" are optional character counts — omit both to read from the start. A long file comes
+    back cut, with a marker naming its true size and how much was omitted.
 - {{"action":"fs_write","path":"<relative path>","content":"<full file contents>"}}
     Create or overwrite a file. "content" must be the complete text and must not be empty.
 - {{"action":"verify_contains","path":"<relative path>","text":"<exact substring>"}}
@@ -108,6 +110,9 @@ Rules:
 - Preserve the order in which the user requests operations. Do not move a later operation before
   an earlier one.
 - If the goal only reads, opens, inspects, or summarises an existing file, use fs_read then done.
+- If an fs_read comes back with a truncation marker and the goal needs text that was not shown,
+  issue another fs_read on the same path with "offset"/"limit" to page into it. Never report
+  content as absent when a marker said the read was cut.
 - If the goal initialises version control, use git_init then done.
 - If the goal only asks to lint Python, use python_lint then done.
 - If the goal explicitly names a skill, use skill_execute with that skill id then done.
@@ -412,18 +417,32 @@ pub async fn run_nl_planner(
 /// LOOP-04). Distinct from [`build_nl_repair_prompt`]: that one fixes a rejected *plan* before any
 /// tool ran; this one fixes a plan whose execution already ran partway and hit a real tool
 /// failure, so the model must continue from the current state rather than start over.
+///
+/// `remedy` and `constraint` come from [`crate::ToolError`]: the classification of this failure
+/// into what would make it succeed, plus the machine-readable values the retry needs (the path, the
+/// expected substring, the connected-server inventory). Carrying them here is what makes a rejection
+/// repair-enabling rather than a dead end — the model corrects against the actual constraint instead
+/// of resampling blind (P1-9).
 pub fn build_nl_verify_repair_prompt(
     nl_goal: &str,
     completed_tools: &[String],
     failed_tool: &str,
     failure_detail: &str,
+    remedy: &str,
+    constraint: Option<&Value>,
 ) -> String {
+    let constraint_line = match constraint {
+        Some(value) => format!("\nConstraint values for the retry: {value}"),
+        None => String::new(),
+    };
     format!(
         r#"{base}
 
 Execution already started and is NOT starting over. These steps already ran successfully, in
 order: {completed:?}. The next step, "{failed_tool}", FAILED verification with this detail:
 {failure_detail}
+
+What would make it succeed: {remedy}{constraint_line}
 
 Produce a corrected JSON plan for ONLY the remaining work needed to reach the original goal above,
 given what already happened. Do not repeat the already-completed steps. Fix whatever caused the
@@ -433,6 +452,8 @@ actually present — then finish with {{"action":"done"}}."#,
         completed = completed_tools,
         failed_tool = failed_tool,
         failure_detail = failure_detail,
+        remedy = remedy,
+        constraint_line = constraint_line,
     )
 }
 
@@ -449,10 +470,19 @@ pub async fn run_nl_planner_repair(
     completed_tools: &[String],
     failed_tool: &str,
     failure_detail: &str,
+    remedy: &str,
+    constraint: Option<&Value>,
     max_iterations: usize,
  ) -> Result<NlPlannerResult, NlPlanError> {
     let schema = nl_plan_schema();
-    let mut prompt = build_nl_verify_repair_prompt(nl_goal, completed_tools, failed_tool, failure_detail);
+    let mut prompt = build_nl_verify_repair_prompt(
+        nl_goal,
+        completed_tools,
+        failed_tool,
+        failure_detail,
+        remedy,
+        constraint,
+    );
     let mut last_error: Option<NlPlanError> = None;
     let mut total_usage = ProviderTokenUsage::default();
 
@@ -496,9 +526,17 @@ fn forbidden_pattern_detail(step: &ToolInvocation) -> Option<String> {
                 return Some("fs_write requires content".into());
             }
         }
-        ToolInvocation::FsRead { path } => {
+        ToolInvocation::FsRead { path, offset, limit } => {
             if path.trim().is_empty() {
                 return Some("fs_read requires non-empty path".into());
+            }
+            if let (Some(offset), Some(limit)) = (offset, limit) {
+                if limit == &0 {
+                    return Some("fs_read limit must be greater than 0".into());
+                }
+                // Both are usize, so only the pairing needs a sanity check; an offset past the end
+                // is reported by the read itself, with the file's real size (P1-6).
+                let _ = offset;
             }
         }
         ToolInvocation::VerifyContains { path, text } => {
@@ -554,7 +592,7 @@ fn tool_name(step: &ToolInvocation) -> &'static str {
 fn tool_target_key(step: &ToolInvocation) -> String {
     match step {
         ToolInvocation::FsWrite { path, .. } => path.clone(),
-        ToolInvocation::FsRead { path } => path.clone(),
+        ToolInvocation::FsRead { path, .. } => path.clone(),
         ToolInvocation::VerifyContains { path, .. } => path.clone(),
         ToolInvocation::PythonLint { source } => source.chars().take(32).collect(),
         ToolInvocation::PythonLintFile { path } => path.clone(),
