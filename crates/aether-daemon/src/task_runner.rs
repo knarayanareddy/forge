@@ -793,37 +793,10 @@ pub struct GatewayReply {
     pub artifact_path: String,
 }
 
-/// Compose the reply a gateway channel owes its requester.
-///
-/// `LoopRunResult::summary` is just the last observation, which for a plan ending in `done` is the
-/// mechanical `"plan complete"` — a sign-off, not a reply. This states what the run produced and
-/// what each step concluded, bounded so a long run cannot generate an undeliverable message.
-fn compose_gateway_reply(run: &LoopRunResult, artifacts: &[String]) -> String {
-    const MAX_REPLY_CHARS: usize = 1_200;
-    let mut parts: Vec<String> = Vec::new();
-    if artifacts.is_empty() {
-        parts.push(format!(
-            "Completed {} step(s); produced no files.",
-            run.iterations
-        ));
-    } else {
-        parts.push(format!(
-            "Completed {} step(s); produced {} file(s): {}.",
-            run.iterations,
-            artifacts.len(),
-            artifacts.join(", ")
-        ));
-    }
-    for obs in run.observations.iter().filter(|o| o.tool != "done") {
-        parts.push(format!(
-            "{} {}: {}",
-            if obs.success { "ok" } else { "failed" },
-            obs.tool,
-            obs.output
-        ));
-    }
-    parts.join("\n").chars().take(MAX_REPLY_CHARS).collect()
-}
+// Wave 1 composed the gateway's reply here, privately, because `LoopRunResult::summary` is only the
+// last observation. P1-8 promoted that idea to `aether_core::FinalReply` — validated, artifact-aware,
+// and emitted as a stream event on every execution path — so the gateway now shows the same reply
+// everybody else does instead of keeping its own wording.
 
 impl GatewayReply {
     pub fn to_json(&self) -> serde_json::Value {
@@ -924,7 +897,7 @@ pub fn run_gateway_inbound(
             Err(e) => return Err(e.to_string()),
         };
 
-        let reply_text = compose_gateway_reply(&run, &planned_artifacts);
+        let reply_text = run.reply.text.clone();
         let reply = GatewayReply {
             channel_id: channel.channel_id.clone(),
             session_id: channel.session_id.clone(),
@@ -1079,7 +1052,12 @@ fn load_skills() -> HashMap<String, aether_skills::SkillDefinition> {
 }
 
 fn loop_event_to_line(event: &LoopStreamEvent) -> Option<EventLine> {
+    // Exhaustive on purpose: a new event kind must fail to compile here rather than silently never
+    // reach the socket. `final_reply` is the reply the run owes its requester (P1-8 / REPLY-01).
     match event {
+        LoopStreamEvent::FinalReply { text, artifacts } => {
+            Some(EventLine::final_reply(text, artifacts))
+        }
         LoopStreamEvent::Plan { iteration, action } => Some(EventLine::plan(*iteration, action)),
         LoopStreamEvent::Tool {
             iteration,

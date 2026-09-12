@@ -34,6 +34,36 @@ pub const MAX_DISTILLED_CHARS: usize = 2_000;
 /// allowed to exist. 64 chars covers the worst realistic case,
 /// `"...[truncated: showing 2000 of 18446744073709551615 chars]"` (58).
 pub const DISTILLED_BOUND_SUFFIX_MAX: usize = 64;
+/// Worst-case cost of one preview's bound report, `" [preview: 200 of 4294967295 chars]"`.
+const PREVIEW_MARKER_ALLOWANCE: usize = 40;
+/// Cost of one distilled line besides its path, byte count and preview:
+/// `"- {path} ({bytes} bytes): {preview}\n"`.
+const DISTILLED_LINE_OVERHEAD: usize = 14;
+/// Worst-case cost of the distilled header, `"Subagent read 20 file(s), 18446744073709551615 total
+/// bytes.\n"`.
+const DISTILLED_HEADER_ALLOWANCE: usize = 64;
+/// Room kept free for the distilled summary's own bound report, in case the cap still bites.
+const DISTILLED_BOUND_REPORT_ALLOWANCE: usize = 48;
+
+/// How many characters of each file the distilled summary can afford to quote.
+///
+/// Every file has to be **named** in the summary: a parent that never sees a path cannot ask for it,
+/// which is the same defect as a bounded read that hides what it dropped (P1-6) and is exactly what
+/// SUB-01 asserts. So the preview shrinks with the file count instead of the tail of the list being
+/// truncated away — a fixed 200-char preview silently costs the last files their names once the cap
+/// bites. `PREVIEW_CHARS` stays the ceiling for small batches.
+fn preview_budget(paths: &[String]) -> usize {
+    let fixed: usize = paths
+        .iter()
+        .map(|path| {
+            path.chars().count() + DISTILLED_LINE_OVERHEAD + 8 + PREVIEW_MARKER_ALLOWANCE
+        })
+        .sum();
+    let shared = MAX_DISTILLED_CHARS.saturating_sub(
+        DISTILLED_HEADER_ALLOWANCE + fixed + DISTILLED_BOUND_REPORT_ALLOWANCE,
+    );
+    (shared / paths.len().max(1)).min(PREVIEW_CHARS)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubagentFileSummary {
@@ -82,6 +112,7 @@ pub fn run_subagent_read_task(
         ));
     }
 
+    let preview_chars = preview_budget(paths);
     let mut files = Vec::with_capacity(paths.len());
     let mut total_raw_bytes = 0usize;
     for path in paths {
@@ -90,12 +121,11 @@ pub fn run_subagent_read_task(
             ProductionSandbox::read_to_string(workspace, &full).map_err(|e| e.to_string())?;
         total_raw_bytes += content.len();
         let total_chars = content.chars().count();
-        let mut preview: String = content.chars().take(PREVIEW_CHARS).collect();
-        if total_chars > PREVIEW_CHARS {
+        let mut preview: String = content.chars().take(preview_chars).collect();
+        if total_chars > preview_chars {
             // A preview that does not say it is a preview reads as the whole file (P1-6).
             preview.push_str(&format!(
-                " [preview: {} of {} chars — read the file directly for the rest]",
-                PREVIEW_CHARS, total_chars
+                " [preview: {preview_chars} of {total_chars} chars]"
             ));
         }
         files.push(SubagentFileSummary {
@@ -187,6 +217,30 @@ mod tests {
     }
 
     #[test]
+    fn a_wide_batch_still_names_every_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let workspace = tmp.path().to_path_buf();
+        // 20 files (the subagent budget) of content that would blow the cap at a fixed preview
+        // length. Names are the contract; quotes are what gives way.
+        let mut paths = Vec::new();
+        for i in 0..MAX_SUBAGENT_FILES {
+            let name = format!("wide{i}.txt");
+            std::fs::write(workspace.join(&name), "z".repeat(400)).unwrap();
+            paths.push(name);
+        }
+        let result = run_subagent_read_task(&workspace, &paths).unwrap();
+        for path in &paths {
+            assert!(
+                result.distilled.contains(path),
+                "{path} was truncated out of the distilled summary: {}",
+                result.distilled
+            );
+        }
+        assert!(result.distilled.chars().count() <= MAX_DISTILLED_CHARS);
+        assert!(!result.distilled.contains("[truncated:"), "no cut, no marker");
+    }
+
+    #[test]
     fn distilled_summary_names_every_file() {
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().to_path_buf();
@@ -207,10 +261,12 @@ mod tests {
     fn very_long_content_truncates_the_distilled_summary_itself() {
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().to_path_buf();
-        // Enough files with unique-enough previews that the summary itself would exceed the cap.
+        // Names alone over the cap: previews are already zero-length at this point, so this is the
+        // fallback path. Long *content* no longer overflows it, because `preview_budget` shrinks the
+        // quotes so every file keeps its name (SUB-01's invariant).
         let mut paths = Vec::new();
         for i in 0..20 {
-            let name = format!("big{i}.txt");
+            let name = format!("{}-{i}.txt", "d".repeat(120));
             let content = format!("{}-", "y".repeat(300));
             std::fs::write(workspace.join(&name), content).unwrap();
             paths.push(name);

@@ -29,6 +29,9 @@ pub enum SessionLogPayload {
     Verify { iteration: usize, passed: bool, detail: String },
     Budget { iteration: usize, max_iterations: usize, tokens_used: usize, max_tokens: usize, provider_input_tokens: usize, provider_output_tokens: usize, },
     ProviderTokens { source: String, input_tokens: usize, output_tokens: usize, tokens_used: usize, iteration: Option<usize>, },
+    /// The reply the run owed its requester, with the artifacts it presented (P1-8 / REPLY-01).
+    /// Logged immediately before `Done`, so a transcript reads answer-then-sign-off.
+    FinalReply { text: String, artifacts: Vec<String> },
     Done { iterations: usize, summary: String, tokens_used: usize, provider_input_tokens: usize, provider_output_tokens: usize, },
     Error { message: String },
 }
@@ -64,6 +67,10 @@ impl From<&LoopStreamEvent> for SessionLogPayload {
             },
             LoopStreamEvent::Budget { iteration, max_iterations, tokens_used, max_tokens, provider_input_tokens, provider_output_tokens, } => SessionLogPayload::Budget { iteration: *iteration, max_iterations: *max_iterations, tokens_used: *tokens_used, max_tokens: *max_tokens, provider_input_tokens: *provider_input_tokens, provider_output_tokens: *provider_output_tokens, },
             LoopStreamEvent::ProviderTokens { source, input_tokens, output_tokens, tokens_used, iteration, } => SessionLogPayload::ProviderTokens { source: source.clone(), input_tokens: *input_tokens, output_tokens: *output_tokens, tokens_used: *tokens_used, iteration: *iteration, },
+            LoopStreamEvent::FinalReply { text, artifacts } => SessionLogPayload::FinalReply {
+                text: text.clone(),
+                artifacts: artifacts.clone(),
+            },
             LoopStreamEvent::Done { iterations, summary, tokens_used, provider_input_tokens, provider_output_tokens, } => SessionLogPayload::Done { iterations: *iterations, summary: summary.clone(), tokens_used: *tokens_used, provider_input_tokens: *provider_input_tokens, provider_output_tokens: *provider_output_tokens, },
             LoopStreamEvent::Error { message } => SessionLogPayload::Error {
                 message: message.clone(),

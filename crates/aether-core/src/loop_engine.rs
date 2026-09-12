@@ -152,7 +152,12 @@ pub struct LoopRunResult {
     pub iterations: usize,
     pub tokens_used: usize,
     pub observations: Vec<ToolObservation>,
+    /// The last observation. For a plan ending in `done` that is the mechanical `"plan complete"` —
+    /// kept for compatibility, and the reason [`LoopRunResult::reply`] exists (P1-8).
     pub summary: String,
+    /// The answer this run owes its requester: validated, artifact-bearing, bounded (P1-8 /
+    /// REPLY-01). Every caller shows *this*, not `summary`.
+    pub reply: crate::final_reply::FinalReply,
     pub done: bool,
 }
 
@@ -175,6 +180,12 @@ pub enum LoopStreamEvent {
         iteration: usize,
         passed: bool,
         detail: String,
+    },
+    /// The user-facing reply, emitted immediately before [`LoopStreamEvent::Done`] so a transcript
+    /// reads answer-then-sign-off (P1-8 / REPLY-01).
+    FinalReply {
+        text: String,
+        artifacts: Vec<String>,
     },
     Done {
         iterations: usize,
@@ -857,6 +868,21 @@ impl ReActLoopEngine {
             .map(|o| o.output.clone())
             .unwrap_or_else(|| "loop finished".into());
 
+        // Compose the reply BEFORE `observations` is moved into the result: it is built from the
+        // run's own facts, so it is available on every path that reaches here, model or no model
+        // (P1-8). `written_artifacts` is what the run actually put on disk, which is what makes the
+        // reply's artifact list a `present` list rather than a wish list.
+        let reply = crate::final_reply::FinalReply::compose(
+            &summary,
+            iteration,
+            &observations,
+            &written_artifacts,
+        );
+        on_event(LoopStreamEvent::FinalReply {
+            text: reply.text.clone(),
+            artifacts: reply.artifacts.clone(),
+        });
+
         on_event(LoopStreamEvent::Done { iterations: iteration, summary: summary.clone(), tokens_used: config.tokens_used, provider_input_tokens: config.provider_input_tokens, provider_output_tokens: config.provider_output_tokens, });
         let summary_usage = ProviderTokenUsage { input_tokens: config.provider_input_tokens, output_tokens: config.provider_output_tokens };
         let _ = audit_loop_token_usage(conn, &config.session_id, "loop_structured_summary", summary_usage, None);
@@ -866,6 +892,7 @@ impl ReActLoopEngine {
             tokens_used: config.tokens_used,
             observations,
             summary,
+            reply,
             done: true,
         })
     }

@@ -1,6 +1,7 @@
 mod compaction;
 mod cost;
 mod error_detail;
+mod final_reply;
 mod graph_extract;
 mod hf_hub;
 mod model_registry;
@@ -53,6 +54,8 @@ pub use error_detail::{
 pub use tool_error::{
     failure_category, is_non_retryable, Inventory, ToolError, REMEDY_SEPARATOR,
 };
+
+pub use final_reply::{FinalReply, MAX_FINAL_REPLY_CHARS};
 
 pub use hf_hub::{download_file, sha256_hex, DownloadPlan, HfHubError};
 pub use prefix_cache::{
