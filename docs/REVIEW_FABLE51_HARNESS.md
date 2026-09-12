@@ -598,6 +598,68 @@ Wave 1 alone takes the registry from 51 → 54.
 
 ---
 
+### Wave 2 status — shipped (registry 54 → 58)
+
+All four Wave 2 findings are implemented, with the harness tasks that prove them.
+
+**Measured, not projected.** Three Linux CI runs on PR #52 tell the whole story, because there is no
+Rust toolchain in the authoring environment and CI is the compiler:
+
+| Run | Result | What it proved |
+|---|---|---|
+| [`34719007714`](https://github.com/knarayanareddy/forge/actions/runs/34719007714) | `Passed: 42 / 56` — `LOOP-05` and `READ-01` **PASS [hard]**, `SUB-01` **FAIL** | A pre-existing task caught the new marker: lengthening the per-file preview under the subagent's fixed 2 000-char distilled cap pushed the *last file's name* off the end. |
+| [`34719577625`](https://github.com/knarayanareddy/forge/actions/runs/34719577625) | build error, `reply01.rs:288` | A struct literal cannot start an `if` condition. `aether-core` and `aether-daemon` compiled clean, which is what confirmed the P1-8 wiring before the test file was fixed. |
+| [`34720264360`](https://github.com/knarayanareddy/forge/actions/runs/34720264360) | `Passed: 45 / 58 · Hard green: 34 · Soft green: 11` | All seven new tasks (`CHECK-02`, `GATE-03`, `RED-02`, `LOOP-05`, `READ-01`, `REPLY-01`, `PLAN-02`) **PASS [hard]**, `SUB-01` green again. Only non-fail-closed failure: `MCP-02`'s pinned entry-script hash after upstream npm drift. |
+
+Two lessons worth carrying forward, both of the kind a static read-through misses:
+
+1. *A marker is part of a budget, not free text.* P1-6 added wording to a surface whose total cap was
+   already tight, and the cost came out of the last item's **name** — the one part of a preview a parent
+   agent actually needs. `preview_budget` now derives the quote length from the item count, so names
+   always survive and the hard cap only ever trims prose. **Verify budget math against every fixture
+   that asserts on the surface, not just the new one.**
+2. *Grep before changing a marker, and re-grep after.* The same class of defect would have hit any
+   frozen assertion quoting the old truncation suffix; the fix was to enumerate every test that reads
+   that surface before editing the string.
+
+Wave 1's under-grant lesson was applied rather than relearned: `reply01.rs` and `plan02.rs` seed both
+`read` and `write` grants the way `server::select_workspace` does, so a read-shaped assertion is not
+silently testing a denial.
+
+| Finding | Shipped | Proof |
+|---|---|---|
+| **P1-9** | `ToolError::render()` is a contract: `reason \| remedy: … \| constraint: {json} \| retryable: yes/no`, reason always the leading substring so every existing message assertion keeps working. Each producing site names the step that would have succeeded; an unconnected `mcp_call` names what *is* connected. `run_structured_with_replan` fails fast on `retryable: no` (`break Err(LoopError::Turn(rendered))`) instead of spending `MAX_LOOP_REPLANS` on a cause no plan can remove, and `LoopError::MaxIterations` is never flattened into `Turn`. `run_nl_planner_repair` takes the failure detail, remedy and constraint, so a replan that *is* worth spending starts from the cure. | `LOOP-05` — the render contract per denial category; a terminal refusal costs **zero** replans; the remedy names the connected inventory (a server in the allowlist that is never called exists precisely so the remedy has something to name); `MaxIterations` survives as itself. |
+| **P1-6** | `render_read_window` states its bound in all three cases — an explicit window names budget/total/offset/remaining **and the exact next-page JSON**, the default cut names head/tail/total/omitted, and reading past EOF is a *failure* that says so rather than an empty success (tail = `budget / 3`, `FS_READ_MAX_CHARS = 500`). Memory hits carry `[memory truncated: N of M hits shown, last cut mid-line; budget exhausted — narrow the query to retrieve the rest]` (`MAX_MEMORY_CONTEXT_CHARS = 6000`). Subagent previews are labelled `[preview: N of M chars]` and sized by an adaptive `preview_budget` (`PREVIEW_CHARS = 200`, `DISTILLED_BOUND_SUFFIX_MAX = 64`). | `READ-01` — each marker verbatim; the next-page round trip (page 2 resumes exactly where page 1 stopped); the past-EOF failure; and that the memory marker appears **only** when the budget actually ran out. Plus the `SUB-01` regression above, now pinned by `preview_budget`. |
+| **P1-8** | `aether_core::FinalReply` with a pre-emit self-check: `validate()` rejects an empty reply, a bare status token (`BARE_STATUS_REPLIES`, compared after trim + stripping `.`/`!` + lowercasing), a reply that omits an artifact the run actually wrote (`(+N more` accepted), and one over `MAX_FINAL_REPLY_CHARS = 2000`. `compose()` builds it from the run's own observations and artifacts, reserving `NOTE_RESERVE = 48` for `[{k} further step line(s) omitted]` and marking an over-bound reply `…[reply truncated]`. Emitted three ways so no caller invents wording: `LoopStreamEvent::FinalReply` before `Done`, wire event `final_reply`, and a session-log record. | `REPLY-01` — the defect list per rule; composition never produces a defect; every written path is named in the reply **and exists on disk**; stream/wire/log emission and ordering. |
+| **P0-2** | *Pull:* `ProductionSandbox::list_dir` (`ls -1Ap`) behind `ToolInvocation::FsList`, treated as the read it is — `PreToolUse` hook, `check_file_access("read")`, remedy-bearing denial, `DenialCategory::Permission`; an unresolvable path is refused as traversal with a workspace-relative remedy. `render_dir_listing` sorts, suffixes directories `/`, reports an empty directory as `0 entries` (**data, not an error**), and states its bound at `FS_LIST_MAX_ENTRIES = 200` including the last name shown, so the next listing has a resume point. `inject.rs` treats an induced listing as an induced read; schema, `ALLOWED_NL_TOOLS`, prompt catalog and `validate_goal_coverage` all accept/require it. *Push:* `PlannerContext` + `task_runner::planner_context` (connected servers, installed skills, workspace top level) rendered by `build_capability_context`, bounded at `PLANNER_CONTEXT_MAX_ENTRIES = 40` with `+N more; use fs_list to see them`, and appended **after** `build_nl_plan_prompt` by `with_capability_context` so the prefix cache's stable prefix (`CACHE-01`) cannot be invalidated by a workspace change. | `PLAN-02` — renderer contract (sorted, marked, empty-is-success, bound reported); the production loop (root, subdirectory, missing read grant, `..` escape, denylisted `.env`); the capability block populated and empty (absence stated as `none` plus "do not emit one"); prefix stability (the stable prompt contains no inventory); the daemon collector over a real tempdir + allowlist + skill; and that the catalog stays closed to an invented action. |
+
+**Deviations from the fixes as written above.**
+
+1. *P0-2 proposed BM25 top-k workspace ranking.* Not shipped. The context is a bounded **alphabetical**
+   top-level listing plus `fs_list` on demand, which covers the actual defect (a planner that cannot see
+   the workspace invents paths). Ranking entries by relevance to the goal is a retrieval problem with its
+   own failure modes, and it belongs with P2-15 / `MEM-02` rather than being bolted onto a prompt prefix
+   that must stay cacheable.
+2. *P0-2 proposed a discovery action; only `fs_list` shipped — no glob, no search.* One bounded listing
+   per level is what the "read the listing before asking" pattern needs, and every extra surface is
+   another hook/grant/deny path to keep honest. A `fs_search` would need its own bound, a ranking story,
+   and an answer to "what does zero hits mean" — deferred rather than half-built.
+3. *P1-8 proposed a required `done.summary` plus a `present` action.* Instead the reply is **composed in
+   core** from the run's own observations and artifacts and validated pre-emit. Requiring the model to
+   write `done.summary` would make the contract depend on the planner obeying a field, and forge's
+   structured loop already knows every path it wrote; a `present` action would add a step whose only job
+   is restating what `validate()` now enforces. Consequence: the reply is deterministic, so `REPLY-01`
+   needs no model — and a future model-authored reply can be dropped into the same `validate()`.
+4. *The `fs_list` intent rule is narrower than the other coverage rules.* `validate_goal_coverage` sees
+   the **memory-enriched** goal (`enrich_prompt_with_memory` prepends recalled hits), so a bare
+   `"list "` substring would fire on any recalled note that mentions a list and demand a listing step
+   the user never asked for. The trigger is a short set of request-shaped phrases (`list the files`,
+   `list files`, `list the directory`, `list the contents`, `what files`, `which files`). The general
+   hazard — coverage keywords matching inside retrieved memory — predates this change and is worth its
+   own finding if it ever misfires.
+
+---
+
 ## 6. One-page summary
 
 | # | Pattern (§2) | Forge gap | Evidence | Fix | Proof |
@@ -623,5 +685,7 @@ rewindable, fail-closed, correlation-gated — and then left the one gate that s
 satisfiable by a lint of text that was never written. Fixing it is a small change and it makes the rest of
 the honesty infrastructure mean what it says.
 
-> **Status:** Wave 1 (P0-1, P0-3, P1-4) is shipped — see §5 "Wave 1 status". The registry is 54 tasks and
-> `scripts/check-doc-scoreboard.sh` passes. Waves 2 and 3 above are still open.
+> **Status:** Waves 1 and 2 are shipped — see §5 "Wave 1 status" (P0-1, P0-3, P1-4) and "Wave 2 status"
+> (P1-9, P1-6, P1-8, P0-2). The registry is 58 tasks, Linux CI measures **45/58** (34 hard / 11 soft) with
+> all seven new tasks **PASS [hard]**, the Darwin gate is **58/58** (49 hard) and has not yet been observed
+> on a full Darwin run, and `scripts/check-doc-scoreboard.sh` passes. Wave 3 above is still open.
