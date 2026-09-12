@@ -15,7 +15,7 @@ AetherForge treats **Darwin (macOS 15+)** as the canonical platform. Linux CI va
 | **SB-01** | hard | **FAIL-CLOSED** | Production Seatbelt loop, environment scrubbing, and network-deny gate; Darwin only |
 | GIT-01 | hard | PASS | Real git subprocess with grant gate |
 | CODE-01 | hard | PASS | `python3 -m py_compile` |
-| MCP-01 | hard | PASS* | Requires Node + MCP server installed in CI |
+| MCP-01 | hard | **FAIL*** | Requires Node + MCP server installed in CI; currently fails the entry-script hash pin* |
 | ROUT-01 | hard | **FAIL-CLOSED** | Requires live Ollama SSE streaming |
 | MEM-01 | hard | **FAIL-CLOSED** | Requires Ollama `all-minilm` embeddings |
 | **MEM-02** | hard | PASS | Deterministic production daemon chunk→link→isolated-recall path |
@@ -59,14 +59,22 @@ AetherForge treats **Darwin (macOS 15+)** as the canonical platform. Linux CI va
 | **HEAD-01** | hard | PASS | Headless NDJSON helpers; no Ollama dependency |
 | **CACHE-01** | hard | PASS | Prefix-cache fingerprint helpers; no Ollama dependency |
 | **DIST-01** | hard | **FAIL-CLOSED** | Darwin codesign + spctl release gates |
-| **MCP-02** | soft | PASS‡ | User-addable MCP with pin-on-install and diff-on-update |
+| **MCP-02** | soft | **FAIL*** | User-addable MCP with pin-on-install and diff-on-update; currently fails the entry-script hash pin* |
 | **COMPACT-01** | soft | PASS‡ | Context compaction with thrashing guard |
 | **HOOK-02** | soft | PASS‡ | Extended hook lifecycle beyond PreToolUse denylist |
 | **MEM-03** | soft | PASS‡ | User-inspectable memory list/edit/delete/export |
 | **MCPS-01** | soft | PASS‡ | Forge MCP server stdio stub (`forge_ping`) |
 | **OFFLINE-01** | soft | PASS‡ | Ollama offline degradation matrix fails fast with clear messages |
 
-* MCP-01 fails if `@modelcontextprotocol/server-filesystem` is not installed — install via `npm install -g` in CI.
+\* MCP-01 and MCP-02 pin the SHA-256 of the MCP server's entry script (`dist/index.js`) and fail
+closed when the installed build differs. On the current `ubuntu-24.04` image, `npm install -g
+@modelcontextprotocol/server-filesystem` (node 20.20.2) resolves to a newer build —
+computed `729dc8511e779e5cd6640851a74b25283e3af1ca3a7106722f993e864a1d9935` vs pinned
+`ac12c0307497ebd1c8e0b0fe4b057165cded007cd7c7afc9aeaa68fefe68eb15` — so both tasks report
+`FAIL (Security violation: MCP entry script hash mismatch …)`. This is the supply-chain pin doing
+its job against upstream drift, not a harness regression: measured on run `34712522700` (PR #52).
+Re-pin only after reviewing the new server build. MCP-01 also fails if
+`@modelcontextprotocol/server-filesystem` is not installed at all.
 
 ‡ REG-01, SLEEP-01, RELY-01, FORENSIC-01, COMPACT-01, HOOK-02, MEM-03, MCPS-01, and OFFLINE-01 are **soft green** on Darwin; counted in pass total but not in hard-green gate.
 
@@ -75,12 +83,12 @@ AetherForge treats **Darwin (macOS 15+)** as the canonical platform. Linux CI va
 | Environment | Expected harness | Hard / soft | Notes |
 |-------------|------------------|-------------|-------|
 | Darwin + Ollama + sandbox-exec | **54/54 target** | **44 hard / 10 soft** | Canonical Darwin gate: REG-01, SLEEP-01, RELY-01, FORENSIC-01, MCP-02, COMPACT-01, HOOK-02, MEM-03, MCPS-01, OFFLINE-01 soft green |
-| Linux (default CI) | **39/54** | 32 hard / 9 soft† | FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01, GRAPH-02, DIST-01 fail-closed |
-| Linux + Ollama + MCP | **44/54** | 37 hard / 9 soft† | FS-02, SB-01, and OS-gated tasks fail closed |
+| Linux (default CI) | **41/54** | 30 hard / 11 soft† | Measured on run `34712522700` (PR #52, `ubuntu-24.04`). FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01, GRAPH-02, DIST-01 fail-closed; MCP-01/MCP-02 fail the entry-script hash pin\* |
+| Linux + Ollama + MCP | **51/54** | 39 hard / 12 soft† | Derived: the eight Ollama-gated tasks (ROUT-01, MEM-01, GRAPH-01, GRAPH-02, LOOP-02, PLAN-01, LOOP-04, INGEST-01) plus MCP-01/MCP-02 with a matching pin; FS-02, SB-01, DIST-01 still fail closed |
 
-† Fail-closed tasks print `FAIL-CLOSED` and do not inflate the pass count — the harness reports explicit partial scores on Linux, not 39/39.
+† Fail-closed tasks print `FAIL-CLOSED` and do not inflate the pass count — the harness reports explicit partial scores on Linux, not 41/41. Hard/soft here is the harness's own runtime `Hard green` / `Soft green` split (41 = 30 + 11), which is not the same as the registry's `hard_on_darwin` flags (44 hard / 10 soft): FORK-01, HEAD-01, CACHE-01, COST-01 and MCP-02 are classified per-run by their own implementations.
 
-**Do not claim 45/45 on Linux.** Twelve tasks require unavailable/default-disabled prerequisites; they must show explicit `FAIL-CLOSED`, never silent skip.
+**Do not claim 54/54 on Linux.** Thirteen tasks do not pass on the default image — eleven require unavailable/default-disabled prerequisites and must show explicit `FAIL-CLOSED`, never silent skip, and two (MCP-01, MCP-02) fail the entry-script hash pin\*.
 
 ## CI workflow tiers
 
@@ -94,11 +102,11 @@ GitHub Actions (`.github/workflows/ci.yml`):
 
 ### PR fast path (Linux Ollama-independent tasks)
 
-PRs validate the Ollama-independent core without blocking on cold-model flake. These **42 tasks** are expected PASS on every Linux run (including PRs):
+PRs validate the Ollama-independent core without blocking on cold-model flake. These **43 tasks** are expected PASS on every Linux run (including PRs); 41 of them do pass today — MCP-01 and MCP-02 fail the entry-script hash pin\* until the server build is re-pinned:
 
 FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, RED-02, LOOP-01, SESS-01, UNDO-01, AUTO-01, CHECK-01, CHECK-02, GATE-01, GATE-02, GATE-03, HOOK-01, CKPT-01, CONS-01, PERM-02, SUB-01, SEC-01, SKILL-03, INJECT-01, BUDG-01, COST-01, REG-01, SLEEP-01, RELY-01, FORENSIC-01, FORK-01, HEAD-01, CACHE-01, MCP-02, COMPACT-01, HOOK-02, MEM-03, MCPS-01, OFFLINE-01.
 
-Linux PR jobs still run the **full 54-task harness** (42 pass + 12 fail-closed) and gate on ≥ 30/54. **Darwin PR jobs do not run the golden harness** — they run `cargo build`, `cargo test`, MCP allowlist scan, and Swift build only. Merge to `main` or nightly runs enforce **54/54 on Darwin**.
+Linux PR jobs still run the **full 54-task harness** (41 pass · 11 `FAIL-CLOSED` · 2 MCP pin failures\*) and gate on ≥ 30/54. **Darwin PR jobs do not run the golden harness** — they run `cargo build`, `cargo test`, MCP allowlist scan, and Swift build only. Merge to `main` or nightly runs enforce **54/54 on Darwin**.
 
 Steps on every job:
 

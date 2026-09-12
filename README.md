@@ -63,15 +63,15 @@ cargo run -p golden-harness --bin golden-harness
 | Platform | Expected score | Hard / soft |
 |----------|----------------|-------------|
 | **Darwin** (Ollama + `sandbox-exec`) | **54/54** | 44 hard / 10 soft (REG-01, SLEEP-01, RELY-01, FORENSIC-01, MCP-02, COMPACT-01, HOOK-02, MEM-03, MCPS-01, OFFLINE-01 soft green) |
-| **Linux CI** (full matrix) | **39/54** | 32 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01, GRAPH-02, DIST-01 **FAIL-CLOSED** |
-| **Linux Ollama-independent** | **42/54** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, **RED-02**, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, **CHECK-02**, GATE-01, **GATE-02**, **GATE-03**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **BUDG-01**, **COST-01**, **REG-01**, **SLEEP-01**, **RELY-01**, **FORENSIC-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **MCP-02**, **COMPACT-01**, **HOOK-02**, **MEM-03**, **MCPS-01**, **OFFLINE-01** |
+| **Linux CI** (full matrix) | **41/54** | 30 hard-green / 11 soft-green — measured on run [`34712522700`](https://github.com/knarayanareddy/forge/actions/runs/34712522700) (PR #52, `ubuntu-24.04`) · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01, GRAPH-02, DIST-01 **FAIL-CLOSED**; MCP-01/MCP-02 **FAIL** the entry-script hash pin after upstream npm drift (see [docs/LINUX_CI.md](docs/LINUX_CI.md)) |
+| **Linux Ollama-independent** | **43 tasks · 41 pass** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, **RED-02**, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, **CHECK-02**, GATE-01, **GATE-02**, **GATE-03**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **BUDG-01**, **COST-01**, **REG-01**, **SLEEP-01**, **RELY-01**, **FORENSIC-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **MCP-02**, **COMPACT-01**, **HOOK-02**, **MEM-03**, **MCPS-01**, **OFFLINE-01** |
 
 ## Darwin canonical verification
 
 | Baseline | Value |
 |----------|-------|
 | **Registry @ main** | **54 tasks** (44 hard / 10 soft) · **`7486762`** (PR #49) + CHECK-02 / GATE-03 / RED-02 |
-| **Added since last cited run** | **CHECK-02**, **GATE-03**, **RED-02** (wave 1 of [docs/REVIEW_FABLE51_HARNESS.md](docs/REVIEW_FABLE51_HARNESS.md)) — all deterministic (no model, no network), so they are hard green on Darwin and PASS on Linux. The **54/54** gate has **not** yet been re-cited from a full Darwin run; the last cited run below predates these three tasks. |
+| **Added since last cited run** | **CHECK-02**, **GATE-03**, **RED-02** (wave 1 of [docs/REVIEW_FABLE51_HARNESS.md](docs/REVIEW_FABLE51_HARNESS.md)) — all deterministic (no model, no network), and all three measured **PASS [hard]** on Linux in run [`34712522700`](https://github.com/knarayanareddy/forge/actions/runs/34712522700) (PR #52). Darwin PR jobs do not run the harness, so the **54/54** gate has **not** yet been re-cited from a full Darwin run; the last cited run below predates these three tasks. |
 | **Last cited full Darwin run** | **51/51 @ `d38ba6e`** (PR #50) — 42 hard / 9 soft; ROUT-01 median warm TTFT 27ms (local 2026-08-07) |
 | **CI gate** | Push/nightly Darwin **54/54** — [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
 | **Wave 6 probes** | MEM-03, MCPS-01, OFFLINE-01 soft-green @ `608ac77` (PR #46) |
