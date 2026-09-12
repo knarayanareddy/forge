@@ -12,7 +12,6 @@ use aether_core::{
 use aether_db::Database;
 use aether_mcp::McpAllowlist;
 use aether_permissions::{PermissionDecision, PermissionManager};
-use aether_sandbox::ProductionSandbox;
 use aether_skills::{SkillDefinition, SkillLoader};
 use futures::StreamExt;
 use std::collections::HashMap;
@@ -717,23 +716,130 @@ pub fn run_automation_trigger(
     }
 }
 
-/// Execute a granted gateway inbound via the same loop shell as `run_task` (GATE-01).
+/// Artifact a gateway run leaves behind for the channel's caller to deliver (GATE-01/02/03).
+pub const GATEWAY_RESPONSE_ARTIFACT: &str = "gate_response.txt";
+
+/// What a gateway run produced — i.e. the reply the channel owes the requester.
+///
+/// This exists because the previous contract had no reply at all: the run wrote the *inbound
+/// envelope* back to `gate_response.txt` and returned `()`, so a remote user who sent a message got
+/// their own message echoed into a file nobody delivered. A sign-off is not a reply, and a file that
+/// is written but never presented is unreachable. See `docs/REVIEW_FABLE51_HARNESS.md` finding P0-3.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GatewayReply {
+    pub channel_id: String,
+    pub session_id: String,
+    /// `completed` — anything else is returned as `Err`, never as a reply.
+    pub status: String,
+    /// The answer, composed from the run's own observations and artifacts. Never the inbound text.
+    pub reply: String,
+    /// Workspace-relative paths the run's plan wrote, in plan order.
+    pub artifacts: Vec<String>,
+    pub iterations: usize,
+    pub tokens_used: usize,
+    /// Workspace-relative path of the persisted artifact, so an adapter can deliver or present it.
+    pub artifact_path: String,
+}
+
+/// Compose the reply a gateway channel owes its requester.
+///
+/// `LoopRunResult::summary` is just the last observation, which for a plan ending in `done` is the
+/// mechanical `"plan complete"` — a sign-off, not a reply. This states what the run produced and
+/// what each step concluded, bounded so a long run cannot generate an undeliverable message.
+fn compose_gateway_reply(run: &LoopRunResult, artifacts: &[String]) -> String {
+    const MAX_REPLY_CHARS: usize = 1_200;
+    let mut parts: Vec<String> = Vec::new();
+    if artifacts.is_empty() {
+        parts.push(format!(
+            "Completed {} step(s); produced no files.",
+            run.iterations
+        ));
+    } else {
+        parts.push(format!(
+            "Completed {} step(s); produced {} file(s): {}.",
+            run.iterations,
+            artifacts.len(),
+            artifacts.join(", ")
+        ));
+    }
+    for obs in run.observations.iter().filter(|o| o.tool != "done") {
+        parts.push(format!(
+            "{} {}: {}",
+            if obs.success { "ok" } else { "failed" },
+            obs.tool,
+            obs.output
+        ));
+    }
+    parts.join("\n").chars().take(MAX_REPLY_CHARS).collect()
+}
+
+impl GatewayReply {
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "channel_id": self.channel_id,
+            "session_id": self.session_id,
+            "status": self.status,
+            "reply": self.reply,
+            "artifacts": self.artifacts,
+            "iterations": self.iterations,
+            "tokens_used": self.tokens_used,
+            "artifact_path": self.artifact_path,
+        })
+    }
+
+    /// Exact bytes persisted to [`GATEWAY_RESPONSE_ARTIFACT`].
+    pub fn artifact_body(&self) -> String {
+        serde_json::to_string_pretty(&self.to_json()).unwrap_or_else(|_| self.reply.clone())
+    }
+}
+
+/// Execute a granted gateway inbound via the same loop shell as `run_task` (GATE-01), then persist a
+/// real reply (GATE-03).
+///
+/// Three contracts, all asserted by GATE-03:
+/// 1. **The reply answers the task.** It is built from the run's own observations and the artifacts
+///    the plan produced — never from `normalized_prompt`. Echoing the request back is not a reply.
+/// 2. **The artifact write is journaled and grant-checked**, exactly like `ToolRegistry::FsWrite`.
+///    An unjournaled write is invisible to `undo_pending_writes` and to checkpoint/rewind, which is
+///    the one thing this harness promises never to produce.
+/// 3. **A remote requester gets the principle, not the detection mechanics.** Denials are recorded
+///    in full in `audit_log` and returned redacted (RED-02), because whoever is on the other end of
+///    a gateway channel is not the local principal this policy exists to protect.
+///
+/// The inbound `normalized_prompt` still cannot influence which tools run: the plan is parsed from
+/// the channel's pre-registered `task_prompt` alone, so remote text is data by construction. Only
+/// its *length* is recorded here — persisting the text into the workspace would leave a durable copy
+/// of untrusted input where a later read, skill, or graph-ingest pass could pick it up.
 pub fn run_gateway_inbound(
     conn: &rusqlite::Connection,
     channel: &GatewayChannel,
     normalized_prompt: &str,
-) -> Result<(), String> {
+) -> Result<GatewayReply, String> {
     let workspace = resolve_workspace(channel.workspace_path.as_deref())?;
     ensure_session_and_workspace_grant(conn, &channel.session_id, &workspace)?;
 
     let plan = if let Some(plan) = ReActLoopEngine::parse_plan_from_prompt(&channel.task_prompt) {
         plan
     } else {
-        return Err(format!(
-            "gateway channel {} requires structured plan: task_prompt",
-            channel.channel_id
-        ));
+        return deny_to_gateway(
+            conn,
+            channel,
+            format!(
+                "gateway channel {} requires structured plan: task_prompt",
+                channel.channel_id
+            ),
+        );
     };
+
+    // Taken from the plan, not parsed back out of observation text ("Wrote N bytes to <path>"),
+    // which would be fragile string surgery on a message meant for humans.
+    let planned_artifacts: Vec<String> = plan
+        .iter()
+        .filter_map(|step| match step {
+            aether_core::ToolInvocation::FsWrite { path, .. } => Some(path.clone()),
+            _ => None,
+        })
+        .collect();
 
     let allowlist = load_allowlist();
     let skills = load_skills();
@@ -757,20 +863,103 @@ pub fn run_gateway_inbound(
         &channel.task_prompt,
     );
 
-    match result {
-        Ok(run) if run.done => {
-            let response_path = workspace.join("gate_response.txt");
-            ProductionSandbox::write_file(
-                &workspace,
-                &response_path,
-                normalized_prompt.as_bytes(),
-            )
-            .map_err(|e| e.to_string())?;
-            Ok(())
+    // Inner block yields the *full* reason on failure; the single redaction point below is what
+    // actually leaves the process.
+    let produced: Result<GatewayReply, String> = (|| {
+        let run = match result {
+            Ok(run) if run.done => run,
+            Ok(_) => return Err("gateway loop did not reach done".into()),
+            Err(e) => return Err(e.to_string()),
+        };
+
+        let reply_text = compose_gateway_reply(&run, &planned_artifacts);
+        let reply = GatewayReply {
+            channel_id: channel.channel_id.clone(),
+            session_id: channel.session_id.clone(),
+            status: "completed".into(),
+            reply: reply_text,
+            artifacts: planned_artifacts,
+            iterations: run.iterations,
+            tokens_used: run.tokens_used,
+            artifact_path: GATEWAY_RESPONSE_ARTIFACT.to_string(),
+        };
+        let body = reply.artifact_body();
+        let target = workspace.join(GATEWAY_RESPONSE_ARTIFACT);
+        let target_str = target.to_string_lossy().to_string();
+
+        if let aether_core::HookDecision::Deny(reason) =
+            aether_core::HookEngine::production().run_pre_tool_use(&target)
+        {
+            return Err(reason);
         }
-        Ok(_) => Err("gateway loop did not reach done".into()),
-        Err(e) => Err(e.to_string()),
+        let decision = PermissionManager::check_file_access(
+            conn,
+            &channel.session_id,
+            &target_str,
+            "write",
+        )
+        .map_err(|e| e.to_string())?;
+        if decision != PermissionDecision::Approved {
+            return Err(format!("Write denied for target path {}", target_str));
+        }
+        // Snapshot + write + journal, the same path ToolRegistry::FsWrite takes.
+        aether_permissions::journal_file_write(
+            conn,
+            &channel.session_id,
+            &workspace,
+            &target,
+            &body,
+        )?;
+        Ok(reply)
+    })();
+
+    match produced {
+        Ok(reply) => {
+            let _ = aether_permissions::GatewayGrant::audit_event(
+                conn,
+                &channel.session_id,
+                &channel.channel_id,
+                "inbound_replied",
+                &PermissionDecision::Approved,
+                &serde_json::json!({
+                    "artifact": GATEWAY_RESPONSE_ARTIFACT,
+                    "artifacts": reply.artifacts.clone(),
+                    "iterations": reply.iterations,
+                    "inbound_len": normalized_prompt.chars().count(),
+                }),
+            );
+            Ok(reply)
+        }
+        Err(full) => deny_to_gateway(conn, channel, full),
     }
+}
+
+/// Record the full denial for the local principal / audit trail, return only the principle to the
+/// remote requester (RED-02).
+fn deny_to_gateway(
+    conn: &rusqlite::Connection,
+    channel: &GatewayChannel,
+    full: String,
+) -> Result<GatewayReply, String> {
+    let reference = aether_core::reference_id(&full);
+    let category = format!("{:?}", aether_core::classify_denial(&full));
+    let _ = aether_permissions::GatewayGrant::audit_event(
+        conn,
+        &channel.session_id,
+        &channel.channel_id,
+        "inbound_denied",
+        &PermissionDecision::Denied,
+        &serde_json::json!({
+            // Full detail stays here, where only the local principal can read it.
+            "reason": full.clone(),
+            "reference": reference,
+            "category": category,
+        }),
+    );
+    Err(aether_core::render_denial(
+        aether_core::ErrorDetailLevel::Principle,
+        &full,
+    ))
 }
 
 async fn post_turn_ingest(

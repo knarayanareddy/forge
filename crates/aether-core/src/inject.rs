@@ -99,6 +99,7 @@ fn tool_target_key(step: &ToolInvocation) -> String {
         ToolInvocation::FsRead { path } => path.clone(),
         ToolInvocation::VerifyContains { path, text } => format!("{path}|{text}"),
         ToolInvocation::PythonLint { source } => source.chars().take(48).collect(),
+        ToolInvocation::PythonLintFile { path } => path.clone(),
         ToolInvocation::GitInit { branch } => branch.clone(),
         ToolInvocation::McpCall {
             server, tool, args, ..
@@ -115,6 +116,7 @@ fn step_arg_blob(step: &ToolInvocation) -> String {
         ToolInvocation::FsRead { path } => path.clone(),
         ToolInvocation::VerifyContains { path, text } => format!("{path}\n{text}"),
         ToolInvocation::PythonLint { source } => source.clone(),
+        ToolInvocation::PythonLintFile { path } => path.clone(),
         ToolInvocation::GitInit { branch } => branch.clone(),
         ToolInvocation::McpCall {
             server,
@@ -240,6 +242,10 @@ pub fn admit_plan_against_observations(
                         | ToolInvocation::GitInit { .. }
                         | ToolInvocation::FsWrite { .. }
                         | ToolInvocation::FsRead { .. }
+                        // CHECK-02 added a second read surface: `python_lint_file` opens whatever
+                        // path the step names and echoes compiler diagnostics from it, so an
+                        // induced lint is an induced read. Treat it exactly like `fs_read`.
+                        | ToolInvocation::PythonLintFile { .. }
                         | ToolInvocation::SubagentTask { .. }
                 )
             {

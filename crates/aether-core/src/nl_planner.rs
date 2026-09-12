@@ -25,6 +25,7 @@ const ALLOWED_NL_TOOLS: &[&str] = &[
     "fs_read",
     "verify_contains",
     "python_lint",
+    "python_lint_file",
     "git_init",
     "mcp_call",
     "skill_execute",
@@ -89,6 +90,10 @@ Each step is an object with an "action" field. Use only these actions, with exac
     Confirm a file contains a substring. "text" must be a non-empty string you expect to find.
 - {{"action":"python_lint","source":"<python source code>"}}
     Syntax-check Python source given in the goal. Copy the source verbatim.
+- {{"action":"python_lint_file","path":"<relative path>"}}
+    Syntax-check a Python file that an earlier fs_write in this plan put on disk. This is how you
+    certify the file you actually wrote; python_lint only checks source quoted in the goal and
+    proves nothing about any artifact.
 - {{"action":"git_init","branch":"<branch name>"}}
     Initialise a git repository. Use "main" when the goal does not name a branch.
 - {{"action":"mcp_call","server":"<server name>","tool":"<tool name>","args":{{}}}}
@@ -111,6 +116,9 @@ Rules:
 - If the goal writes a file, use fs_write, optionally verify_contains, then done.
 - Add verify_contains ONLY after an fs_write whose content you can confirm, and only with a
   non-empty "text" you just wrote. Never emit verify_contains after fs_read.
+- If the goal writes a Python file (a path ending in .py), follow that fs_write with BOTH a
+  verify_contains on that same path and a python_lint_file on that same path. A .py write that was
+  never linted as a file is rejected before done, and python_lint does not count as that lint.
 - Every field listed for an action is required. Never emit an empty string for a required field.
 - Do not repeat the same action on the same target twice in a row.
 - Keep every path relative to the workspace. Never use absolute paths or "..".
@@ -272,32 +280,42 @@ pub fn validate_goal_coverage(
     plan: &[ToolInvocation],
 ) -> Result<(), NlPlanError> {
     let goal = nl_goal.to_ascii_lowercase();
-    let mut required = Vec::new();
+    // Each entry is a set of *alternative* action names that satisfy one piece of stated intent.
+    // Linting is the only intent with two spellings today: `python_lint` checks source quoted in
+    // the goal, `python_lint_file` checks an artifact the plan wrote (CHECK-02). A goal that says
+    // "lint" is satisfied by either, so requiring the literal name `python_lint` would reject a
+    // correct plan that lints the file it just wrote.
+    let mut required: Vec<&[&str]> = Vec::new();
     if goal.contains("write ") || goal.contains("create ") {
-        required.push("fs_write");
+        required.push(&["fs_write"]);
     }
     if goal.contains("read ") || goal.contains("open ") {
-        required.push("fs_read");
+        required.push(&["fs_read"]);
     }
     if goal.contains("verify ") || goal.contains("confirm ") {
-        required.push("verify_contains");
+        required.push(&["verify_contains"]);
     }
     if goal.contains("lint ") || goal.contains("python source") {
-        required.push("python_lint");
+        required.push(&["python_lint", "python_lint_file"]);
     }
     if goal.contains("git ") || goal.contains("repository") || goal.contains("version control") {
-        required.push("git_init");
+        required.push(&["git_init"]);
     }
     if goal.contains("mcp ") || goal.contains("mcp server") {
-        required.push("mcp_call");
+        required.push(&["mcp_call"]);
     }
     if goal.contains(" skill") || goal.starts_with("skill ") {
-        required.push("skill_execute");
+        required.push(&["skill_execute"]);
     }
 
-    for tool in required {
-        if !plan.iter().any(|step| tool_name(step) == tool) {
-            return Err(NlPlanError::MissingRequestedTool { tool: tool.into() });
+    for alternatives in required {
+        if !plan
+            .iter()
+            .any(|step| alternatives.contains(&tool_name(step)))
+        {
+            return Err(NlPlanError::MissingRequestedTool {
+                tool: alternatives[0].into(),
+            });
         }
     }
     Ok(())
@@ -494,6 +512,9 @@ fn forbidden_pattern_detail(step: &ToolInvocation) -> Option<String> {
         ToolInvocation::PythonLint { source } if source.trim().is_empty() => {
             return Some("python_lint requires non-empty source".into());
         }
+        ToolInvocation::PythonLintFile { path } if path.trim().is_empty() => {
+            return Some("python_lint_file requires non-empty path".into());
+        }
         ToolInvocation::GitInit { branch } if branch.trim().is_empty() => {
             return Some("git_init requires non-empty branch".into());
         }
@@ -520,6 +541,7 @@ fn tool_name(step: &ToolInvocation) -> &'static str {
         ToolInvocation::FsWrite { .. } => "fs_write",
         ToolInvocation::FsRead { .. } => "fs_read",
         ToolInvocation::PythonLint { .. } => "python_lint",
+        ToolInvocation::PythonLintFile { .. } => "python_lint_file",
         ToolInvocation::GitInit { .. } => "git_init",
         ToolInvocation::McpCall { .. } => "mcp_call",
         ToolInvocation::SkillExecute { .. } => "skill_execute",
@@ -535,6 +557,7 @@ fn tool_target_key(step: &ToolInvocation) -> String {
         ToolInvocation::FsRead { path } => path.clone(),
         ToolInvocation::VerifyContains { path, .. } => path.clone(),
         ToolInvocation::PythonLint { source } => source.chars().take(32).collect(),
+        ToolInvocation::PythonLintFile { path } => path.clone(),
         ToolInvocation::GitInit { branch } => branch.clone(),
         ToolInvocation::McpCall { server, tool, .. } => format!("{}:{}", server, tool),
         ToolInvocation::SkillExecute { skill_id, .. } => skill_id.clone(),

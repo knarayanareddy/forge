@@ -144,11 +144,36 @@ pub async fn test_gate01_impl(db: &Database) -> Result<(), String> {
     if !response.exists() {
         return Err("GATE-01 response artifact missing".into());
     }
-    if !fs::read_to_string(&response)
-        .map_err(|e| e.to_string())?
-        .contains(&fixture.user_text)
+    // Contract changed by GATE-03: the artifact is the run's *reply*, not an echo of the inbound
+    // envelope (see docs/REVIEW_FABLE51_HARNESS.md finding P0-3). GATE-01 only checks the artifact
+    // is a well-formed reply that names what the plan produced and does not echo the inbound text;
+    // GATE-03 owns the deeper no-echo canary analysis plus the journal and redaction guarantees.
+    let body = fs::read_to_string(&response).map_err(|e| e.to_string())?;
+    let parsed: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| format!("GATE-01 response artifact is not JSON: {e}"))?;
+    if parsed
+        .get("reply")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .is_empty()
     {
-        return Err("Response artifact missing normalized user text".into());
+        return Err("GATE-01 response artifact carries an empty reply".into());
+    }
+    if !parsed
+        .get("artifacts")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().any(|v| v.as_str() == Some("gate_marker.txt")))
+        .unwrap_or(false)
+    {
+        return Err(format!(
+            "GATE-01 response artifact does not name gate_marker.txt: {body}"
+        ));
+    }
+    if body.contains(fixture.user_text.as_str()) {
+        return Err(format!(
+            "GATE-01 response artifact echoes the raw inbound user text — the pre-GATE-03 contract: {body}"
+        ));
     }
 
     // Granted inbound via localhost mock server → run_task → response artifact.

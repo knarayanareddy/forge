@@ -50,6 +50,15 @@
           {
             "type": "object",
             "properties": {
+              "action": { "const": "python_lint_file" },
+              "path": { "type": "string", "minLength": 1 }
+            },
+            "required": ["action", "path"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
               "action": { "const": "git_init" },
               "branch": { "type": "string", "minLength": 1 }
             },

@@ -84,6 +84,16 @@ pub enum ToolInvocation {
     PythonLint {
         source: String,
     },
+    /// Syntax-check a Python file **that is already on disk** (CHECK-02).
+    ///
+    /// [`ToolInvocation::PythonLint`] checks source supplied in the plan, which proves nothing
+    /// about any artifact the plan wrote — a plan can lint a trivial snippet and `done` while the
+    /// `.py` file it just wrote is broken. This action closes that gap: the post-write verify shell
+    /// requires a successful `python_lint_file` *on each written `.py` path*, so the thing that gets
+    /// certified is the file, not an unrelated string.
+    PythonLintFile {
+        path: String,
+    },
     GitInit {
         /// Defaults to `main` when a small local planner omits the branch.
         #[serde(default = "default_git_branch")]
@@ -312,6 +322,59 @@ impl ToolRegistry {
                     )),
                 }
             }
+            ToolInvocation::PythonLintFile { path } => {
+                let full = resolve_workspace_path(&config.workspace, path)?;
+                let full_str = full.to_string_lossy().to_string();
+                if let crate::HookDecision::Deny(reason) =
+                    crate::HookEngine::production().run_pre_tool_use(&full)
+                {
+                    return Err(reason);
+                }
+                let decision = PermissionManager::check_file_access(
+                    conn,
+                    &config.session_id,
+                    &full_str,
+                    "read",
+                )
+                .map_err(|e| e.to_string())?;
+                if decision != PermissionDecision::Approved {
+                    return Err(format!("Read denied for {}", full_str));
+                }
+                // Lint the artifact *as written*. `check_syntax_in_workspace` copies the source
+                // into `.aether-tmp` and runs `py_compile` there, so this adds no new side effect
+                // to the workspace root and keeps exactly the same sandbox boundary as
+                // `python_lint` — the only difference is where the source came from.
+                match ProductionSandbox::read_to_string(&config.workspace, &full) {
+                    Ok(content) => {
+                        match PythonLinter::check_syntax_in_workspace(&content, &config.workspace) {
+                            Ok(issues) if issues.is_empty() => Ok(observation(
+                                iteration,
+                                "python_lint_file",
+                                true,
+                                format!("syntax OK: {}", path),
+                            )),
+                            Ok(issues) => Ok(observation(
+                                iteration,
+                                "python_lint_file",
+                                false,
+                                format!("{} issue(s) in {}: {:?}", issues.len(), path, issues),
+                            )),
+                            Err(e) => Ok(observation(
+                                iteration,
+                                "python_lint_file",
+                                false,
+                                format!("{}: {}", path, e),
+                            )),
+                        }
+                    }
+                    Err(e) => Ok(observation(
+                        iteration,
+                        "python_lint_file",
+                        false,
+                        format!("cannot lint {}: {}", path, e),
+                    )),
+                }
+            }
             ToolInvocation::GitInit { branch } => {
                 match GitOps::init_commit_and_branch(
                     conn,
@@ -521,6 +584,11 @@ impl ReActLoopEngine {
         let mut observations = Vec::new();
         let mut iteration = 0usize;
         let mut pending_writes: Vec<String> = Vec::new();
+        // CHECK-02: `pending_writes` is *consumed* by each passing `verify_contains`, so it cannot
+        // answer "which artifacts did this run produce?". These two ledgers are never consumed —
+        // they are what the post-write verify shell checks the per-path lint requirement against.
+        let mut written_artifacts: Vec<String> = Vec::new();
+        let mut linted_artifacts: Vec<String> = Vec::new();
 
         for step in plan {
             if iteration >= self.max_iterations {
@@ -553,7 +621,9 @@ impl ReActLoopEngine {
                     });
                     return Err(LoopError::Turn(msg));
                 }
-                if let Err(msg) = verify_shell_before_done(&observations) {
+                if let Err(msg) =
+                    verify_shell_before_done(&observations, &written_artifacts, &linted_artifacts)
+                {
                     on_event(LoopStreamEvent::Error {
                         message: msg.clone(),
                     });
@@ -620,10 +690,19 @@ impl ReActLoopEngine {
             if let ToolInvocation::FsWrite { path, .. } = &step {
                 if obs.success {
                     pending_writes.push(path.clone());
+                    written_artifacts.push(path.clone());
                 }
             }
 
-            if matches!(step, ToolInvocation::PythonLint { .. }) {
+            if matches!(
+                step,
+                ToolInvocation::PythonLint { .. } | ToolInvocation::PythonLintFile { .. }
+            ) {
+                if let ToolInvocation::PythonLintFile { path } = &step {
+                    if obs.success {
+                        linted_artifacts.push(path.clone());
+                    }
+                }
                 observations.push(obs.clone());
                 let passed = obs.success;
                 on_event(LoopStreamEvent::Verify {
@@ -710,8 +789,38 @@ impl ReActLoopEngine {
     }
 }
 
-fn verify_shell_before_done(observations: &[ToolObservation]) -> Result<(), String> {
-    let wrote = observations.iter().any(|o| o.tool == "fs_write" && o.success);
+/// Extensions whose written artifacts must be linted *as written* before `done` (CHECK-02).
+pub const LINTABLE_ARTIFACT_EXTENSIONS: &[&str] = &[".py"];
+
+/// True when a written path is an artifact the verify shell must see linted on disk.
+pub fn is_lintable_artifact(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    LINTABLE_ARTIFACT_EXTENSIONS
+        .iter()
+        .any(|ext| lower.ends_with(ext))
+}
+
+/// Post-write verification gate, enforced immediately before a `done` step commits the run.
+///
+/// Three requirements, in increasing specificity:
+/// 1. any write at all requires a passing `verify_contains` (the bytes landed);
+/// 2. any write at all requires a passing lint (either flavour) — the historical LOOP-01/02/04 shape;
+/// 3. **every written artifact with a lintable extension requires a passing `python_lint_file` on
+///    that same path** (CHECK-02).
+///
+/// Requirement 3 is the one that closes the theater hole. `python_lint` checks source *supplied in
+/// the plan*, so requirements 1–2 alone are satisfiable by a plan that writes broken Python and
+/// lints an unrelated `def ok(): return 1` snippet — the gate passes while the artifact is broken,
+/// and the run reports `done`. Certifying the file, rather than a string that was never written, is
+/// the whole point of the gate.
+fn verify_shell_before_done(
+    observations: &[ToolObservation],
+    written_artifacts: &[String],
+    linted_artifacts: &[String],
+) -> Result<(), String> {
+    let wrote = observations
+        .iter()
+        .any(|o| o.tool == "fs_write" && o.success);
     if !wrote {
         return Ok(());
     }
@@ -721,11 +830,24 @@ fn verify_shell_before_done(observations: &[ToolObservation]) -> Result<(), Stri
     if !verified {
         return Err("Loop blocked: done before verify_contains after fs_write".into());
     }
-    let linted = observations
-        .iter()
-        .any(|o| o.tool == "python_lint" && o.success);
+    let linted = observations.iter().any(|o| {
+        (o.tool == "python_lint" || o.tool == "python_lint_file") && o.success
+    });
     if !linted {
         return Err("Loop blocked: done before python_lint after fs_write".into());
+    }
+    for path in written_artifacts {
+        if !is_lintable_artifact(path) {
+            continue;
+        }
+        if linted_artifacts.iter().any(|linted| linted == path) {
+            continue;
+        }
+        return Err(format!(
+            "Loop blocked: {path} was written but never linted as an artifact. python_lint \
+             checks source supplied in the plan, not the file on disk, so it cannot certify this \
+             write. Add {{\"action\":\"python_lint_file\",\"path\":\"{path}\"}} after the write."
+        ));
     }
     Ok(())
 }
@@ -810,6 +932,7 @@ fn tool_name(step: &ToolInvocation) -> &str {
         ToolInvocation::FsWrite { .. } => "fs_write",
         ToolInvocation::FsRead { .. } => "fs_read",
         ToolInvocation::PythonLint { .. } => "python_lint",
+        ToolInvocation::PythonLintFile { .. } => "python_lint_file",
         ToolInvocation::GitInit { .. } => "git_init",
         ToolInvocation::McpCall { .. } => "mcp_call",
         ToolInvocation::SkillExecute { .. } => "skill_execute",
@@ -843,6 +966,7 @@ fn estimate_invocation_tokens(step: &ToolInvocation) -> usize {
         }
         ToolInvocation::FsRead { path } => estimate_tokens(path),
         ToolInvocation::PythonLint { source } => estimate_tokens(source),
+        ToolInvocation::PythonLintFile { path } => estimate_tokens(path),
         ToolInvocation::GitInit { branch } => estimate_tokens(branch),
         ToolInvocation::McpCall {
             server,

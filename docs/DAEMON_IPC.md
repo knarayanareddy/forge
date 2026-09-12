@@ -149,16 +149,37 @@ When `prompt` is JSON with a `loop` array, the daemon runs a structured ReAct lo
 {"loop":[
   {"action":"fs_write","path":"hello.txt","content":"forge"},
   {"action":"verify_contains","path":"hello.txt","text":"forge"},
+  {"action":"python_lint","source":"def ok():\n    return 1\n"},
   {"action":"done"}
 ]}
 ```
 
 Requires `workspace_path` (or `AETHER_WORKSPACE` env). Grants are auto-inserted for the workspace write path.
 
+**Post-write verify shell** (the plan above is the minimum that reaches `done` — the earlier version of
+this example omitted the lint step and would have been refused):
+
+- After any successful `fs_write`, `done` is refused until a `verify_contains` **and** a lint step have
+  both succeeded, and every written path has been verified (`CHECK-01`).
+- A written path ending in `.py` must additionally be linted *as that file* with
+  `{"action":"python_lint_file","path":"<same path>"}` (`CHECK-02`). `python_lint` compiles the source
+  quoted in the plan, so it certifies a string, not the artifact on disk; the refusal names the path and
+  the exact step to add.
+- `python_lint_file` reads through the same `PreToolUse` sensitive-path hook and read grant as `fs_read`.
+
+```json
+{"loop":[
+  {"action":"fs_write","path":"hello.py","content":"def ok():\n    return 1\n"},
+  {"action":"verify_contains","path":"hello.py","text":"def ok"},
+  {"action":"python_lint_file","path":"hello.py"},
+  {"action":"done"}
+]}
+```
+
 Example:
 
 ```bash
-printf '%s\n' '{"method":"run_task","params":{"session_id":"demo","workspace_path":"/tmp/aether-loop","prompt":"{\"loop\":[{\"action\":\"fs_write\",\"path\":\"x.txt\",\"content\":\"ok\"},{\"action\":\"done\"}]}"}}' | nc 127.0.0.1 7433
+printf '%s\n' '{"method":"run_task","params":{"session_id":"demo","workspace_path":"/tmp/aether-loop","prompt":"{\"loop\":[{\"action\":\"fs_write\",\"path\":\"x.txt\",\"content\":\"ok\"},{\"action\":\"verify_contains\",\"path\":\"x.txt\",\"text\":\"ok\"},{\"action\":\"python_lint\",\"source\":\"def ok():\\n    return 1\\n\"},{\"action\":\"done\"}]}"}}' | nc 127.0.0.1 7433
 ```
 
 Example stream:

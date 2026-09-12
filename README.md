@@ -1,19 +1,28 @@
 # forge
 
-AetherForge MVP — **1.0 engineering complete** · **Darwin canonical 51/51** (41 hard / 10 soft: REG-01, SLEEP-01, RELY-01, FORENSIC-01, MCP-02, COMPACT-01, HOOK-02, MEM-03, MCPS-01, OFFLINE-01).
-The harness covers all **51 tasks** including **GATE-02**, **COST-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **DIST-01**, **MCP-02**, **COMPACT-01**, **HOOK-02**, **MEM-03**, **MCPS-01**, and **OFFLINE-01**.
+AetherForge MVP — **1.0 engineering complete** · **Darwin canonical 54/54** (44 hard / 10 soft: REG-01, SLEEP-01, RELY-01, FORENSIC-01, MCP-02, COMPACT-01, HOOK-02, MEM-03, MCPS-01, OFFLINE-01).
+The harness covers all **54 tasks** including **CHECK-02**, **GATE-03**, **RED-02**, **GATE-02**, **COST-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **DIST-01**, **MCP-02**, **COMPACT-01**, **HOOK-02**, **MEM-03**, **MCPS-01**, and **OFFLINE-01**.
 
 ## Harness score (Darwin, canonical)
 
 ```text
 cargo run -p golden-harness --bin golden-harness
-→ 51/51 harness (41 hard / 10 soft) when ROUT-01 median warm TTFT ≤ 200ms,
+→ 54/54 harness (44 hard / 10 soft) when ROUT-01 median warm TTFT ≤ 200ms,
   GRAPH-01 recall@3 ≥ 1.0, LOOP-02 NL plan through verify shell (gold trajectory in harness eval only),
   RED-01 blocks all frozen adversarial cases (≥12, currently 14),
+  RED-02 proves a denial tells a remote requester only the policy category plus a correlation
+  reference while audit_log keeps the full rule and value (0 pattern/path leaks over a corpus of
+  real hook and loop denials, each classified into a named category),
   SKILL-02 routes 3/3 book_skill questions with citation fidelity ≥ 0.9,
   AUTO-01 fires a granted automation trigger → run_task → audit_log,
   CHECK-01 rejects ≥8 frozen bad plans with 0 unverified writes,
+  CHECK-02 rejects plans that write a broken .py and still satisfy every older requirement (lint of
+  unrelated plan source, lint of a different file, verify on another path), names the artifact in the
+  refusal, leaves nothing undo cannot reach, and still completes the historical .txt shape,
   GATE-01/GATE-02 deny inbound without GatewayGrant then round-trip with grant (Slack + Telegram),
+  GATE-03 proves a granted gateway run returns a real reply rather than echoing the inbound envelope,
+  journals that reply artifact so undo and rewind reach it, executes the registered plan even when the
+  message carries its own {"loop":[…]} or <tool_result> markup, and persists no untrusted inbound text,
   PLAN-01 routes ≥9/10 diverse NL goals with required tools and no forbidden tools,
   MEM-02 proves daemon turn → semantic chunk → graph link → isolated next-turn recall,
   SB-01 proves production tool sandboxing, environment scrubbing, and network denial,
@@ -53,23 +62,24 @@ cargo run -p golden-harness --bin golden-harness
 
 | Platform | Expected score | Hard / soft |
 |----------|----------------|-------------|
-| **Darwin** (Ollama + `sandbox-exec`) | **51/51** | 41 hard / 10 soft (REG-01, SLEEP-01, RELY-01, FORENSIC-01, MCP-02, COMPACT-01, HOOK-02, MEM-03, MCPS-01, OFFLINE-01 soft green) |
-| **Linux CI** (full matrix) | **36/51** | 29 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01, GRAPH-02, DIST-01 **FAIL-CLOSED** |
-| **Linux Ollama-independent** | **39/51** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, GATE-01, **GATE-02**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **BUDG-01**, **COST-01**, **REG-01**, **SLEEP-01**, **RELY-01**, **FORENSIC-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **MCP-02**, **COMPACT-01**, **HOOK-02**, **MEM-03**, **MCPS-01**, **OFFLINE-01** |
+| **Darwin** (Ollama + `sandbox-exec`) | **54/54** | 44 hard / 10 soft (REG-01, SLEEP-01, RELY-01, FORENSIC-01, MCP-02, COMPACT-01, HOOK-02, MEM-03, MCPS-01, OFFLINE-01 soft green) |
+| **Linux CI** (full matrix) | **39/54** | 32 hard · FS-02, SB-01, MEM-01, ROUT-01, GRAPH-01, LOOP-02, PLAN-01, LOOP-04, INGEST-01, GRAPH-02, DIST-01 **FAIL-CLOSED** |
+| **Linux Ollama-independent** | **42/54** | FS-01, SAFE-01, RES-01, GIT-01, CODE-01, MCP-01, MEM-02, SKILL-01, SKILL-02, RED-01, **RED-02**, LOOP-01, SESS-01, **UNDO-01**, AUTO-01, CHECK-01, **CHECK-02**, GATE-01, **GATE-02**, **GATE-03**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **BUDG-01**, **COST-01**, **REG-01**, **SLEEP-01**, **RELY-01**, **FORENSIC-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **MCP-02**, **COMPACT-01**, **HOOK-02**, **MEM-03**, **MCPS-01**, **OFFLINE-01** |
 
 ## Darwin canonical verification
 
 | Baseline | Value |
 |----------|-------|
-| **Registry @ main** | **51 tasks** (41 hard / 10 soft) · **`7486762`** (PR #49) |
+| **Registry @ main** | **54 tasks** (44 hard / 10 soft) · **`7486762`** (PR #49) + CHECK-02 / GATE-03 / RED-02 |
+| **Added since last cited run** | **CHECK-02**, **GATE-03**, **RED-02** (wave 1 of [docs/REVIEW_FABLE51_HARNESS.md](docs/REVIEW_FABLE51_HARNESS.md)) — all deterministic (no model, no network), so they are hard green on Darwin and PASS on Linux. The **54/54** gate has **not** yet been re-cited from a full Darwin run; the last cited run below predates these three tasks. |
 | **Last cited full Darwin run** | **51/51 @ `d38ba6e`** (PR #50) — 42 hard / 9 soft; ROUT-01 median warm TTFT 27ms (local 2026-08-07) |
-| **CI gate** | Push/nightly Darwin **51/51** — [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
+| **CI gate** | Push/nightly Darwin **54/54** — [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
 | **Wave 6 probes** | MEM-03, MCPS-01, OFFLINE-01 soft-green @ `608ac77` (PR #46) |
 | **Scoreboard** | `./scripts/check-doc-scoreboard.sh` PASS |
 
 Run locally: `cargo run -p golden-harness --bin golden-harness` (requires Ollama + `sandbox-exec` on macOS).
 
-Tasks (51): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **GATE-01**, **GATE-02**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **INGEST-01**, **BUDG-01**, **COST-01**, **GRAPH-02**, **REG-01**, **SLEEP-01**, **RELY-01**, **FORENSIC-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **DIST-01**, **MCP-02**, **COMPACT-01**, **HOOK-02**, **MEM-03**, **MCPS-01**, **OFFLINE-01**
+Tasks (54): ROUT-01, FS-01, FS-02, **SB-01**, GIT-01, CODE-01, MCP-01, MEM-01, **MEM-02**, GRAPH-01, SKILL-01, SKILL-02, SAFE-01, RED-01, **RED-02**, RES-01, LOOP-01, LOOP-02, **PLAN-01**, **LOOP-04**, **SESS-01**, **UNDO-01**, **AUTO-01**, **CHECK-01**, **CHECK-02**, **GATE-01**, **GATE-02**, **GATE-03**, **HOOK-01**, **CKPT-01**, **CONS-01**, **PERM-02**, **SUB-01**, **SEC-01**, **SKILL-03**, **INJECT-01**, **INGEST-01**, **BUDG-01**, **COST-01**, **GRAPH-02**, **REG-01**, **SLEEP-01**, **RELY-01**, **FORENSIC-01**, **FORK-01**, **HEAD-01**, **CACHE-01**, **DIST-01**, **MCP-02**, **COMPACT-01**, **HOOK-02**, **MEM-03**, **MCPS-01**, **OFFLINE-01**
 
 ROUT-01 runs first, warms the chat model, drains eight discard streams, then records **seven**
 server-side warm TTFT samples. When the model is resident in Ollama memory (`/api/ps`), the
@@ -106,7 +116,7 @@ See [docs/ROADMAP_PHASE_7.md](docs/ROADMAP_PHASE_7.md) for Phase 7 orchestration
 See [docs/ROADMAP_PHASE_8.0.md](docs/ROADMAP_PHASE_8.0.md) for the Phase 8.0 honesty wedge (**closed** — Darwin 22/22 verified) and [docs/PHASE_8_0_CLOSURE.md](docs/PHASE_8_0_CLOSURE.md) for the closure evidence.
 See [docs/PHASE_8_0_CLOSURE.md](docs/PHASE_8_0_CLOSURE.md) for code-grounded closure evidence and remaining gates.
 See [docs/ROADMAP_PHASES_9-13.md](docs/ROADMAP_PHASES_9-13.md) for the Phases 9–13 product wedge (planner robustness, session log, undo, table stakes, supply chain, local-first differentiators) plus parallel distribution and interop tracks.  
-See [docs/ROADMAP_REMAINING.md](docs/ROADMAP_REMAINING.md) for **1.0 engineering closure** — blockers are Apple creds + SwiftUI E2E only (51-task harness).
+See [docs/ROADMAP_REMAINING.md](docs/ROADMAP_REMAINING.md) for **1.0 engineering closure** — blockers are Apple creds + SwiftUI E2E only (54-task harness).
 See [docs/SANDBOX.md](docs/SANDBOX.md) for the production tool boundary, platform behavior, and SB-01 contract.
 
 ## Phase 7 — Orchestration + gateway (complete)
@@ -248,14 +258,17 @@ FFI (`aether_ffi_daemon_ipc`, `aether_daemon_default_port`) provides default hos
 - **Ingest extract:** Ollama `graph_extract` on session post-turn hook (failures audit-logged)
 - **NL planner:** LOOP-02 through same verify shell as LOOP-01
 - **RED-01:** ≥12 frozen adversarial cases (14 shipped); 0% forbidden-action escape
+- **RED-02:** denials render as policy category + correlation reference at remote boundaries; full reason retained in `audit_log`; 0 pattern/path leaks
+- **CHECK-02:** every written `.py` artifact must be linted *as written* before `done` — `python_lint` on plan-supplied source no longer certifies a file
+- **GATE-03:** a granted gateway run returns a real reply and journals it; the inbound envelope is never echoed into the workspace
 - **SKILL-02:** book-to-skill progressive disclosure — [docs/RATEL_TOOL_INDEX.md](docs/RATEL_TOOL_INDEX.md)
 - **Consolidate offline:** `./scripts/consolidate_memory.sh` → `review_pending` until human apply
-- **CI:** `.github/workflows/ci.yml` — Linux gate **≥30/51** · Darwin push/nightly **51/51** ([docs/LINUX_CI.md](docs/LINUX_CI.md))
+- **CI:** `.github/workflows/ci.yml` — Linux gate **≥30/54** · Darwin push/nightly **54/54** ([docs/LINUX_CI.md](docs/LINUX_CI.md))
 
 Install guide: [docs/INSTALL.md](docs/INSTALL.md)
 
 ## Architecture target vs product readiness
 
-- **1.0 engineering:** **complete** @ main `7486762` — 51-task harness, DIST-01, wave-6 probes, final closure docs (PR #49)
+- **1.0 engineering:** **complete** @ main `7486762` — 54-task harness, DIST-01, wave-6 probes, final closure docs (PR #49)
 - **Spec engineering target:** 8.5+ achieved on scoped MVP ([ROADMAP_PHASES_9-13.md](docs/ROADMAP_PHASES_9-13.md))
 - **Shippable product blockers:** Apple Developer ID + notarized DMG + Sparkle EdDSA + SwiftUI E2E ([ROADMAP_REMAINING.md](docs/ROADMAP_REMAINING.md))

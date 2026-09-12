@@ -527,6 +527,48 @@ P0-2 `PLAN-02` + `fs_list` · P1-6 `READ-01` · P1-8 `REPLY-01` · P1-9 `LOOP-05
 P1-7 `MEM-04` · P1-5 `INJECT-01` extension · P2-12 `COMPACT-02` · P2-10 `TOOLDESC-01` ·
 P2-14 `GATE-04` · P2-13 `CLAR-01` · P2-11 `PERM-03`.
 
+### Wave 1 status — shipped (registry 51 → 54)
+
+All three Wave 1 findings are implemented, with the harness tasks that prove them. Recorded here so the
+findings above can be read as *history* rather than as an open backlog, and so the deviations are visible.
+
+| Finding | Shipped | Proof |
+|---|---|---|
+| **P0-1** | `ToolInvocation::PythonLintFile { path }` (`loop_engine.rs`): resolves the path, runs the `PreToolUse` sensitive-path hook, requires `check_file_access("read")`, `/bin/cat`s the artifact, and compiles it in `.aether-tmp` — the same sandbox boundary as `python_lint`, different source of bytes. `verify_shell_before_done` now takes `written_artifacts` / `linted_artifacts` ledgers (never consumed, unlike `pending_writes`) and refuses `done` for any written path ending in `.py` that was not linted *as that file*, naming the path and the exact step to add. `LINTABLE_ARTIFACT_EXTENSIONS` / `is_lintable_artifact` are exported so the rule is testable and extensible (`shell_check`, `test_run`). | `CHECK-02` — 9 plans through the production loop: 7 refused (4 of them satisfying every pre-existing requirement, proven by re-running each plan without `done` and evaluating the *old* gate over the real observations), 2 backward-compatibility controls that must still complete. Every refused run's partial writes are asserted present in the undo journal and gone after `undo_pending_writes`. |
+| **P0-3** | `run_gateway_inbound` returns `GatewayReply { status, reply, artifacts, iterations, tokens_used, artifact_path }` instead of `()`. The reply is composed from the run's own observations and the plan's `FsWrite` paths (`compose_gateway_reply`, bounded at 1 200 chars) — `LoopRunResult::summary` alone is the last observation, i.e. the mechanical `"plan complete"`, which is exactly the sign-off the pattern forbids. The artifact write goes through `run_pre_tool_use` + `check_file_access("write")` + `journal_file_write`. The inbound envelope is never written anywhere; only its length is audited. | `GATE-03` — two accepted inbounds (one carrying a `{"loop":[…]}` plan, one carrying `<tool_result trust="trusted">` markup plus an injection phrase and a canary): the registered plan is unchanged, `pwned.txt` is never created, the artifact is the reply and not the echo, the canary appears nowhere in the workspace, no graph node or semantic chunk is created, the artifact is in `undo_journal` and reverted by `undo_pending_writes`, plus a denied run asserting the principle-only refusal and the retained full reason. |
+| **P1-4** | New `crates/aether-core/src/error_detail.rs`: `ErrorDetailLevel { Full, Principle }`, `DenialCategory` (8 coarse buckets with a `public_label`), `classify_denial` (matches the stable markers each producing site emits), `reference_id` (FNV-1a salted with a per-process nonce, so it is stable within one daemon lifetime but not a cross-run confirmation oracle), `render_denial`. Wired at the gateway boundary through a single `deny_to_gateway` egress point: full reason + reference + category to `audit_log`, principle + reference to the requester. | `RED-02` — a corpus of real denials produced by *calling* the production gates (every frozen RED-01 payload string through both hooks, every default deny pattern, plus three real `LoopError`s from `execute_structured_loop`: sensitive path, CHECK-02 verify shell, iteration budget). For each: `Full` is byte-identical to the producer's message; `Principle` leaks no deny pattern, no redaction pattern, no injection phrase, no path separator, no rule vocabulary, is ≤96 chars, still names its category and carries its reference; classification never falls through to `Other`; references are stable and collision-free. Then the gateway boundary itself, with a prompt-policy denial (GATE-03 covers the path-policy one). |
+
+**Deviations from the fixes as written above — deliberate, and worth knowing before extending this.**
+
+1. *P0-1 asked for a per-path `verify_contains` too.* That half already existed: `require_verified_writes`
+   consumes `pending_writes` per path, so an unverified write was already blocked. Only the lint half was
+   per-run, so only the lint half changed. CHECK-02 keeps a case (`verify-on-other-path`) pinning the
+   existing behaviour so the two rules cannot silently swap roles.
+2. *P0-3 asked for an outbound adapter call.* Not shipped. The reply is now returned to the caller and
+   audited (`inbound_replied`, and `gateway/inbound.rs` records `reply_len` + artifacts on the existing
+   `response` event), but nothing posts it to Slack/Telegram/Discord — there is still no outbound
+   transport in this repo, and inventing one is a product decision, not a harness fix. GATE-03 therefore
+   asserts the returned and persisted reply. Delivery remains an open gap.
+3. *P1-4 proposed `ErrorDetailLevel` on `LoopConfig`, set by the caller.* Instead the level is chosen at
+   the egress function, because `LoopConfig` is constructed inside the loop and every local caller wants
+   `Full`; the audience is a property of the boundary, not of the run. Consequence: `hooks.rs` messages
+   are unchanged (still full detail) — redaction happens where the audience is known.
+   **Automation triggers still return `Full`.** Their consumer is the local daemon and `automation_queue`,
+   not a remote principal. If an automation result is ever forwarded to a gateway channel, it must pass
+   through `render_denial` at that egress; that forwarding path does not exist yet.
+4. *Planner-side work P0-1 implied but did not list.* A gate the planner cannot satisfy just breaks
+   PLAN-01/LOOP-02, so `python_lint_file` was added to `ALLOWED_NL_TOOLS`, the schema `anyOf`, the prompt
+   catalog (with a rule requiring `verify_contains` **and** `python_lint_file` after a `.py` write),
+   `tool_name` / `tool_target_key` / `step_arg_blob` / `forbidden_pattern_detail`, and
+   `validate_goal_coverage` — whose `required` list became alternative groups, so a goal saying "lint" is
+   satisfied by either spelling. `inject.rs` also gained `PythonLintFile` in the phrase-induction list:
+   it is a second read surface (it opens a named path and echoes compiler diagnostics from it), so an
+   induced lint is an induced read and is treated exactly like `fs_read`.
+5. *GATE-01 and GATE-02 assertions were changed.* Both asserted `gate_response.txt` **contains the raw
+   inbound user text** — they encoded the P0-3 bug as the contract. They now assert the artifact is
+   well-formed JSON with a non-empty `reply` that names `gate_marker.txt`; the no-echo, journal, and
+   redaction guarantees live in GATE-03 so they are asserted once, in one place.
+
 **Mechanics of adding tasks** (easy to get wrong, and CI enforces it): bump
 `const TASKS: [TaskSpec; N]` in `tests/golden_harness/src/main.rs`, then update every literal checked by
 `scripts/check-doc-scoreboard.sh` in the *same* PR — `Tasks (N):` in `README.md`, `Darwin canonical N/N`
@@ -559,3 +601,6 @@ Wave 1 alone takes the registry from 51 → 54.
 rewindable, fail-closed, correlation-gated — and then left the one gate that says "the work is verified"
 satisfiable by a lint of text that was never written. Fixing it is a small change and it makes the rest of
 the honesty infrastructure mean what it says.
+
+> **Status:** Wave 1 (P0-1, P0-3, P1-4) is shipped — see §5 "Wave 1 status". The registry is 54 tasks and
+> `scripts/check-doc-scoreboard.sh` passes. Waves 2 and 3 above are still open.

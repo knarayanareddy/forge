@@ -12,12 +12,12 @@ agent-controlled file operation or subprocess is delegated to a child wrapped by
 | Surface | Sandboxed operation |
 |---------|---------------------|
 | `fs_write` | `/usr/bin/tee` with content over stdin |
-| `fs_read`, `verify_contains` | `/bin/cat` |
-| `python_lint` | `python3 -m py_compile` with source under workspace `.aether-tmp` |
+| `fs_read`, `verify_contains`, `python_lint_file` | `/bin/cat` |
+| `python_lint`, `python_lint_file` | `python3 -m py_compile` with source under workspace `.aether-tmp`. `python_lint` compiles source quoted in the plan; `python_lint_file` (CHECK-02) first `/bin/cat`s the artifact the plan wrote, then compiles that — same boundary, different source of bytes |
 | `git_init` | README write plus every `git` child |
 | `mcp_call` | verified/pinned MCP server process, retaining stdio JSON-RPC |
 | skill read/append | `/bin/cat` / `/usr/bin/tee -a` |
-| gateway response artifact | `/usr/bin/tee` |
+| gateway response artifact | `/usr/bin/tee` via `journal_file_write`, so the reply is snapshot + undo-journaled like any agent write (GATE-03) |
 
 No operation uses `sh -c`; user content is never interpolated into a shell command.
 

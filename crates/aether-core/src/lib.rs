@@ -1,5 +1,6 @@
 mod compaction;
 mod cost;
+mod error_detail;
 mod graph_extract;
 mod hf_hub;
 mod model_registry;
@@ -44,6 +45,10 @@ pub use inject::{
     MIN_CORRELATION_SUBSTRING, TOOL_RESULT_INJECTION_PATTERNS,
 };
 
+pub use error_detail::{
+    classify_denial, reference_id, render_denial, DenialCategory, ErrorDetailLevel,
+};
+
 pub use hf_hub::{download_file, sha256_hex, DownloadPlan, HfHubError};
 pub use prefix_cache::{
     assemble_context_prompt, build_volatile_replan_tail, measure_prefix_reuse, prefix_fingerprint,
@@ -84,7 +89,7 @@ pub use keychain::{
 pub use loop_engine::{
     GoalStopHook, LoopConfig, LoopRunResult, LoopStreamEvent, PythonLintVerifier, ReActLoopEngine,
     record_provider_token_usage, resolve_default_max_loop_tokens, StopHook, ToolInvocation, ToolObservation, ToolRegistry,
-    Verifier, DEFAULT_MAX_LOOP_TOKENS,
+    Verifier, DEFAULT_MAX_LOOP_TOKENS, LINTABLE_ARTIFACT_EXTENSIONS, is_lintable_artifact,
 };
 
 pub use nl_planner::{

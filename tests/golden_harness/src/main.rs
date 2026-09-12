@@ -67,11 +67,17 @@ use auto01::test_auto01_impl;
 mod check01;
 use check01::test_check01_impl;
 
+mod check02;
+use check02::test_check02_impl;
+
 mod gate01;
 use gate01::test_gate01_impl;
 
 mod gate02;
 use gate02::test_gate02_impl;
+
+mod gate03;
+use gate03::test_gate03_impl;
 
 mod recovery;
 use recovery::CrashRecoveryTest;
@@ -96,6 +102,9 @@ use audit_chain::verify_audit_hash_chain;
 
 mod red01;
 use red01::test_red01_impl;
+
+mod red02;
+use red02::test_red02_impl;
 mod skill02;
 use skill02::test_skill02_impl;
 
@@ -147,7 +156,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 51] = [
+const TASKS: [TaskSpec; 54] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -163,6 +172,7 @@ const TASKS: [TaskSpec; 51] = [
     TaskSpec { name: "SKILL-02", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "SAFE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "RED-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "RED-02", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "RES-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "LOOP-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "LOOP-02", hard_on_darwin: true, fail_closed_off_darwin: true },
@@ -172,8 +182,10 @@ const TASKS: [TaskSpec; 51] = [
     TaskSpec { name: "UNDO-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "AUTO-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CHECK-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "CHECK-02", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "GATE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "GATE-02", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "GATE-03", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "HOOK-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CKPT-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CONS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -504,6 +516,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "SKILL-02" => test_skill_02().await.map(|_| true),
         "SAFE-01" => test_safe_01(db).await.map(|_| true),
         "RED-01" => test_red_01(db).await.map(|_| true),
+        "RED-02" => test_red_02(db).await.map(|_| true),
         "ROUT-01" => test_rout_01().await.map(|_| true),
         "RES-01" => test_res_01().await.map(|_| true),
         "LOOP-01" => test_loop_01(db).await.map(|_| true),
@@ -529,8 +542,10 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "UNDO-01" => test_undo01_impl(db).map(|_| true),
         "AUTO-01" => test_auto01(db).await.map(|_| true),
         "CHECK-01" => test_check01(db).await.map(|_| true),
+        "CHECK-02" => test_check02(db).await.map(|_| true),
         "GATE-01" => test_gate01(db).await.map(|_| true),
         "GATE-02" => test_gate02(db).await.map(|_| true),
+        "GATE-03" => test_gate03(db).await.map(|_| true),
         "HOOK-01" => test_hook01_impl(db).map(|_| true),
         "CKPT-01" => test_ckpt01_impl(db).map(|_| true),
         "CONS-01" => test_cons01_impl(db).map(|_| true),
@@ -938,6 +953,12 @@ async fn test_red_01(db: &Database) -> Result<(), String> {
     test_red01_impl(&conn)
 }
 
+/// RED-02 is deterministic: it calls the production hook gates and the production loop, so it needs
+/// no model and no network.
+async fn test_red_02(db: &Database) -> Result<(), String> {
+    test_red02_impl(db)
+}
+
 async fn test_skill_02() -> Result<(), String> {
     test_skill02_impl()
 }
@@ -1051,6 +1072,11 @@ async fn test_check01(db: &Database) -> Result<(), String> {
     test_check01_impl(&conn).await
 }
 
+/// CHECK-02 drives the same production loop entry point CHECK-01 does, with structured plans only.
+async fn test_check02(db: &Database) -> Result<(), String> {
+    test_check02_impl(db)
+}
+
 async fn test_gate01(db: &Database) -> Result<(), String> {
     test_gate01_impl(db).await
 }
@@ -1079,4 +1105,9 @@ async fn test_res_01() -> Result<(), String> {
 
 async fn test_gate02(db: &Database) -> Result<(), String> {
     test_gate02_impl(db).await
+}
+
+/// GATE-03 exercises the gateway reply contract without a transport, so it is deterministic.
+async fn test_gate03(db: &Database) -> Result<(), String> {
+    test_gate03_impl(db)
 }
