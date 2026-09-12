@@ -298,7 +298,7 @@ fn loop_denials(db: &Database) -> Result<Vec<Denial>, String> {
         expected: DenialCategory::Budget,
     });
 
-    Ok(())
+    Ok(out)
 }
 
 pub fn test_red02_impl(db: &Database) -> Result<(), String> {
