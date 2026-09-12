@@ -75,6 +75,15 @@ struct Run {
     outcome: Result<LoopRunResult, String>,
 }
 
+/// Grant the workspace exactly the way the daemon does when a folder is selected
+/// (`server::select_workspace` inserts one row per capability in `["read", "write"]`).
+///
+/// Both rows matter here. `fs_write` only needs `write`, but `python_lint_file` goes through
+/// `PermissionManager::check_file_access(.., "read")`, which matches `permission_type` exactly — so
+/// a write-only grant makes every on-disk lint fail with `Read denied for …` before the verify
+/// shell is ever reached. That would test the permission layer instead of the gate, and it only
+/// shows up on the cases that seed a file the plan never wrote (the write path grants nothing of
+/// its own: "execution must never create its own grant").
 fn seed_session_and_grant(
     db: &Database,
     session_id: &str,
@@ -86,12 +95,14 @@ fn seed_session_and_grant(
         rusqlite::params![session_id],
     )
     .map_err(|e| e.to_string())?;
-    conn.execute(
-        "INSERT INTO capability_grants (session_id, resource_path, permission_type)
-         VALUES (?1, ?2, 'write')",
-        rusqlite::params![session_id, workspace.to_string_lossy().to_string()],
-    )
-    .map_err(|e| e.to_string())?;
+    for capability in ["read", "write"] {
+        conn.execute(
+            "INSERT INTO capability_grants (session_id, resource_path, permission_type)
+             VALUES (?1, ?2, ?3)",
+            rusqlite::params![session_id, workspace.to_string_lossy().to_string(), capability],
+        )
+        .map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
