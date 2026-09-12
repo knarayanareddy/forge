@@ -28,6 +28,12 @@ const PREVIEW_CHARS: usize = 200;
 /// uses characters as a conservative proxy (a token is rarely shorter than one character), so a
 /// summary within this bound is within the token target too.
 pub const MAX_DISTILLED_CHARS: usize = 2_000;
+/// Headroom the bound report may add on top of [`MAX_DISTILLED_CHARS`] (P1-6).
+///
+/// The cap bounds the *content*; the sentence saying content was cut is metadata and has to be
+/// allowed to exist. 64 chars covers the worst realistic case,
+/// `"...[truncated: showing 2000 of 18446744073709551615 chars]"` (58).
+pub const DISTILLED_BOUND_SUFFIX_MAX: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubagentFileSummary {
@@ -210,8 +216,26 @@ mod tests {
             paths.push(name);
         }
         let result = run_subagent_read_task(&workspace, &paths).unwrap();
-        assert!(result.distilled.ends_with("...[truncated]"));
-        assert!(result.distilled.chars().count() <= MAX_DISTILLED_CHARS + 20);
+        // The cut must report its bound, not just the fact of it (P1-6): "...[truncated]" cannot
+        // distinguish 2 000 of 2 100 from 2 000 of 200 000, so a reader cannot tell whether asking
+        // for more would help.
+        let bound = result
+            .distilled
+            .rsplit_once("...[truncated: showing ")
+            .map(|(_, rest)| rest.trim_end_matches(" chars]"))
+            .expect("a truncated distilled summary must say what it shows");
+        let (shown, total) = bound
+            .split_once(" of ")
+            .expect("the bound report names both the shown and the true size");
+        assert_eq!(shown.parse::<usize>().unwrap(), MAX_DISTILLED_CHARS);
+        assert!(
+            total.parse::<usize>().unwrap() > MAX_DISTILLED_CHARS,
+            "the reported size must be the pre-truncation length, got {total}"
+        );
+        assert!(
+            result.distilled.chars().count() <= MAX_DISTILLED_CHARS + DISTILLED_BOUND_SUFFIX_MAX,
+            "the bound report must stay inside its own headroom"
+        );
     }
 
     #[test]

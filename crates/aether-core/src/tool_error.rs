@@ -390,13 +390,22 @@ impl std::fmt::Display for ToolError {
     }
 }
 
-/// Everything after `marker`, with any trailing rendered suffix removed.
+/// Everything after `marker`, trimmed, with any trailing reason clause removed.
+///
+/// Callers pass an already-stripped reason (see [`ToolError::classify`]), so what is left is the
+/// value the message was naming — a path, usually. `aether-skills` appends its own reason clause
+/// (`"Read denied for {path} without grant"`), which is not part of the path and would otherwise be
+/// echoed back inside a remedy as though it were.
 fn after_marker(message: &str, marker: &str) -> String {
     let start = message
         .find(marker)
         .map(|i| i + marker.len())
         .unwrap_or(message.len());
-    message[start..].trim().to_string()
+    message[start..]
+        .trim()
+        .trim_end_matches(" without grant")
+        .trim()
+        .to_string()
 }
 
 /// `Missing "<text>" in <path>` → (text, path). Falls back to empty strings rather than guessing.

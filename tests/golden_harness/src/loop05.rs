@@ -213,12 +213,21 @@ pub async fn test_loop05_impl(db: &Database) -> Result<(), String> {
             ));
         }
     }
+    // `resolve_workspace_path` canonicalizes, so the denial names the *resolved* path: on macOS a
+    // tempdir hands back `/var/folders/...` while the resolved form is `/private/var/folders/...`.
+    // Compare against the canonical form, or this assertion is platform-dependent.
+    let denied_path = run
+        .workspace
+        .canonicalize()
+        .map_err(|e| format!("workspace canonicalize failed: {e}"))?
+        .join(MARKER);
     if !run
         .message
-        .contains(&run.workspace.join(MARKER).to_string_lossy().to_string())
+        .contains(&denied_path.to_string_lossy().to_string())
     {
         return Err(format!(
-            "the remedy must name the exact path that needs the grant: {}",
+            "the remedy must name the exact path that needs the grant ({}): {}",
+            denied_path.display(),
             run.message
         ));
     }

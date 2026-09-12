@@ -952,7 +952,9 @@ pub fn run_gateway_inbound(
         )
         .map_err(|e| e.to_string())?;
         if decision != PermissionDecision::Approved {
-            return Err(format!("Write denied for target path {}", target_str));
+            // Same contract as the loop's own denial site (P1-9): the reason stays the leading
+            // substring, the remedy travels with it.
+            return Err(aether_core::ToolError::write_denied(&target_str).render());
         }
         // Snapshot + write + journal, the same path ToolRegistry::FsWrite takes.
         aether_permissions::journal_file_write(
