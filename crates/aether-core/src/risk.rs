@@ -9,7 +9,7 @@
 //! roadmap examples ("deletions", "unseen-domain egress") are mapped onto their closest real
 //! analogs: overwriting a file that already exists (destroying its prior content, the same
 //! destructive shape as a delete) and any `mcp_call` (the only way this agent reaches outside the
-//! workspace/local tools at all). Read-only and already-vetted operations (`fs_read`,
+//! workspace/local tools at all). Read-only and already-vetted operations (`fs_read`, `fs_list`,
 //! `verify_contains`, `python_lint`, `python_lint_file`, `git_init`, `skill_execute`, `done`) are
 //! never risky. `python_lint_file` (CHECK-02) is read-only: it opens a workspace path and runs
 //! `py_compile` on it in the sandbox scratch dir, and it goes through the same `PreToolUse`

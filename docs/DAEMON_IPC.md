@@ -169,6 +169,11 @@ this example omitted the lint step and would have been refused):
   Because the read grant is checked with an exact `permission_type` match, a session needs **both** a
   `read` and a `write` grant on the workspace — which is what `select_workspace` creates — for an
   on-disk lint to run at all.
+- `fs_list` lists one workspace directory: `{"action":"fs_list","path":"src"}` (omit `path` for the
+  workspace root). Entries come back sorted with directories suffixed `/`, an empty directory is
+  reported as `0 entries` rather than an error, and a listing cut at 200 entries says how many were
+  hidden and where it stopped (`PLAN-02`). It is a read: the `PreToolUse` sensitive-path hook and the
+  `read` grant apply, and a denial carries the same remedy as `fs_read`.
 - `fs_read` accepts an optional character window: `{"action":"fs_read","path":"big.txt","offset":9900,
   "limit":400}` (`READ-01`). Anything cut carries a `[truncated …]` marker naming the true character
   count and the next page, and the default cut is from the middle so a source file's tail survives.

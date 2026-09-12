@@ -97,6 +97,7 @@ fn tool_target_key(step: &ToolInvocation) -> String {
     match step {
         ToolInvocation::FsWrite { path, .. } => path.clone(),
         ToolInvocation::FsRead { path, .. } => path.clone(),
+        ToolInvocation::FsList { path } => path.clone().unwrap_or_else(|| ".".to_string()),
         ToolInvocation::VerifyContains { path, text } => format!("{path}|{text}"),
         ToolInvocation::PythonLint { source } => source.chars().take(48).collect(),
         ToolInvocation::PythonLintFile { path } => path.clone(),
@@ -114,6 +115,7 @@ fn step_arg_blob(step: &ToolInvocation) -> String {
     match step {
         ToolInvocation::FsWrite { path, content } => format!("{path}\n{content}"),
         ToolInvocation::FsRead { path, .. } => path.clone(),
+        ToolInvocation::FsList { path } => path.clone().unwrap_or_else(|| ".".to_string()),
         ToolInvocation::VerifyContains { path, text } => format!("{path}\n{text}"),
         ToolInvocation::PythonLint { source } => source.clone(),
         ToolInvocation::PythonLintFile { path } => path.clone(),
@@ -246,6 +248,9 @@ pub fn admit_plan_against_observations(
                         // path the step names and echoes compiler diagnostics from it, so an
                         // induced lint is an induced read. Treat it exactly like `fs_read`.
                         | ToolInvocation::PythonLintFile { .. }
+                        // P0-2 added a third read surface: `fs_list` discloses what a directory
+                        // holds, so an induced listing is an induced read of the same kind.
+                        | ToolInvocation::FsList { .. }
                         | ToolInvocation::SubagentTask { .. }
                 )
             {

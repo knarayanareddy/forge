@@ -13,6 +13,7 @@ agent-controlled file operation or subprocess is delegated to a child wrapped by
 |---------|---------------------|
 | `fs_write` | `/usr/bin/tee` with content over stdin |
 | `fs_read`, `verify_contains`, `python_lint_file` | `/bin/cat` |
+| `fs_list` | `/bin/ls -1Ap` — names only; directories come back with a trailing `/`, and content still requires `/bin/cat` through the same hook and read grant |
 | `python_lint`, `python_lint_file` | `python3 -m py_compile` with source under workspace `.aether-tmp`. `python_lint` compiles source quoted in the plan; `python_lint_file` (CHECK-02) first `/bin/cat`s the artifact the plan wrote, then compiles that — same boundary, different source of bytes |
 | `git_init` | README write plus every `git` child |
 | `mcp_call` | verified/pinned MCP server process, retaining stdio JSON-RPC |

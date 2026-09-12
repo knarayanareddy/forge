@@ -33,6 +33,15 @@
           {
             "type": "object",
             "properties": {
+              "action": { "const": "fs_list" },
+              "path": { "type": "string" }
+            },
+            "required": ["action"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
               "action": { "const": "verify_contains" },
               "path": { "type": "string", "minLength": 1 },
               "text": { "type": "string", "minLength": 1 }

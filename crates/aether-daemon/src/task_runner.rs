@@ -338,6 +338,47 @@ pub const MAX_LOOP_REPLANS: usize = 2;
 ///
 /// This is the single production entry point for LOOP-04-style execution: both the daemon's
 /// `nl:`-prefixed `run_task` path and the `LOOP-04` harness task call it directly.
+/// Collect what the planner may assume exists (P0-2 / PLAN-02).
+///
+/// Push, not pull: `fs_list` lets a running plan discover paths, but a plan has to be *written*
+/// first, and a planner that cannot see the workspace or the connected servers invents both. Every
+/// section is stated even when empty — silence reads as "unknown", and "unknown" is what a model
+/// fills with a guess.
+pub fn planner_context(
+    workspace: &PathBuf,
+    allowlist: Option<&McpAllowlist>,
+    skills: &HashMap<String, SkillDefinition>,
+) -> aether_core::PlannerContext {
+    let mut mcp_servers: Vec<String> = allowlist
+        .map(|list| list.servers.iter().map(|server| server.name.clone()).collect())
+        .unwrap_or_default();
+    mcp_servers.sort();
+    let mut installed: Vec<String> = skills.keys().cloned().collect();
+    installed.sort();
+    let mut workspace_entries: Vec<String> = std::fs::read_dir(workspace)
+        .map(|entries| {
+            entries
+                .filter_map(|entry| entry.ok())
+                .map(|entry| {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if entry.path().is_dir() {
+                        format!("{name}/")
+                    } else {
+                        name
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    workspace_entries.sort();
+    workspace_entries.truncate(aether_core::PLANNER_CONTEXT_MAX_ENTRIES);
+    aether_core::PlannerContext {
+        mcp_servers,
+        skills: installed,
+        workspace_entries,
+    }
+}
+
 pub async fn run_structured_with_replan(
     db: &Database,
     config: &mut LoopConfig,
@@ -378,6 +419,9 @@ pub async fn run_structured_with_replan(
             installed_skills,
         }
     };
+    // The same inventory, in the shape the planner prompt takes: a repair prompt that does not know
+    // what is connected asks the model to guess again (P0-2 meets P1-9).
+    let planner_ctx = planner_context(&config.workspace, allowlist, skills);
     let mut all_events = Vec::new();
     let mut dep_graph = aether_core::ToolDependencyGraph::new();
 
@@ -439,6 +483,7 @@ pub async fn run_structured_with_replan(
                     &tool_error.remedy,
                     tool_error.constraint.as_ref(),
                     config.max_iterations,
+                    Some(&planner_ctx),
                 )
                 .await
                 {
@@ -547,7 +592,17 @@ async fn run_nl_loop_task_with_replan(
         }
     };
 
-    let plan = match aether_core::run_nl_planner(&state.router, &planning_goal, max_iterations).await
+    // P0-2: tell the planner what actually exists before it writes a plan. Bounded, sorted, and
+    // explicit about absence — an omitted section reads as "unknown", which is how a plan comes to
+    // name an MCP server nobody connected.
+    let planner_ctx = planner_context(&config.workspace, allowlist.as_ref(), &skills);
+    let plan = match aether_core::run_nl_planner(
+        &state.router,
+        &planning_goal,
+        max_iterations,
+        Some(&planner_ctx),
+    )
+    .await
     {
         Ok(planner) => { { let conn = state.db.conn(); let mut noop = |_| {}; let _ = record_provider_token_usage(&conn, &mut config, "nl_planner", planner.token_usage, None, &mut noop); } planner.plan }
         Err(e) => {

@@ -98,10 +98,11 @@ pub use loop_engine::{
     GoalStopHook, LoopConfig, LoopRunResult, LoopStreamEvent, PythonLintVerifier, ReActLoopEngine,
     record_provider_token_usage, resolve_default_max_loop_tokens, StopHook, ToolInvocation, ToolObservation, ToolRegistry,
     Verifier, DEFAULT_MAX_LOOP_TOKENS, LINTABLE_ARTIFACT_EXTENSIONS, is_lintable_artifact,
-    render_read_window, FS_READ_MAX_CHARS,
+    render_dir_listing, render_read_window, FS_LIST_MAX_ENTRIES, FS_READ_MAX_CHARS,
 };
 
 pub use nl_planner::{
+    build_capability_context, PlannerContext, PLANNER_CONTEXT_MAX_ENTRIES,
     build_nl_plan_prompt, build_nl_repair_prompt, build_nl_verify_repair_prompt, nl_plan_schema,
     normalize_nl_plan_json, plan_tool_name, run_nl_planner, run_nl_planner_repair, NlPlannerResult,
     validate_nl_plan, validate_nl_plan_gold_trajectory, validate_goal_coverage, NlPlanError,

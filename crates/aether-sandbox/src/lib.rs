@@ -342,6 +342,35 @@ impl ProductionSandbox {
         }
     }
 
+    /// List one directory inside the workspace, as `(name, is_dir)` (P0-2 / PLAN-02).
+    ///
+    /// Names only: content still goes through [`ProductionSandbox::read_to_string`], the
+    /// `PreToolUse` hook, and the read grant, so a listing discloses what exists without becoming a
+    /// second read path. `-1` is one entry per line, `-A` hides `.` and `..` but keeps dotfiles, and
+    /// `-p` appends `/` to directories so the caller can tell a directory from a leaf in one pass.
+    pub fn list_dir(workspace: &Path, target: &Path) -> Result<Vec<(String, bool)>, SandboxError> {
+        let target = Self::validate_target(workspace, target)?;
+        let output = Self::command("/bin/ls", [OsStr::new("-1Ap"), target.as_os_str()], workspace)?
+            .output()
+            .map_err(|e| SandboxError::Execution(e.to_string()))?;
+        if !output.status.success() {
+            return Err(SandboxError::Violation(
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ));
+        }
+        let listing = String::from_utf8(output.stdout)
+            .map_err(|e| SandboxError::Execution(format!("non-UTF8 listing: {e}")))?;
+        Ok(listing
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(|line| {
+                let is_dir = line.ends_with('/');
+                (line.trim_end_matches('/').to_string(), is_dir)
+            })
+            .collect())
+    }
+
     /// Remove a single file inside the workspace. Used by undo to delete a file that an agent
     /// created (i.e. one with no prior content to restore). Missing-file is treated as success —
     /// undo is idempotent by design.

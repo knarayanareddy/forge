@@ -52,6 +52,9 @@ use read01::test_read01_impl;
 mod reply01;
 use reply01::test_reply01_impl;
 
+mod plan02;
+use plan02::test_plan02_impl;
+
 mod hook01;
 use hook01::test_hook01_impl;
 
@@ -165,7 +168,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 57] = [
+const TASKS: [TaskSpec; 58] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -190,6 +193,7 @@ const TASKS: [TaskSpec; 57] = [
     TaskSpec { name: "LOOP-05", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "READ-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "REPLY-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "PLAN-02", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "SESS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "UNDO-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "AUTO-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -553,6 +557,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "LOOP-05" => test_loop05(db).await.map(|_| true),
         "READ-01" => test_read01(db).await.map(|_| true),
         "REPLY-01" => test_reply01(db).await.map(|_| true),
+        "PLAN-02" => test_plan02(db).await.map(|_| true),
         "SESS-01" => test_sess01_impl(db).map(|_| true),
         "UNDO-01" => test_undo01_impl(db).map(|_| true),
         "AUTO-01" => test_auto01(db).await.map(|_| true),
@@ -1144,4 +1149,11 @@ async fn test_read01(db: &Database) -> Result<(), String> {
 /// network — the reply is built from the run's own observations and written paths.
 async fn test_reply01(db: &Database) -> Result<(), String> {
     test_reply01_impl(db)
+}
+
+/// PLAN-02 is deterministic: the planner-prompt half asserts pure functions
+/// (`build_nl_plan_prompt`, `build_capability_context`, `validate_nl_plan`), and the discovery half
+/// drives frozen `fs_list` plans through the production loop. PLAN-01 keeps the model-backed half.
+async fn test_plan02(db: &Database) -> Result<(), String> {
+    test_plan02_impl(db)
 }

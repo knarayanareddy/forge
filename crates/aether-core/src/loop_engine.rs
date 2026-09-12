@@ -94,6 +94,17 @@ pub enum ToolInvocation {
         #[serde(default)]
         limit: Option<usize>,
     },
+    /// List one workspace directory (P0-2 / PLAN-02).
+    ///
+    /// Without this a plan can only name paths it was told about, so any goal that refers to "the
+    /// notes" or "the config" is a guess, and the failure that comes back looks like a tool bug
+    /// instead of a missing capability. Discovery is the pull half of P0-2; the capability block in
+    /// [`crate::build_capability_context`] is the push half.
+    FsList {
+        /// Directory to list, relative to the workspace. `None` or empty = the workspace root.
+        #[serde(default)]
+        path: Option<String>,
+    },
     PythonLint {
         source: String,
     },
@@ -342,6 +353,42 @@ pub fn render_read_window(
     )
 }
 
+/// Most entries one `fs_list` observation names before it reports the bound instead (P0-2).
+pub const FS_LIST_MAX_ENTRIES: usize = 200;
+
+/// Render one `fs_list` observation body. Returns `(text, success)`.
+///
+/// Same discipline as [`render_read_window`]: sorted, directories marked with `/`, and a cut that
+/// says it was cut *with the true entry count and where the listing stopped* — "the first 200
+/// entries" must never read as "everything". An empty directory is a successful observation that
+/// says it is empty: zero results are data, not an error, and a planner that cannot tell them apart
+/// retries the same guess forever.
+pub fn render_dir_listing(path: &str, mut entries: Vec<(String, bool)>) -> (String, bool) {
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    let total = entries.len();
+    if total == 0 {
+        return (format!("0 entries in {path}/ — the directory exists and is empty"), true);
+    }
+    let shown = total.min(FS_LIST_MAX_ENTRIES);
+    let mut out = format!("{shown} of {total} entries in {path}/:\n");
+    for (name, is_dir) in entries.iter().take(shown) {
+        out.push_str(name);
+        if *is_dir {
+            out.push('/');
+        }
+        out.push('\n');
+    }
+    if shown < total {
+        let last = entries[shown - 1].0.clone();
+        out.push_str(&format!(
+            "[listing truncated: showing {shown} of {total} entries; the {} not shown sort after \
+             {last:?} — list a subdirectory to narrow]",
+            total - shown
+        ));
+    }
+    (out.trim_end().to_string(), true)
+}
+
 impl ToolRegistry {
     pub fn execute(
         conn: &Connection,
@@ -409,6 +456,35 @@ impl ToolRegistry {
                     .map_err(|e| e.to_string())?;
                 let (text, ok) = render_read_window(path, &content, *offset, *limit);
                 Ok(observation(iteration, "fs_read", ok, text))
+            }
+            ToolInvocation::FsList { path } => {
+                let rel = path
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|p| !p.is_empty())
+                    .unwrap_or(".");
+                let full = resolve_workspace_path(&config.workspace, rel)?;
+                let full_str = full.to_string_lossy().to_string();
+                if let crate::HookDecision::Deny(reason) =
+                    crate::HookEngine::production().run_pre_tool_use(&full)
+                {
+                    return Err(reason);
+                }
+                // A listing is a read: same hook, same grant, same remedy-bearing denial (P1-9).
+                let decision = PermissionManager::check_file_access(
+                    conn,
+                    &config.session_id,
+                    &full_str,
+                    "read",
+                )
+                .map_err(|e| e.to_string())?;
+                if decision != PermissionDecision::Approved {
+                    return Err(crate::ToolError::read_denied(&full_str).render());
+                }
+                let entries = ProductionSandbox::list_dir(&config.workspace, &full)
+                    .map_err(|e| e.to_string())?;
+                let (text, ok) = render_dir_listing(rel, entries);
+                Ok(observation(iteration, "fs_list", ok, text))
             }
             ToolInvocation::PythonLint { source } => {
                 match PythonLinter::check_syntax_in_workspace(source, &config.workspace) {
@@ -1057,6 +1133,7 @@ fn tool_name(step: &ToolInvocation) -> &str {
     match step {
         ToolInvocation::FsWrite { .. } => "fs_write",
         ToolInvocation::FsRead { .. } => "fs_read",
+        ToolInvocation::FsList { .. } => "fs_list",
         ToolInvocation::PythonLint { .. } => "python_lint",
         ToolInvocation::PythonLintFile { .. } => "python_lint_file",
         ToolInvocation::GitInit { .. } => "git_init",
@@ -1091,6 +1168,7 @@ fn estimate_invocation_tokens(step: &ToolInvocation) -> usize {
             estimate_tokens(content) + estimate_tokens(path)
         }
         ToolInvocation::FsRead { path, .. } => estimate_tokens(path),
+        ToolInvocation::FsList { path } => estimate_tokens(path.as_deref().unwrap_or(".")),
         ToolInvocation::PythonLint { source } => estimate_tokens(source),
         ToolInvocation::PythonLintFile { path } => estimate_tokens(path),
         ToolInvocation::GitInit { branch } => estimate_tokens(branch),
