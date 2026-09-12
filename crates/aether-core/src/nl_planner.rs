@@ -306,7 +306,20 @@ pub fn validate_goal_coverage(
     }
     // P0-2: a goal that asks what exists requires the action that can answer it. Without this the
     // planner could satisfy "list the files" with a guess-shaped fs_read and still pass coverage.
-    if goal.contains("list ") || goal.contains("what files") || goal.contains("which files") {
+    //
+    // Deliberately narrower than the intents around it: the goal reaching this function is the
+    // *memory-enriched* prompt (`enrich_prompt_with_memory`), so a bare "list " would fire on any
+    // recalled note that happens to mention a list and demand a listing step the user never asked
+    // for. These phrases are request-shaped, not noun-shaped.
+    const LISTING_REQUESTS: [&str; 6] = [
+        "list the files",
+        "list files",
+        "list the directory",
+        "list the contents",
+        "what files",
+        "which files",
+    ];
+    if LISTING_REQUESTS.iter().any(|phrase| goal.contains(phrase)) {
         required.push(&["fs_list"]);
     }
     if goal.contains("verify ") || goal.contains("confirm ") {

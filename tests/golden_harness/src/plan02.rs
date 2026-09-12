@@ -82,7 +82,12 @@ fn run_plan(
             std::fs::create_dir_all(workspace.join(entry.trim_end_matches('/')))
                 .map_err(|e| format!("seeding dir {entry} failed: {e}"))?;
         } else {
-            std::fs::write(workspace.join(entry), format!("seeded {entry}\n"))
+            let target = workspace.join(entry);
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("seeding {entry} failed: {e}"))?;
+            }
+            std::fs::write(&target, format!("seeded {entry}\n"))
                 .map_err(|e| format!("seeding {entry} failed: {e}"))?;
         }
     }
