@@ -285,13 +285,11 @@ pub fn test_reply01_impl(db: &Database) -> Result<(), String> {
     if !defects[0].contains("status token") || !defects[1].contains(ARTIFACT) {
         return Err(format!("defects must name the rule and the artifact: {defects:?}"));
     }
-    if FinalReply {
+    let over_long = FinalReply {
         text: "x".repeat(MAX_FINAL_REPLY_CHARS + 1),
         artifacts: vec![],
-    }
-    .validate()
-    .is_empty()
-    {
+    };
+    if over_long.validate().is_empty() {
         return Err("an over-long reply must be rejected by the self-check".into());
     }
 
