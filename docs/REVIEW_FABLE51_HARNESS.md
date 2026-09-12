@@ -532,6 +532,27 @@ P2-14 `GATE-04` · P2-13 `CLAR-01` · P2-11 `PERM-03`.
 All three Wave 1 findings are implemented, with the harness tasks that prove them. Recorded here so the
 findings above can be read as *history* rather than as an open backlog, and so the deviations are visible.
 
+**Measured, not projected.** Linux CI run
+[`34712522700`](https://github.com/knarayanareddy/forge/actions/runs/34712522700) (PR #52,
+`ubuntu-24.04`) reports `RED-02 … PASS [hard]`, `CHECK-02 … PASS [hard]`, `GATE-03 … PASS [hard]` and
+`Passed: 41 / 54 · Hard green: 30 · Soft green: 11`. Two real defects surfaced only when the tasks
+actually ran, and both are the kind a static read-through misses:
+
+1. *A compile error* (`red02.rs`): `loop_denials` returns `Result<Vec<Denial>, String>` and ended with
+   `Ok(())`. There is no Rust toolchain in the authoring environment, so CI was the first build.
+2. *A fixture that tested the wrong layer* (`check02.rs`): the case `lints-a-different-file` seeds
+   `other.py` outside the plan and lints it, but the fixture granted only `write` on the workspace, and
+   `python_lint_file` goes through `check_file_access(.., "read")`, which matches `permission_type`
+   exactly — so the run died with `Read denied for …/other.py` before the verify shell was reached.
+   `fs_write` never creates a grant of its own ("execution must never create its own grant"), so any
+   file the plan did not write is unreadable under a write-only grant. The fixture now mirrors
+   `server::select_workspace`, which inserts one row per capability in `["read", "write"]`.
+
+The second one is worth carrying into waves 2+: **a gate task whose fixture under-grants proves nothing
+about the gate.** Darwin PR jobs do not run the harness (build + `cargo test` + Swift only), so the
+canonical `54/54` gate is enforced by `darwin-full` on push to `main` and on the nightly schedule — the
+first of those runs is what re-cites the Darwin scoreboard.
+
 | Finding | Shipped | Proof |
 |---|---|---|
 | **P0-1** | `ToolInvocation::PythonLintFile { path }` (`loop_engine.rs`): resolves the path, runs the `PreToolUse` sensitive-path hook, requires `check_file_access("read")`, `/bin/cat`s the artifact, and compiles it in `.aether-tmp` — the same sandbox boundary as `python_lint`, different source of bytes. `verify_shell_before_done` now takes `written_artifacts` / `linted_artifacts` ledgers (never consumed, unlike `pending_writes`) and refuses `done` for any written path ending in `.py` that was not linted *as that file*, naming the path and the exact step to add. `LINTABLE_ARTIFACT_EXTENSIONS` / `is_lintable_artifact` are exported so the rule is testable and extensible (`shell_check`, `test_run`). | `CHECK-02` — 9 plans through the production loop: 7 refused (4 of them satisfying every pre-existing requirement, proven by re-running each plan without `done` and evaluating the *old* gate over the real observations), 2 backward-compatibility controls that must still complete. Every refused run's partial writes are asserted present in the undo journal and gone after `undo_pending_writes`. |
