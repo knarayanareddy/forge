@@ -52,7 +52,7 @@ AetherForge treats **Darwin (macOS 15+)** as the canonical platform. Linux CI va
 | **SUB-01** | hard | PASS | Subagent delegation over `execute_structured_loop`; no Ollama dependency (distillation is mechanical, not LLM-generated) |
 | **SEC-01** | hard | PASS | Brokered secret injected at MCP spawn; value absent from plan/context, session log, audit log, and crash dump; no Ollama dependency |
 | **SKILL-03** | hard | PASS | Poisoned-skill corpus (≥8) blocked by install/admit/execute trust gate (manifest + pin + injection scan); no Ollama dependency |
-| **INJECT-01** | hard | PASS | Tool-result induction corpus (≥8) blocked by cross-call correlation (`admit_plan_against_observations`); no Ollama dependency |
+| **INJECT-01** | hard | PASS | Tool-result induction corpus (12 deny / 3 allow) blocked by cross-call correlation (`admit_plan_against_observations`), including a 5-case `cohort: "paraphrase"` set that matches **no** frozen phrase and must be refused by correlation alone; correlation-only refusals are also asserted to be *approvable* (`admit_plan_with_confirmation`). No Ollama dependency |
 | **INGEST-01** | hard | **FAIL-CLOSED** | Live Ollama `graph_extract` on fresh transcript; no seed replay |
 | **BUDG-01** | hard | PASS | Token budget cap enforced in loop engine; no Ollama dependency |
 | **COST-01** | hard | PASS | Provider token accounting across loop and daemon paths; no Ollama dependency |

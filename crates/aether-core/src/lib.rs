@@ -51,8 +51,9 @@ pub use hooks::{
 };
 
 pub use inject::{
-    admit_plan_against_observations, tool_result_has_injection_phrase, wrap_untrusted_tool_output,
-    AdmitDecision, CorrelationFinding, ToolDepEdge, ToolDependencyGraph,
+    admit_plan_against_observations, admit_plan_with_confirmation, tool_result_has_injection_phrase,
+    wrap_untrusted_tool_output, AdmitDecision, AdmitOutcome, ApprovalRequest, CorrelationFinding,
+    FindingLeg, ToolDepEdge, ToolDependencyGraph, APPROVAL_EVIDENCE_MAX_CHARS,
     MIN_CORRELATION_SUBSTRING, TOOL_RESULT_INJECTION_PATTERNS,
 };
 

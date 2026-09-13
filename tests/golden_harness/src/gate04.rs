@@ -17,7 +17,8 @@
 //!   exactly one would-deny hit carrying triageable detail; no benign input produces one; and enforce
 //!   mode records nothing at all, so a gate's allow path costs nothing.
 //! * **The promotion criterion is a measurement, not a mood.** Over the frozen corpora — the labelled
-//!   hook cases plus all ten INJECT-01 plan cases — every gate comes out with zero false positives and
+//!   hook cases plus all fifteen INJECT-01 plan cases — every gate comes out with zero false positives
+//!   and
 //!   zero misses, and only then reports `ready to enforce`. The same ledger, given one over-broad
 //!   decision or one miss, reports **not** ready: the instrument has to be able to fail.
 //! * **Nothing leaks.** The environment is restored even when an assertion returns early, because a
@@ -172,17 +173,27 @@ pub fn gate04_fixture_ready() -> Result<usize, String> {
             }
         }
     }
-    let deny = plan_corpus
-        .cases
-        .iter()
-        .filter(|case| case.kind == "deny")
-        .count();
+    let deny = adversarial_plan_cases(&plan_corpus);
     if deny < 8 {
         return Err(format!(
             "GATE-04 needs ≥8 adversarial plan cases from INJECT-01, found {deny}"
         ));
     }
     Ok(gate_corpus.cases.len() + plan_corpus.cases.len())
+}
+
+/// Adversarial (deny) plan cases in the shared INJECT-01 corpus.
+///
+/// GATE-04 must not hardcode this number. The corpus is frozen but *extensible* — P1-5 added a
+/// paraphrase cohort to it — and a hardcoded expectation would turn every corpus addition into a
+/// GATE-04 failure, which is backwards: more adversarial evidence should strengthen a promotion
+/// verdict, not invalidate the instrument.
+fn adversarial_plan_cases(plan_corpus: &PlanCorpus) -> usize {
+    plan_corpus
+        .cases
+        .iter()
+        .filter(|case| case.kind == "deny")
+        .count()
 }
 
 fn label(token: &str) -> Result<CorpusLabel, String> {
@@ -268,11 +279,7 @@ pub fn test_gate04_impl() -> Result<(), String> {
         .iter()
         .filter(|case| case.label == "adversarial")
         .count()
-        + plan_corpus
-            .cases
-            .iter()
-            .filter(|case| case.kind == "deny")
-            .count();
+        + adversarial_plan_cases(&plan_corpus);
 
     // --- A. the spec is closed, and every rejection means "enforce everything" ----------------
 
@@ -419,7 +426,11 @@ pub fn test_gate04_impl() -> Result<(), String> {
     for (gate, observed, would_deny) in [
         (PROMPT_GATE, 4usize, 2usize),
         (PATH_GATE, 4, 2),
-        (ADMISSION_GATE, plan_corpus.cases.len(), 8),
+        (
+            ADMISSION_GATE,
+            plan_corpus.cases.len(),
+            adversarial_plan_cases(&plan_corpus),
+        ),
     ] {
         let summary = summary_for(&ledger, gate)?;
         if summary.observed != observed || summary.would_deny != would_deny {
@@ -507,10 +518,11 @@ pub fn test_gate04_impl() -> Result<(), String> {
                 ));
             }
         }
+        let plan_deny = adversarial_plan_cases(&plan_corpus);
         let admission_hits = hits.iter().filter(|hit| hit.gate == ADMISSION_GATE).count();
-        if admission_hits != 8 {
+        if admission_hits != plan_deny {
             return Err(format!(
-                "all eight adversarial plan cases must be recorded by the admission gate, got {admission_hits}"
+                "all {plan_deny} adversarial plan cases must be recorded by the admission gate, got {admission_hits}"
             ));
         }
     }
