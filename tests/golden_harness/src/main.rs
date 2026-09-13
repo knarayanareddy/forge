@@ -55,6 +55,9 @@ use reply01::test_reply01_impl;
 mod plan02;
 use plan02::test_plan02_impl;
 
+mod mem04;
+use mem04::test_mem04_impl;
+
 mod hook01;
 use hook01::test_hook01_impl;
 
@@ -168,7 +171,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 58] = [
+const TASKS: [TaskSpec; 59] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -194,6 +197,7 @@ const TASKS: [TaskSpec; 58] = [
     TaskSpec { name: "READ-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "REPLY-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "PLAN-02", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "MEM-04", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "SESS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "UNDO-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "AUTO-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -558,6 +562,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "READ-01" => test_read01(db).await.map(|_| true),
         "REPLY-01" => test_reply01(db).await.map(|_| true),
         "PLAN-02" => test_plan02(db).await.map(|_| true),
+        "MEM-04" => test_mem04(db).await.map(|_| true),
         "SESS-01" => test_sess01_impl(db).map(|_| true),
         "UNDO-01" => test_undo01_impl(db).map(|_| true),
         "AUTO-01" => test_auto01(db).await.map(|_| true),
@@ -1156,4 +1161,12 @@ async fn test_reply01(db: &Database) -> Result<(), String> {
 /// drives frozen `fs_list` plans through the production loop. PLAN-01 keeps the model-backed half.
 async fn test_plan02(db: &Database) -> Result<(), String> {
     test_plan02_impl(db)
+}
+
+/// MEM-04 is deterministic: frozen embeddings and a real in-memory `Database`, no model and no
+/// network. It exercises the write-time never-store filter, provenance tagging through the ingest
+/// path, and the read-time leak check that drops and counts a chunk that should never have been
+/// written.
+async fn test_mem04(db: &Database) -> Result<(), String> {
+    test_mem04_impl(db)
 }

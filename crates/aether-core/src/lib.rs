@@ -11,6 +11,7 @@ mod hooks;
 mod inject;
 mod keychain;
 mod loop_engine;
+mod memory_guard;
 mod nl_planner;
 mod orchestration_graph;
 mod risk;
@@ -109,6 +110,11 @@ pub use nl_planner::{
     LOOP02_EVAL_PROMPT, LOOP02_GOLD_TOOL_ORDER, NL_PLAN_SCHEMA,
 };
 
+pub use memory_guard::{
+    filter_memory_write, mask_secret, memory_leak_hit, never_store_hits, MemoryActor, MemoryKind,
+    MemoryLeakDrop, MemoryProvenance, MemoryWriteFilter, NeverStoreHit, MEMORY_GUARDRAIL_PATTERNS,
+    MIN_STORED_MEMORY_CHARS,
+};
 pub use orchestration_graph::OrchestrationGraph;
 pub use verifier_node::{MakerCheckerGoal, VerifierNode};
 

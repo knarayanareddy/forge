@@ -390,6 +390,7 @@ pub fn test_read01_impl(db: &Database) -> Result<(), String> {
             chunk_id: format!("sess-read01::t{i}::turn"),
             text: format!("memory hit {i}: ") + &"detail ".repeat(60),
             similarity: 0.9,
+            provenance: None,
         })
         .collect();
     let prompt = enrich_prompt_with_memory("What did we decide about the read budget?", &hits);
