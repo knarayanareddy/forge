@@ -665,9 +665,10 @@ silently testing a denial.
 ### Wave 3 status — in progress (registry 58 → 61)
 
 Four of the seven Wave 3 findings are implemented, with the harness tasks that prove them: **P1-7**
-(`MEM-04`), **P2-12** (`COMPACT-02`) and **P2-14** (`GATE-04`) are all measured green on Linux, and
-**P1-5** (the `INJECT-01` extension) is shipped and awaiting its first CI run — it changes no task count,
-because the proof extends an existing hard task in place rather than adding one. `CLAR-01` (P2-13),
+(`MEM-04`), **P2-12** (`COMPACT-02`) and **P2-14** (`GATE-04`) and **P1-5** (the extended `INJECT-01`) are all measured green on Linux,
+**P1-5** (the `INJECT-01` extension) is shipped **and measured** — it changes no task count, because the
+proof extends an existing hard task in place rather than adding one, so the scoreboard is identical and
+the evidence is that `INJECT-01` stayed green over a corpus grown from 10 cases to 15. `CLAR-01` (P2-13),
 `TOOLDESC-01` (P2-10) and `PERM-03` (P2-11) are still open.
 
 **Measured, not projected.** Same discipline as Waves 1–2: there is no Rust toolchain in the authoring
@@ -677,8 +678,9 @@ environment, so CI is the compiler.
 |---|---|---|
 | [`34755870450`](https://github.com/knarayanareddy/forge/actions/runs/34755870450) | `mem04.rs` assertion failure | The leak assertion scanned the **whole** enriched prompt for the poison text — but the seam ends with `Current user request:\n{query}`, and in D5 the query *is* the poison. The prompt was correct; the assertion was looking at the wrong half of it. |
 | [`34756069751`](https://github.com/knarayanareddy/forge/actions/runs/34756069751) | `Passed: 46 / 59 · Hard green: 35 · Soft green: 11` | `MEM-04` **PASS [hard]** on Linux. Every remaining failure is a documented one: the fail-closed set (`FS-02`, `SB-01`, `MEM-01`, `ROUT-01`, `GRAPH-01`, `GRAPH-02`, `LOOP-02`, `PLAN-01`, `LOOP-04`, `INGEST-01`, `DIST-01`) plus `MCP-01`/`MCP-02` on the entry-script hash pin. Build green on Linux and `darwin-pr-fast`. |
-| [`34758427779`](https://github.com/knarayanareddy/forge/actions/runs/34758427779) | `Passed: 48 / 61 · Hard green: 36 · Soft green: 12` | `GATE-04` **PASS [soft]** — and the fail-safe path is visible in the job log, twice: `[gate-mode] ignoring AETHER_GATE_MODE="hook.path_denylist:monitor": gate entry … must look like '<gate>:log' or '<gate>:enforce' — every gate enforces`. Once from the task's own `GateSpec::from_env()` assertion, once from `moderate_denial` inside the real gate: the rejection is not merely returned, it is announced, and the gate still denied. `HOOK-01`, `HOOK-02`, `RED-02`, `INJECT-01` and `COMPACT-02` all stayed green, so the dark-launch seam changed nothing in enforce mode. |
 | [`34757442862`](https://github.com/knarayanareddy/forge/actions/runs/34757442862) | `Passed: 47 / 60 · Hard green: 36 · Soft green: 11` | `COMPACT-02` **PASS [hard]** on its first run — with `COMPACT-01` still **PASS [soft]** and `INJECT-01` still **PASS [hard]**, so the guarded API is additive and the re-admission seam really does deny the induced `mcp_call` against a compacted observation. Same documented fail-closed set, same two MCP hash-pin failures. |
+| [`34758427779`](https://github.com/knarayanareddy/forge/actions/runs/34758427779) | `Passed: 48 / 61 · Hard green: 36 · Soft green: 12` | `GATE-04` **PASS [soft]** — and the fail-safe path is visible in the job log, twice: `[gate-mode] ignoring AETHER_GATE_MODE="hook.path_denylist:monitor": gate entry … must look like '<gate>:log' or '<gate>:enforce' — every gate enforces`. Once from the task's own `GateSpec::from_env()` assertion, once from `moderate_denial` inside the real gate: the rejection is not merely returned, it is announced, and the gate still denied. `HOOK-01`, `HOOK-02`, `RED-02`, `INJECT-01` and `COMPACT-02` all stayed green, so the dark-launch seam changed nothing in enforce mode. |
+| [`34759269488`](https://github.com/knarayanareddy/forge/actions/runs/34759269488) | `Passed: 48 / 61 · Hard green: 36 · Soft green: 12` | **P1-5 measured on its first run, with the scoreboard unchanged** — the right outcome for a finding whose proof extends an existing task instead of adding one. `INJECT-01` **PASS [hard]** over a corpus grown from 10 to 15 cases: five `cohort: "paraphrase"` cases (alternate wording, split tokens, Dutch, an encoded payload laundered into a write, plus a benign control) that match **no** frozen phrase and are refused by correlation alone, each asserted to come out `RequireApproval` rather than `Deny`. `GATE-04` **PASS [soft]** against the same enlarged corpus without a single expectation being edited — it derives its counts (15 observed / 12 would-deny / 16 recorded hits) from the corpus, so growing the evidence strengthened the promotion verdict instead of breaking the instrument. |
 
 | Finding | Shipped | Proof |
 |---|---|---|
@@ -760,9 +762,11 @@ the honesty infrastructure mean what it says.
 > **Status:** Waves 1 and 2 are shipped — see §5 "Wave 1 status" (P0-1, P0-3, P1-4) and "Wave 2 status"
 > (P1-9, P1-6, P1-8, P0-2) — and Wave 3 is under way: P1-7 (`MEM-04`) is shipped **and measured**, P2-12
 > (`COMPACT-02`) and P2-14 (`GATE-04`) are all shipped **and measured**, and P1-5 (the `INJECT-01`
-> extension, which adds no task) is shipped and awaiting its first CI run; see "Wave 3 status". The
+> extension, which adds no task) is shipped **and measured**; see "Wave 3 status". The
 > registry is **61 tasks** (50 hard / 11 soft); Linux CI measures **48/61** (36 hard / 12 soft) in run
-> [`34758427779`](https://github.com/knarayanareddy/forge/actions/runs/34758427779), with `MEM-04` and `COMPACT-02` **PASS [hard]** and `GATE-04` **PASS [soft]**. The
+> [`34759269488`](https://github.com/knarayanareddy/forge/actions/runs/34759269488), with `MEM-04`, `COMPACT-02` and the extended `INJECT-01` **PASS [hard]** and
+> `GATE-04` **PASS [soft]** — the same 48/61 as the run before it, which is the point of a proof that
+> extends a task instead of adding one. The
 > Darwin gate is **61/61** (50 hard / 11 soft) and has not yet been observed on a full Darwin run;
 > `scripts/check-doc-scoreboard.sh` passes. Still open from Wave 3: P2-13 `CLAR-01`, P2-10
 > `TOOLDESC-01`, P2-11 `PERM-03`.
