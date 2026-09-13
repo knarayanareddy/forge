@@ -61,6 +61,9 @@ use mem04::test_mem04_impl;
 mod compact02;
 use compact02::test_compact02_impl;
 
+mod gate04;
+use gate04::test_gate04_impl;
+
 mod hook01;
 use hook01::test_hook01_impl;
 
@@ -174,7 +177,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 60] = [
+const TASKS: [TaskSpec; 61] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -236,6 +239,10 @@ const TASKS: [TaskSpec; 60] = [
     TaskSpec { name: "MEM-03", hard_on_darwin: false, fail_closed_off_darwin: false },
     TaskSpec { name: "MCPS-01", hard_on_darwin: false, fail_closed_off_darwin: false },
     TaskSpec { name: "OFFLINE-01", hard_on_darwin: false, fail_closed_off_darwin: false },
+    // GATE-04 dark-launches gates by setting a process-wide environment variable, so it runs last:
+    // every task that consumes a gate decision (HOOK-01/02, RED-02, INJECT-01, COMPACT-02) has
+    // already finished before the guard is even constructed.
+    TaskSpec { name: "GATE-04", hard_on_darwin: false, fail_closed_off_darwin: false },
 ];
 
 fn is_darwin() -> bool {
@@ -336,6 +343,11 @@ async fn main() {
     match offline01::offline01_fixture_ready() {
         Ok(()) => println!("OFFLINE-01 fixtures: offline degradation matrix ready"),
         Err(e) => eprintln!("Warning: OFFLINE-01 fixture check failed: {}", e),
+    }
+
+    match gate04::gate04_fixture_ready() {
+        Ok(n) => println!("GATE-04 fixtures: {} frozen labelled gate cases loaded", n),
+        Err(e) => eprintln!("Warning: GATE-04 fixture check failed: {}", e),
     }
 
     match reg01::reg01_fixture_ready() {
@@ -617,6 +629,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "MEM-03" => async { test_mem03_impl(db).map(|_| false) }.await,
         "MCPS-01" => async { test_mcps01_impl().map(|_| false) }.await,
         "OFFLINE-01" => async { test_offline01_impl().await.map(|_| false) }.await,
+        "GATE-04" => async { test_gate04_impl().map(|_| false) }.await,
         other => Err(format!("Unknown task {}", other)),
     };
 

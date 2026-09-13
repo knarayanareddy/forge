@@ -664,9 +664,10 @@ silently testing a denial.
 
 ### Wave 3 status — in progress (registry 58 → 60)
 
-Two of the seven Wave 3 findings are implemented, with the harness tasks that prove them: **P1-7**
-(`MEM-04`) and **P2-12** (`COMPACT-02`), both measured green on Linux. `CLAR-01` (P2-13), `GATE-04`
-(P2-14), `TOOLDESC-01` (P2-10), `PERM-03` (P2-11) and the `INJECT-01` extension (P1-5) are still open.
+Three of the seven Wave 3 findings are implemented, with the harness tasks that prove them: **P1-7**
+(`MEM-04`) and **P2-12** (`COMPACT-02`), both measured green on Linux, plus **P2-14** (`GATE-04`), which
+is not yet measured. `CLAR-01` (P2-13), `TOOLDESC-01` (P2-10), `PERM-03` (P2-11) and the `INJECT-01`
+extension (P1-5) are still open.
 
 **Measured, not projected.** Same discipline as Waves 1–2: there is no Rust toolchain in the authoring
 environment, so CI is the compiler.
@@ -681,6 +682,7 @@ environment, so CI is the compiler.
 |---|---|---|
 | **P1-7** | `aether_core::memory_guard`: `MemoryActor` / `MemoryKind` / `MemoryProvenance` (chunk-id compatible with the legacy `{session}::t{turn}::turn` form `ingest.rs` already emits, so nothing downstream re-keys), a five-category never-store list (secret material, immigration status, payment card, government id, financial account), `mask_secret`, `filter_memory_write` returning both the kept text and a `MemoryLeakDrop` per redaction, and `memory_leak_hit` for the read side. Detection is char-wise `eq_ignore_ascii_case` rather than `to_lowercase()`, because lowercasing changes character counts (`İ` → 2 chars) and would desynchronise every span index from the text it indexes. `RetrievedMemory` carries `provenance`; `admit_retrieved_memory` drops retrieved chunks whose text carries instructions or privilege claims and **counts** them; `enrich_prompt_with_admission` renders the drops inside the existing `<retrieved_memory trust="untrusted">` block, and `persist_turn_memory_with_provenance` is the write path. Refusal is decided on **kept** characters, not redacted length — the `[never-store:…]` placeholder is ~29 chars, and counting it made `refused` unreachable. | `MEM-04` — write filter holds when the turn itself asks for the secret; only a user-authored chunk may be `stated`; a retrieved chunk carrying an inducement or a privilege claim is dropped and counted at read time; the empty case returns the prompt byte for byte. Frozen embeddings, no model. |
 | **P2-12** | `compact_turns_guarded(turns, req, policy, summarize)` beside the existing `compact_turns`, plus `CompactPolicy` (`keep_verbatim_roles` defaulting to `system`/`policy`, `untrusted_markers` defaulting to the `trust="untrusted"` / `<tool_result` / `<retrieved_memory` forms forge already emits, `reanchor_preamble`, `keep_untrusted_verbatim`) and `GuardedCompactResult`. Fixes 1–3 as written above: the protected region is split out **before** the summarizer is called, so the rules cannot be summarized away; `untrusted_compacted > 0` sets `inherited_trust = Some("untrusted")` unconditionally and `render()` wraps the summary in `<compacted_context trust="untrusted">`; a re-anchored preamble is emitted first and the result ends in a bound report (`[compacted: N older turn(s) summarized into M chars, K kept verbatim, X of Y chars remain]`) with `log_line()` for the audit trail. Fix 4 is `compacted_observation(result, iteration)` — a `ToolObservation { tool: "context_compact", … }` whose output is the rendered compacted context, i.e. the thing a replan must be re-admitted against. A session whose older turns are all protected returns `InvalidInput` rather than a summary of nothing. | `COMPACT-02` — preamble kept byte for byte and provably never handed to the summarizer; poison summarized under the default policy lands **inside** the untrusted wrapper, and the tier is inherited even under `mechanical_summarize`, which keeps nothing (a caller cannot know in advance what a summarizer retained); `keep_untrusted_verbatim` keeps the poison once, verbatim, and inherits nothing; fully protected region refuses; re-anchoring + bound report + audit line; and the rendered compacted state, fed to `admit_plan_against_observations`, still denies the induced `mcp_call` while an uncorrelated replan is allowed. Closure summarizers, no model. |
+| **P2-14** | `aether_core::gate_mode`: `GateMode::{Enforce, Log}`, a `GateSpec` parsed from `AETHER_GATE_MODE=<gate>:log\|enforce`, `GateHit { gate, would_deny, detail }`, a process-wide sink (`record_gate_hit` / `gate_hits` / `drain_gate_hits`), and the single seam `moderate_denial(gate, detail)` called at a gate's deny site — `None` means enforce and records nothing, `Some(hit)` means the would-be denial was recorded and the caller allows. Three properties make it safe rather than merely convenient: **fail-safe configuration** (absent, empty or unparsable spec ⇒ everything enforces, and the rejection is printed and surfaced via `GateSpec::rejected`), **a closed gate list** (`DARK_LAUNCHABLE_GATES` — a typo is refused with the real names, and one bad entry invalidates the whole spec, because a half-applied safety config is worse than either extreme), and **`NEVER_DARK_LAUNCHABLE`** naming `hook.output_redaction` with the reason: logging instead of redacting *is* the leak. Measurement is the point, so `GateLedger` pairs every decision with a `CorpusLabel`, and `GateSummary` reports `false_positives` (would-deny on benign) and `misses` (allow on adversarial) per gate; `ready_to_enforce()` is the promotion criterion and treats `observed == 0` as *no evidence*, not clean. Wired at both hook deny sites and at `admit_plan_against_observations`. | `GATE-04` (soft) — spec parsing including every refusal path; enforce-by-default measured over a frozen **labelled** corpus (4 hook cases × benign/adversarial, plus all ten INJECT-01 plan cases read from `inject01_corpus.json` rather than duplicated, so the criterion is measured on the corpus the gate is already frozen against); log mode records exactly one would-deny per adversarial input with triageable detail and nothing at all for benign ones; enforce mode writes no telemetry; the promotion verdict flips to **not ready** on one injected false positive *and* on one injected miss; and the environment is restored by an RAII guard, asserted by re-running an adversarial input after the guard drops. No model, no network. |
 
 **Three notes worth carrying forward.**
 
@@ -703,7 +705,12 @@ environment, so CI is the compiler.
    corrected below. The file is left in place rather than deleted: removing source nothing compiles is a
    separate cleanup, and a duplicate public-looking type is a trap worth flagging rather than silently
    disappearing.
-4. *`log_line()` omits `attempts`.* Fix 2 asked for `Compacted { chars_before, chars_after, attempts,
+4. *The first dark-launch registry is three gates, not all of them.* `risk.rs` (every `mcp_call` is
+   risky), the post-write verify rule (`verify_shell_before_done`) and skill trust are gates too, and
+   none is in `DARK_LAUNCHABLE_GATES` yet. Adding a name to that list is cheap; adding one for a gate
+   that has no labelled corpus behind it is how a dark launch becomes a way to switch safety off without
+   noticing. Each gets added when `GATE-04`-style measurement exists for it.
+5. *`log_line()` omits `attempts`.* Fix 2 asked for `Compacted { chars_before, chars_after, attempts,
    reanchored }`. `compact_turns` returns only the successful attempt's `CompactResult` — the attempt
    count exists solely inside `CompactionError::Thrashing`, which COMPACT-01 pins — so the audit line
    reports the split the guarantee rests on (`summarized`, `kept_verbatim`, `untrusted_compacted`,
@@ -738,9 +745,10 @@ the honesty infrastructure mean what it says.
 
 > **Status:** Waves 1 and 2 are shipped — see §5 "Wave 1 status" (P0-1, P0-3, P1-4) and "Wave 2 status"
 > (P1-9, P1-6, P1-8, P0-2) — and Wave 3 is under way: P1-7 (`MEM-04`) is shipped **and measured**, P2-12
-> (`COMPACT-02`) is shipped **and measured**; see "Wave 3 status". The registry is **60 tasks**
-> (50 hard / 10 soft); Linux CI measures **47/60** (36 hard / 11 soft) in run
+> (`COMPACT-02`) is shipped **and measured**, and P2-14 (`GATE-04`) is shipped and awaiting its first
+> CI run; see "Wave 3 status". The registry is **61 tasks**
+> (50 hard / 11 soft); Linux CI measures **47/60** (36 hard / 11 soft) in run
 > [`34757442862`](https://github.com/knarayanareddy/forge/actions/runs/34757442862), with `MEM-04` and `COMPACT-02` both **PASS [hard]**. The Darwin gate is
-> **60/60** (50 hard / 10 soft) and has not yet been observed on a full Darwin run;
-> `scripts/check-doc-scoreboard.sh` passes. Still open from Wave 3: P2-13 `CLAR-01`, P2-14 `GATE-04`,
-> P2-10 `TOOLDESC-01`, P2-11 `PERM-03`, and the P1-5 `INJECT-01` extension.
+> **61/61** (50 hard / 11 soft) and has not yet been observed on a full Darwin run;
+> `scripts/check-doc-scoreboard.sh` passes. Still open from Wave 3: P2-13 `CLAR-01`, P2-10 `TOOLDESC-01`,
+> P2-11 `PERM-03`, and the P1-5 `INJECT-01` extension.

@@ -2,6 +2,7 @@ mod compaction;
 mod cost;
 mod error_detail;
 mod final_reply;
+mod gate_mode;
 mod graph_extract;
 mod hf_hub;
 mod model_registry;
@@ -36,6 +37,12 @@ pub use compaction::{
 };
 
 pub use offline::{probe_offline_degradation, NetworkPath, OfflineMatrix, PathStatus};
+
+pub use gate_mode::{
+    drain_gate_hits, gate_hits, moderate_denial, record_gate_hit, CorpusLabel, GateHit, GateLedger,
+    GateMode, GateSpec, GateSpecError, GateSummary, DARK_LAUNCHABLE_GATES, GATE_ENV_VAR,
+    NEVER_DARK_LAUNCHABLE,
+};
 
 pub use hooks::{
     enforce_user_prompt_submit, post_tool_use_scrub_output, pre_tool_use_path_check, HookDecision,

@@ -291,10 +291,23 @@ pub fn admit_plan_against_observations(
     }
 
     if findings.is_empty() {
-        AdmitDecision::Allow { edges }
-    } else {
-        AdmitDecision::Deny { findings }
+        return AdmitDecision::Allow { edges };
     }
+
+    let detail = findings
+        .iter()
+        .map(|finding| finding.reason.clone())
+        .collect::<Vec<_>>()
+        .join("; ");
+    // P2-14 dark launch: the correlation gate is the one most likely to be tuned wrong, so it is the
+    // one that most needs measuring against real traffic before it is allowed to refuse a plan. In
+    // `log` mode the finding is recorded and the plan is admitted; the hit keeps the full internal
+    // detail, which is what makes a false positive diagnosable afterwards.
+    if crate::gate_mode::moderate_denial("inject.plan_admission", &detail).is_some() {
+        return AdmitDecision::Allow { edges };
+    }
+
+    AdmitDecision::Deny { findings }
 }
 
 fn truncate(s: &str, max: usize) -> String {
