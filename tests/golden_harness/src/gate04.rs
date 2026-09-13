@@ -397,7 +397,8 @@ pub fn test_gate04_impl() -> Result<(), String> {
         if let (true, Some(needle)) = (denied, case.expected_reason_contains.as_deref()) {
             if !detail.contains(needle) {
                 return Err(format!(
-                    "plan case {} denied for the wrong reason: {needle:?} not in {detail:?}"
+                    "plan case {} denied for the wrong reason: {needle:?} not in {detail:?}",
+                    case.id
                 ));
             }
         }
