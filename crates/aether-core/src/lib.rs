@@ -30,8 +30,9 @@ pub use graph_extract::{
 };
 
 pub use compaction::{
-    compact_turns, mechanical_summarize, CompactRequest, CompactResult, CompactionError,
-    ContextTurn,
+    compact_turns, compact_turns_guarded, compacted_observation, mechanical_summarize,
+    CompactPolicy, CompactRequest, CompactResult, CompactionError, ContextTurn,
+    GuardedCompactResult,
 };
 
 pub use offline::{probe_offline_degradation, NetworkPath, OfflineMatrix, PathStatus};

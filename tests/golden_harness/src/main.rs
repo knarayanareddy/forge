@@ -58,6 +58,9 @@ use plan02::test_plan02_impl;
 mod mem04;
 use mem04::test_mem04_impl;
 
+mod compact02;
+use compact02::test_compact02_impl;
+
 mod hook01;
 use hook01::test_hook01_impl;
 
@@ -171,7 +174,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 59] = [
+const TASKS: [TaskSpec; 60] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -198,6 +201,7 @@ const TASKS: [TaskSpec; 59] = [
     TaskSpec { name: "REPLY-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "PLAN-02", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "MEM-04", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "COMPACT-02", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "SESS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "UNDO-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "AUTO-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -563,6 +567,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "REPLY-01" => test_reply01(db).await.map(|_| true),
         "PLAN-02" => test_plan02(db).await.map(|_| true),
         "MEM-04" => test_mem04(db).await.map(|_| true),
+        "COMPACT-02" => test_compact02(db).await.map(|_| true),
         "SESS-01" => test_sess01_impl(db).map(|_| true),
         "UNDO-01" => test_undo01_impl(db).map(|_| true),
         "AUTO-01" => test_auto01(db).await.map(|_| true),
@@ -1169,4 +1174,11 @@ async fn test_plan02(db: &Database) -> Result<(), String> {
 /// written.
 async fn test_mem04(db: &Database) -> Result<(), String> {
     test_mem04_impl(db)
+}
+
+/// COMPACT-02 is deterministic and needs no database: the summarizers are closures, so both a
+/// content-retaining (extractive) summarizer and forge's own `mechanical_summarize` are exercised
+/// without a model, and the re-admission half runs against the real correlation gate.
+async fn test_compact02(_db: &Database) -> Result<(), String> {
+    test_compact02_impl()
 }

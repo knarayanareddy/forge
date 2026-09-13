@@ -410,8 +410,10 @@ step, and that a step whose intent shares no keywords with the goal is flagged f
 
 ### P2-12 — Compaction is a trust-boundary crossing that nothing currently guards
 
-**Evidence.** `compact_turns` (`context_compact.rs:78`) summarizes everything except `keep_recent` turns
-under a caller instruction. Nothing marks a region non-compactable, nothing re-anchors the policy preamble
+**Evidence.** `compact_turns` (`compaction.rs:62`) summarizes everything except `keep_recent` turns
+under a caller instruction. *(Correction while shipping `COMPACT-02`: this finding originally cited
+`context_compact.rs:78`, which is dead source — never declared as a `mod` in `lib.rs`. The live module is
+`compaction.rs`.)* Nothing marks a region non-compactable, nothing re-anchors the policy preamble
 afterwards, and the summary inherits no trust tier from its inputs.
 
 **Reference pattern.** `long_conversation_reminder` exists precisely to "help Claude keep its instructions
@@ -660,6 +662,54 @@ silently testing a denial.
 
 ---
 
+### Wave 3 status — in progress (registry 58 → 60)
+
+Two of the seven Wave 3 findings are implemented, with the harness tasks that prove them: **P1-7**
+(`MEM-04`, measured) and **P2-12** (`COMPACT-02`, not yet measured). `CLAR-01` (P2-13), `GATE-04`
+(P2-14), `TOOLDESC-01` (P2-10), `PERM-03` (P2-11) and the `INJECT-01` extension (P1-5) are still open.
+
+**Measured, not projected.** Same discipline as Waves 1–2: there is no Rust toolchain in the authoring
+environment, so CI is the compiler.
+
+| Run | Result | What it proved |
+|---|---|---|
+| [`34755870450`](https://github.com/knarayanareddy/forge/actions/runs/34755870450) | `mem04.rs` assertion failure | The leak assertion scanned the **whole** enriched prompt for the poison text — but the seam ends with `Current user request:\n{query}`, and in D5 the query *is* the poison. The prompt was correct; the assertion was looking at the wrong half of it. |
+| [`34756069751`](https://github.com/knarayanareddy/forge/actions/runs/34756069751) | `Passed: 46 / 59 · Hard green: 35 · Soft green: 11` | `MEM-04` **PASS [hard]** on Linux. Every remaining failure is a documented one: the fail-closed set (`FS-02`, `SB-01`, `MEM-01`, `ROUT-01`, `GRAPH-01`, `GRAPH-02`, `LOOP-02`, `PLAN-01`, `LOOP-04`, `INGEST-01`, `DIST-01`) plus `MCP-01`/`MCP-02` on the entry-script hash pin. Build green on Linux and `darwin-pr-fast`. |
+
+| Finding | Shipped | Proof |
+|---|---|---|
+| **P1-7** | `aether_core::memory_guard`: `MemoryActor` / `MemoryKind` / `MemoryProvenance` (chunk-id compatible with the legacy `{session}::t{turn}::turn` form `ingest.rs` already emits, so nothing downstream re-keys), a five-category never-store list (secret material, immigration status, payment card, government id, financial account), `mask_secret`, `filter_memory_write` returning both the kept text and a `MemoryLeakDrop` per redaction, and `memory_leak_hit` for the read side. Detection is char-wise `eq_ignore_ascii_case` rather than `to_lowercase()`, because lowercasing changes character counts (`İ` → 2 chars) and would desynchronise every span index from the text it indexes. `RetrievedMemory` carries `provenance`; `admit_retrieved_memory` drops retrieved chunks whose text carries instructions or privilege claims and **counts** them; `enrich_prompt_with_admission` renders the drops inside the existing `<retrieved_memory trust="untrusted">` block, and `persist_turn_memory_with_provenance` is the write path. Refusal is decided on **kept** characters, not redacted length — the `[never-store:…]` placeholder is ~29 chars, and counting it made `refused` unreachable. | `MEM-04` — write filter holds when the turn itself asks for the secret; only a user-authored chunk may be `stated`; a retrieved chunk carrying an inducement or a privilege claim is dropped and counted at read time; the empty case returns the prompt byte for byte. Frozen embeddings, no model. |
+| **P2-12** | `compact_turns_guarded(turns, req, policy, summarize)` beside the existing `compact_turns`, plus `CompactPolicy` (`keep_verbatim_roles` defaulting to `system`/`policy`, `untrusted_markers` defaulting to the `trust="untrusted"` / `<tool_result` / `<retrieved_memory` forms forge already emits, `reanchor_preamble`, `keep_untrusted_verbatim`) and `GuardedCompactResult`. Fixes 1–3 as written above: the protected region is split out **before** the summarizer is called, so the rules cannot be summarized away; `untrusted_compacted > 0` sets `inherited_trust = Some("untrusted")` unconditionally and `render()` wraps the summary in `<compacted_context trust="untrusted">`; a re-anchored preamble is emitted first and the result ends in a bound report (`[compacted: N older turn(s) summarized into M chars, K kept verbatim, X of Y chars remain]`) with `log_line()` for the audit trail. Fix 4 is `compacted_observation(result, iteration)` — a `ToolObservation { tool: "context_compact", … }` whose output is the rendered compacted context, i.e. the thing a replan must be re-admitted against. A session whose older turns are all protected returns `InvalidInput` rather than a summary of nothing. | `COMPACT-02` — preamble kept byte for byte and provably never handed to the summarizer; poison summarized under the default policy lands **inside** the untrusted wrapper, and the tier is inherited even under `mechanical_summarize`, which keeps nothing (a caller cannot know in advance what a summarizer retained); `keep_untrusted_verbatim` keeps the poison once, verbatim, and inherits nothing; fully protected region refuses; re-anchoring + bound report + audit line; and the rendered compacted state, fed to `admit_plan_against_observations`, still denies the induced `mcp_call` while an uncorrelated replan is allowed. Closure summarizers, no model. |
+
+**Three notes worth carrying forward.**
+
+1. *Assert on the half of the prompt you mean.* The `MEM-04` failure above is the memory analogue of the
+   Wave 2 `SUB-01` budget lesson: both were correct production code measured by a test that looked at a
+   wider surface than the guarantee. A leak is memory-derived text crossing into context — not the user's
+   own request being echoed back at them. Split at the seam boundary and assert on the memory block.
+2. ***Compaction has no caller.*** `compact_turns` and everything added beside it are reachable only from
+   `aether-core`: nothing in `aether-daemon`, `aether-ffi` or the gateway compacts a session today (a
+   repo-wide grep for the compaction types finds the module, its dead duplicate, and the re-exports).
+   `COMPACT-02` therefore certifies a **contract**, not a wired behaviour — `compact_turns_guarded` +
+   `CompactPolicy` + `compacted_observation` are the seam a future caller must use, and `AGENTS.md` now
+   says so in terms. Wiring it in is deferred on purpose: it needs a summarizer choice (model vs
+   `mechanical_summarize`), a trigger (character budget), and a place in the loop to re-run admission, and
+   none of that can be compile-tested from this environment. Shipping the guarded API un-wired is honest;
+   shipping a half-wired call site that cannot be built locally is not.
+3. *The finding cited a dead file.* P2-12's evidence pointed at `context_compact.rs:78`, which is never
+   declared as a `mod` in `crates/aether-core/src/lib.rs` — the live implementation is `compaction.rs`
+   (COMPACT-01's subject), and the dead file carries a duplicate `ContextTurn`. Evidence lines are
+   corrected below. The file is left in place rather than deleted: removing source nothing compiles is a
+   separate cleanup, and a duplicate public-looking type is a trap worth flagging rather than silently
+   disappearing.
+4. *`log_line()` omits `attempts`.* Fix 2 asked for `Compacted { chars_before, chars_after, attempts,
+   reanchored }`. `compact_turns` returns only the successful attempt's `CompactResult` — the attempt
+   count exists solely inside `CompactionError::Thrashing`, which COMPACT-01 pins — so the audit line
+   reports the split the guarantee rests on (`summarized`, `kept_verbatim`, `untrusted_compacted`,
+   `inherited_trust`) instead of a number the callee never surfaced.
+
+---
+
 ## 6. One-page summary
 
 | # | Pattern (§2) | Forge gap | Evidence | Fix | Proof |
@@ -675,7 +725,7 @@ silently testing a denial.
 | P1-9 | 5 | Errors lack remedy; replans thrash | `task_runner.rs:306`, `loop_engine.rs:741` | `ToolError{remedy,retryable}`; fail fast | `LOOP-05` |
 | P2-10 | 3 | Catalog hand-maintained ×3, already drifted | `nl_planner.rs:82` | Generate prompt+schema+validator from `ActionSpec` | `TOOLDESC-01` |
 | P2-11 | 4 | No intent field | `loop_engine.rs:76` | `because` on every variant; show in approval | `PERM-03` |
-| P2-12 | 12 | Compaction can launder untrusted text | `context_compact.rs:78` | `keep_verbatim`, re-anchor, trust propagation | `COMPACT-02` |
+| P2-12 | 12 | Compaction can launder untrusted text | `compaction.rs:62` | `keep_verbatim`, re-anchor, trust propagation | `COMPACT-02` |
 | P2-13 | 11 | No elicitation action | catalog | Terminal `clarify` (≤3 q, 2–4 opts) | `CLAR-01` |
 | P2-14 | 13 | No way to measure a gate before enforcing | `hooks.rs`, `inject.rs` | `log`/`enforce` per gate + `GateHit` audit | `GATE-04` |
 | P2-15 | 9 | Raw goal as query; global schema over-fetch | `task_runner.rs:36,49` | Keyword query; session filter in-query | `MEM-02`+ |
@@ -686,6 +736,11 @@ satisfiable by a lint of text that was never written. Fixing it is a small chang
 the honesty infrastructure mean what it says.
 
 > **Status:** Waves 1 and 2 are shipped — see §5 "Wave 1 status" (P0-1, P0-3, P1-4) and "Wave 2 status"
-> (P1-9, P1-6, P1-8, P0-2). The registry is 58 tasks, Linux CI measures **45/58** (34 hard / 11 soft) with
-> all seven new tasks **PASS [hard]**, the Darwin gate is **58/58** (49 hard) and has not yet been observed
-> on a full Darwin run, and `scripts/check-doc-scoreboard.sh` passes. Wave 3 above is still open.
+> (P1-9, P1-6, P1-8, P0-2) — and Wave 3 is under way: P1-7 (`MEM-04`) is shipped **and measured**, P2-12
+> (`COMPACT-02`) is shipped and awaiting its first CI run; see "Wave 3 status". The registry is **60 tasks**
+> (50 hard / 10 soft); Linux CI last measured **46/59** (35 hard / 11 soft) in run
+> [`34756069751`](https://github.com/knarayanareddy/forge/actions/runs/34756069751) with `MEM-04`
+> **PASS [hard]**, and **47/60** is the expected score once `COMPACT-02` is included. The Darwin gate is
+> **60/60** (50 hard / 10 soft) and has not yet been observed on a full Darwin run;
+> `scripts/check-doc-scoreboard.sh` passes. Still open from Wave 3: P2-13 `CLAR-01`, P2-14 `GATE-04`,
+> P2-10 `TOOLDESC-01`, P2-11 `PERM-03`, and the P1-5 `INJECT-01` extension.
