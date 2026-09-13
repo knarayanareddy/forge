@@ -664,9 +664,9 @@ silently testing a denial.
 
 ### Wave 3 status — in progress (registry 58 → 60)
 
-Three of the seven Wave 3 findings are implemented, with the harness tasks that prove them: **P1-7**
-(`MEM-04`) and **P2-12** (`COMPACT-02`), both measured green on Linux, plus **P2-14** (`GATE-04`), which
-is not yet measured. `CLAR-01` (P2-13), `TOOLDESC-01` (P2-10), `PERM-03` (P2-11) and the `INJECT-01`
+Three of the seven Wave 3 findings are implemented, with the harness tasks that prove them — **P1-7**
+(`MEM-04`), **P2-12** (`COMPACT-02`) and **P2-14** (`GATE-04`) — and all three are measured green on
+Linux. `CLAR-01` (P2-13), `TOOLDESC-01` (P2-10), `PERM-03` (P2-11) and the `INJECT-01`
 extension (P1-5) are still open.
 
 **Measured, not projected.** Same discipline as Waves 1–2: there is no Rust toolchain in the authoring
@@ -676,6 +676,7 @@ environment, so CI is the compiler.
 |---|---|---|
 | [`34755870450`](https://github.com/knarayanareddy/forge/actions/runs/34755870450) | `mem04.rs` assertion failure | The leak assertion scanned the **whole** enriched prompt for the poison text — but the seam ends with `Current user request:\n{query}`, and in D5 the query *is* the poison. The prompt was correct; the assertion was looking at the wrong half of it. |
 | [`34756069751`](https://github.com/knarayanareddy/forge/actions/runs/34756069751) | `Passed: 46 / 59 · Hard green: 35 · Soft green: 11` | `MEM-04` **PASS [hard]** on Linux. Every remaining failure is a documented one: the fail-closed set (`FS-02`, `SB-01`, `MEM-01`, `ROUT-01`, `GRAPH-01`, `GRAPH-02`, `LOOP-02`, `PLAN-01`, `LOOP-04`, `INGEST-01`, `DIST-01`) plus `MCP-01`/`MCP-02` on the entry-script hash pin. Build green on Linux and `darwin-pr-fast`. |
+| [`34758427779`](https://github.com/knarayanareddy/forge/actions/runs/34758427779) | `Passed: 48 / 61 · Hard green: 36 · Soft green: 12` | `GATE-04` **PASS [soft]** — and the fail-safe path is visible in the job log, twice: `[gate-mode] ignoring AETHER_GATE_MODE="hook.path_denylist:monitor": gate entry … must look like '<gate>:log' or '<gate>:enforce' — every gate enforces`. Once from the task's own `GateSpec::from_env()` assertion, once from `moderate_denial` inside the real gate: the rejection is not merely returned, it is announced, and the gate still denied. `HOOK-01`, `HOOK-02`, `RED-02`, `INJECT-01` and `COMPACT-02` all stayed green, so the dark-launch seam changed nothing in enforce mode. |
 | [`34757442862`](https://github.com/knarayanareddy/forge/actions/runs/34757442862) | `Passed: 47 / 60 · Hard green: 36 · Soft green: 11` | `COMPACT-02` **PASS [hard]** on its first run — with `COMPACT-01` still **PASS [soft]** and `INJECT-01` still **PASS [hard]**, so the guarded API is additive and the re-admission seam really does deny the induced `mcp_call` against a compacted observation. Same documented fail-closed set, same two MCP hash-pin failures. |
 
 | Finding | Shipped | Proof |
@@ -745,10 +746,9 @@ the honesty infrastructure mean what it says.
 
 > **Status:** Waves 1 and 2 are shipped — see §5 "Wave 1 status" (P0-1, P0-3, P1-4) and "Wave 2 status"
 > (P1-9, P1-6, P1-8, P0-2) — and Wave 3 is under way: P1-7 (`MEM-04`) is shipped **and measured**, P2-12
-> (`COMPACT-02`) is shipped **and measured**, and P2-14 (`GATE-04`) is shipped and awaiting its first
-> CI run; see "Wave 3 status". The registry is **61 tasks**
-> (50 hard / 11 soft); Linux CI measures **47/60** (36 hard / 11 soft) in run
-> [`34757442862`](https://github.com/knarayanareddy/forge/actions/runs/34757442862), with `MEM-04` and `COMPACT-02` both **PASS [hard]**. The Darwin gate is
-> **61/61** (50 hard / 11 soft) and has not yet been observed on a full Darwin run;
+> (`COMPACT-02`) and P2-14 (`GATE-04`) are all shipped **and measured**; see "Wave 3 status". The
+> registry is **61 tasks** (50 hard / 11 soft); Linux CI measures **48/61** (36 hard / 12 soft) in run
+> [`34758427779`](https://github.com/knarayanareddy/forge/actions/runs/34758427779), with `MEM-04` and `COMPACT-02` **PASS [hard]** and `GATE-04` **PASS [soft]**. The
+> Darwin gate is **61/61** (50 hard / 11 soft) and has not yet been observed on a full Darwin run;
 > `scripts/check-doc-scoreboard.sh` passes. Still open from Wave 3: P2-13 `CLAR-01`, P2-10 `TOOLDESC-01`,
 > P2-11 `PERM-03`, and the P1-5 `INJECT-01` extension.
