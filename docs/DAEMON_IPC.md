@@ -149,16 +149,54 @@ When `prompt` is JSON with a `loop` array, the daemon runs a structured ReAct lo
 {"loop":[
   {"action":"fs_write","path":"hello.txt","content":"forge"},
   {"action":"verify_contains","path":"hello.txt","text":"forge"},
+  {"action":"python_lint","source":"def ok():\n    return 1\n"},
   {"action":"done"}
 ]}
 ```
 
 Requires `workspace_path` (or `AETHER_WORKSPACE` env). Grants are auto-inserted for the workspace write path.
 
+**Post-write verify shell** (the plan above is the minimum that reaches `done` — the earlier version of
+this example omitted the lint step and would have been refused):
+
+- After any successful `fs_write`, `done` is refused until a `verify_contains` **and** a lint step have
+  both succeeded, and every written path has been verified (`CHECK-01`).
+- A written path ending in `.py` must additionally be linted *as that file* with
+  `{"action":"python_lint_file","path":"<same path>"}` (`CHECK-02`). `python_lint` compiles the source
+  quoted in the plan, so it certifies a string, not the artifact on disk; the refusal names the path and
+  the exact step to add.
+- `python_lint_file` reads through the same `PreToolUse` sensitive-path hook and read grant as `fs_read`.
+  Because the read grant is checked with an exact `permission_type` match, a session needs **both** a
+  `read` and a `write` grant on the workspace — which is what `select_workspace` creates — for an
+  on-disk lint to run at all.
+- `fs_list` lists one workspace directory: `{"action":"fs_list","path":"src"}` (omit `path` for the
+  workspace root). Entries come back sorted with directories suffixed `/`, an empty directory is
+  reported as `0 entries` rather than an error, and a listing cut at 200 entries says how many were
+  hidden and where it stopped (`PLAN-02`). It is a read: the `PreToolUse` sensitive-path hook and the
+  `read` grant apply, and a denial carries the same remedy as `fs_read`.
+- `fs_read` accepts an optional character window: `{"action":"fs_read","path":"big.txt","offset":9900,
+  "limit":400}` (`READ-01`). Anything cut carries a `[truncated …]` marker naming the true character
+  count and the next page, and the default cut is from the middle so a source file's tail survives.
+  An offset past the end fails with the real size rather than returning an empty read.
+- Tool failures are remedy-bearing (`LOOP-05`): `reason | remedy: … | constraint: {…} | retryable:
+  yes|no` from `aether_core::ToolError`, with the producing site's own message kept as the leading
+  substring. The `nl:` replan path classifies before spending an attempt, so a failure no plan can
+  repair (missing grant, unconnected MCP server, pin violation, exhausted budget) returns with
+  `replans == 0` and the remedy instead of consuming `MAX_LOOP_REPLANS`.
+
+```json
+{"loop":[
+  {"action":"fs_write","path":"hello.py","content":"def ok():\n    return 1\n"},
+  {"action":"verify_contains","path":"hello.py","text":"def ok"},
+  {"action":"python_lint_file","path":"hello.py"},
+  {"action":"done"}
+]}
+```
+
 Example:
 
 ```bash
-printf '%s\n' '{"method":"run_task","params":{"session_id":"demo","workspace_path":"/tmp/aether-loop","prompt":"{\"loop\":[{\"action\":\"fs_write\",\"path\":\"x.txt\",\"content\":\"ok\"},{\"action\":\"done\"}]}"}}' | nc 127.0.0.1 7433
+printf '%s\n' '{"method":"run_task","params":{"session_id":"demo","workspace_path":"/tmp/aether-loop","prompt":"{\"loop\":[{\"action\":\"fs_write\",\"path\":\"x.txt\",\"content\":\"ok\"},{\"action\":\"verify_contains\",\"path\":\"x.txt\",\"text\":\"ok\"},{\"action\":\"python_lint\",\"source\":\"def ok():\\n    return 1\\n\"},{\"action\":\"done\"}]}"}}' | nc 127.0.0.1 7433
 ```
 
 Example stream:

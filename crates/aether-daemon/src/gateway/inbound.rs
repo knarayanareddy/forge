@@ -50,14 +50,20 @@ pub fn handle_inbound_and_run(
         GatewayOutcome::Accepted {
             normalized_prompt, ..
         } => {
-            run_gateway_inbound(&conn, &channel, &normalized_prompt)?;
+            // GATE-03: the run now returns what the channel owes the requester. Delivering it over
+            // the adapter is the caller's job; recording it here is what makes the reply auditable.
+            let reply = run_gateway_inbound(&conn, &channel, &normalized_prompt)?;
             GatewayGrant::audit_event(
                 &conn,
                 &channel.session_id,
                 channel_id,
                 "response",
                 &aether_permissions::PermissionDecision::Approved,
-                &serde_json::json!({"artifact": "gate_response.txt"}),
+                &serde_json::json!({
+                    "artifact": reply.artifact_path,
+                    "artifacts": reply.artifacts,
+                    "reply_len": reply.reply.chars().count(),
+                }),
             )
             .map_err(|e| e.to_string())?;
             Ok(())

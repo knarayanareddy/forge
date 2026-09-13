@@ -78,11 +78,45 @@ pub enum ToolInvocation {
         path: String,
         content: String,
     },
+    /// Read a file, optionally a window of it (P1-6 / READ-01).
+    ///
+    /// `offset`/`limit` are in **characters** and both optional, so every existing plan shape
+    /// (`{"action":"fs_read","path":"…"}`) still decodes. They exist because a bounded read that
+    /// cannot be paged turns "not in the first 500 chars" into "not in the file": without a window
+    /// the only recovery is to give up, and a model that cannot distinguish *absent* from
+    /// *truncated* confidently reports absence.
     FsRead {
         path: String,
+        /// Character offset to start from. `None` = start of file.
+        #[serde(default)]
+        offset: Option<usize>,
+        /// Maximum characters to return. `None` = [`FS_READ_MAX_CHARS`].
+        #[serde(default)]
+        limit: Option<usize>,
+    },
+    /// List one workspace directory (P0-2 / PLAN-02).
+    ///
+    /// Without this a plan can only name paths it was told about, so any goal that refers to "the
+    /// notes" or "the config" is a guess, and the failure that comes back looks like a tool bug
+    /// instead of a missing capability. Discovery is the pull half of P0-2; the capability block in
+    /// [`crate::build_capability_context`] is the push half.
+    FsList {
+        /// Directory to list, relative to the workspace. `None` or empty = the workspace root.
+        #[serde(default)]
+        path: Option<String>,
     },
     PythonLint {
         source: String,
+    },
+    /// Syntax-check a Python file **that is already on disk** (CHECK-02).
+    ///
+    /// [`ToolInvocation::PythonLint`] checks source supplied in the plan, which proves nothing
+    /// about any artifact the plan wrote — a plan can lint a trivial snippet and `done` while the
+    /// `.py` file it just wrote is broken. This action closes that gap: the post-write verify shell
+    /// requires a successful `python_lint_file` *on each written `.py` path*, so the thing that gets
+    /// certified is the file, not an unrelated string.
+    PythonLintFile {
+        path: String,
     },
     GitInit {
         /// Defaults to `main` when a small local planner omits the branch.
@@ -129,7 +163,12 @@ pub struct LoopRunResult {
     pub iterations: usize,
     pub tokens_used: usize,
     pub observations: Vec<ToolObservation>,
+    /// The last observation. For a plan ending in `done` that is the mechanical `"plan complete"` —
+    /// kept for compatibility, and the reason [`LoopRunResult::reply`] exists (P1-8).
     pub summary: String,
+    /// The answer this run owes its requester: validated, artifact-bearing, bounded (P1-8 /
+    /// REPLY-01). Every caller shows *this*, not `summary`.
+    pub reply: crate::final_reply::FinalReply,
     pub done: bool,
 }
 
@@ -152,6 +191,12 @@ pub enum LoopStreamEvent {
         iteration: usize,
         passed: bool,
         detail: String,
+    },
+    /// The user-facing reply, emitted immediately before [`LoopStreamEvent::Done`] so a transcript
+    /// reads answer-then-sign-off (P1-8 / REPLY-01).
+    FinalReply {
+        text: String,
+        artifacts: Vec<String>,
     },
     Done {
         iterations: usize,
@@ -224,6 +269,126 @@ impl StopHook for MaxIterationStopHook {
 
 pub struct ToolRegistry;
 
+/// Character budget for one `fs_read` observation when the plan does not request a window (P1-6).
+///
+/// Bounded on purpose — an unbounded read is how a 40 KB file eats a small local model's whole
+/// context. The bound is only honest if the observation *reports* it, which is what
+/// [`render_read_window`] does.
+pub const FS_READ_MAX_CHARS: usize = 500;
+
+/// Share of the budget given to the tail when a read is truncated without an explicit window.
+///
+/// Truncation is from the middle, not the head: the tail of a source file carries `return`,
+/// `main`, and the closing brace, which is exactly what a summarising goal needs and exactly what
+/// head-only truncation throws away.
+const FS_READ_TAIL_DIVISOR: usize = 3;
+
+/// Render one `fs_read` observation body. Returns `(text, success)`.
+///
+/// Three guarantees, all asserted by READ-01:
+///
+/// 1. a window that fits is returned **verbatim** — no marker, no decoration, so a small file read
+///    is still byte-identical to the file;
+/// 2. anything cut is cut **from the middle** (head + tail) unless the caller asked for an explicit
+///    window, in which case exactly that window is returned;
+/// 3. every cut **says it was cut**, with the true character count, how much was omitted, and the
+///    literal next step that pages further. An offset past the end is a failed observation naming
+///    the real size, never an empty string that reads as "not present".
+pub fn render_read_window(
+    path: &str,
+    content: &str,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> (String, bool) {
+    let chars: Vec<char> = content.chars().collect();
+    let total = chars.len();
+    let start = offset.unwrap_or(0);
+
+    if start > total {
+        return (
+            format!(
+                "offset {start} is past the end of {path} ({total} chars) — re-read from offset 0, \
+                 or page inside that size with \"offset\"/\"limit\"",
+            ),
+            false,
+        );
+    }
+
+    let budget = limit.unwrap_or(FS_READ_MAX_CHARS).max(1);
+    let available = total - start;
+    if available <= budget {
+        return (chars[start..].iter().collect::<String>(), true);
+    }
+
+    if limit.is_some() {
+        // An explicit window is exactly what was asked for: return it undecorated except for the
+        // bound report, so a caller paging through a file can concatenate the windows.
+        let window: String = chars[start..start + budget].iter().collect();
+        let remaining = available - budget;
+        let next = start + budget;
+        return (
+            format!(
+                "{window}\n[truncated: showing {budget} of {total} chars from offset {start}; \
+                 {remaining} chars remain — next page {{\"action\":\"fs_read\",\"path\":\"{path}\",\
+                 \"offset\":{next},\"limit\":{budget}}}]",
+            ),
+            true,
+        );
+    }
+
+    // No window requested: head + tail, with the omitted middle reported.
+    let tail = (budget / FS_READ_TAIL_DIVISOR).max(1);
+    let head = (budget - tail).max(1);
+    let head_text: String = chars[start..start + head].iter().collect();
+    let tail_start = total - tail;
+    let tail_text: String = chars[tail_start..].iter().collect();
+    let omitted = tail_start - (start + head);
+    (
+        format!(
+            "{head_text}\n[truncated from the middle: showing {head} head + {tail} tail of \
+             {total} chars, {omitted} omitted — page with {{\"action\":\"fs_read\",\
+             \"path\":\"{path}\",\"offset\":<n>,\"limit\":<n>}}]\n{tail_text}",
+        ),
+        true,
+    )
+}
+
+/// Most entries one `fs_list` observation names before it reports the bound instead (P0-2).
+pub const FS_LIST_MAX_ENTRIES: usize = 200;
+
+/// Render one `fs_list` observation body. Returns `(text, success)`.
+///
+/// Same discipline as [`render_read_window`]: sorted, directories marked with `/`, and a cut that
+/// says it was cut *with the true entry count and where the listing stopped* — "the first 200
+/// entries" must never read as "everything". An empty directory is a successful observation that
+/// says it is empty: zero results are data, not an error, and a planner that cannot tell them apart
+/// retries the same guess forever.
+pub fn render_dir_listing(path: &str, mut entries: Vec<(String, bool)>) -> (String, bool) {
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    let total = entries.len();
+    if total == 0 {
+        return (format!("0 entries in {path}/ — the directory exists and is empty"), true);
+    }
+    let shown = total.min(FS_LIST_MAX_ENTRIES);
+    let mut out = format!("{shown} of {total} entries in {path}/:\n");
+    for (name, is_dir) in entries.iter().take(shown) {
+        out.push_str(name);
+        if *is_dir {
+            out.push('/');
+        }
+        out.push('\n');
+    }
+    if shown < total {
+        let last = entries[shown - 1].0.clone();
+        out.push_str(&format!(
+            "[listing truncated: showing {shown} of {total} entries; the {} not shown sort after \
+             {last:?} — list a subdirectory to narrow]",
+            total - shown
+        ));
+    }
+    (out.trim_end().to_string(), true)
+}
+
 impl ToolRegistry {
     pub fn execute(
         conn: &Connection,
@@ -248,7 +413,9 @@ impl ToolRegistry {
                 )
                 .map_err(|e| e.to_string())?;
                 if decision != PermissionDecision::Approved {
-                    return Err(format!("Write denied for target path {}", full_str));
+                    // Remedy-bearing at the producing site (P1-9): the reason stays the leading
+                    // substring, so every existing assertion and audit row still matches.
+                    return Err(crate::ToolError::write_denied(&full_str).render());
                 }
                 aether_permissions::journal_file_write(
                     conn,
@@ -265,7 +432,11 @@ impl ToolRegistry {
                     format!("Wrote {} bytes to {}", content.len(), path),
                 ))
             }
-            ToolInvocation::FsRead { path } => {
+            ToolInvocation::FsRead {
+                path,
+                offset,
+                limit,
+            } => {
                 let full = resolve_workspace_path(&config.workspace, path)?;
                 let full_str = full.to_string_lossy().to_string();
                 if let crate::HookDecision::Deny(reason) = crate::HookEngine::production().run_pre_tool_use(&full) {
@@ -279,16 +450,41 @@ impl ToolRegistry {
                 )
                 .map_err(|e| e.to_string())?;
                 if decision != PermissionDecision::Approved {
-                    return Err(format!("Read denied for {}", full_str));
+                    return Err(crate::ToolError::read_denied(&full_str).render());
                 }
                 let content = ProductionSandbox::read_to_string(&config.workspace, &full)
                     .map_err(|e| e.to_string())?;
-                Ok(observation(
-                    iteration,
-                    "fs_read",
-                    true,
-                    content.chars().take(500).collect(),
-                ))
+                let (text, ok) = render_read_window(path, &content, *offset, *limit);
+                Ok(observation(iteration, "fs_read", ok, text))
+            }
+            ToolInvocation::FsList { path } => {
+                let rel = path
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|p| !p.is_empty())
+                    .unwrap_or(".");
+                let full = resolve_workspace_path(&config.workspace, rel)?;
+                let full_str = full.to_string_lossy().to_string();
+                if let crate::HookDecision::Deny(reason) =
+                    crate::HookEngine::production().run_pre_tool_use(&full)
+                {
+                    return Err(reason);
+                }
+                // A listing is a read: same hook, same grant, same remedy-bearing denial (P1-9).
+                let decision = PermissionManager::check_file_access(
+                    conn,
+                    &config.session_id,
+                    &full_str,
+                    "read",
+                )
+                .map_err(|e| e.to_string())?;
+                if decision != PermissionDecision::Approved {
+                    return Err(crate::ToolError::read_denied(&full_str).render());
+                }
+                let entries = ProductionSandbox::list_dir(&config.workspace, &full)
+                    .map_err(|e| e.to_string())?;
+                let (text, ok) = render_dir_listing(rel, entries);
+                Ok(observation(iteration, "fs_list", ok, text))
             }
             ToolInvocation::PythonLint { source } => {
                 match PythonLinter::check_syntax_in_workspace(source, &config.workspace) {
@@ -309,6 +505,59 @@ impl ToolRegistry {
                         "python_lint",
                         false,
                         e.to_string(),
+                    )),
+                }
+            }
+            ToolInvocation::PythonLintFile { path } => {
+                let full = resolve_workspace_path(&config.workspace, path)?;
+                let full_str = full.to_string_lossy().to_string();
+                if let crate::HookDecision::Deny(reason) =
+                    crate::HookEngine::production().run_pre_tool_use(&full)
+                {
+                    return Err(reason);
+                }
+                let decision = PermissionManager::check_file_access(
+                    conn,
+                    &config.session_id,
+                    &full_str,
+                    "read",
+                )
+                .map_err(|e| e.to_string())?;
+                if decision != PermissionDecision::Approved {
+                    return Err(crate::ToolError::read_denied(&full_str).render());
+                }
+                // Lint the artifact *as written*. `check_syntax_in_workspace` copies the source
+                // into `.aether-tmp` and runs `py_compile` there, so this adds no new side effect
+                // to the workspace root and keeps exactly the same sandbox boundary as
+                // `python_lint` — the only difference is where the source came from.
+                match ProductionSandbox::read_to_string(&config.workspace, &full) {
+                    Ok(content) => {
+                        match PythonLinter::check_syntax_in_workspace(&content, &config.workspace) {
+                            Ok(issues) if issues.is_empty() => Ok(observation(
+                                iteration,
+                                "python_lint_file",
+                                true,
+                                format!("syntax OK: {}", path),
+                            )),
+                            Ok(issues) => Ok(observation(
+                                iteration,
+                                "python_lint_file",
+                                false,
+                                format!("{} issue(s) in {}: {:?}", issues.len(), path, issues),
+                            )),
+                            Err(e) => Ok(observation(
+                                iteration,
+                                "python_lint_file",
+                                false,
+                                format!("{}: {}", path, e),
+                            )),
+                        }
+                    }
+                    Err(e) => Ok(observation(
+                        iteration,
+                        "python_lint_file",
+                        false,
+                        format!("cannot lint {}: {}", path, e),
                     )),
                 }
             }
@@ -458,7 +707,7 @@ impl ToolRegistry {
                     )
                     .map_err(|e| e.to_string())?;
                     if decision != PermissionDecision::Approved {
-                        return Err(format!("Read denied for {}", full_str));
+                        return Err(crate::ToolError::read_denied(&full_str).render());
                     }
                 }
                 match crate::run_subagent_read_task(&config.workspace, paths) {
@@ -521,6 +770,11 @@ impl ReActLoopEngine {
         let mut observations = Vec::new();
         let mut iteration = 0usize;
         let mut pending_writes: Vec<String> = Vec::new();
+        // CHECK-02: `pending_writes` is *consumed* by each passing `verify_contains`, so it cannot
+        // answer "which artifacts did this run produce?". These two ledgers are never consumed —
+        // they are what the post-write verify shell checks the per-path lint requirement against.
+        let mut written_artifacts: Vec<String> = Vec::new();
+        let mut linted_artifacts: Vec<String> = Vec::new();
 
         for step in plan {
             if iteration >= self.max_iterations {
@@ -553,7 +807,9 @@ impl ReActLoopEngine {
                     });
                     return Err(LoopError::Turn(msg));
                 }
-                if let Err(msg) = verify_shell_before_done(&observations) {
+                if let Err(msg) =
+                    verify_shell_before_done(&observations, &written_artifacts, &linted_artifacts)
+                {
                     on_event(LoopStreamEvent::Error {
                         message: msg.clone(),
                     });
@@ -620,10 +876,19 @@ impl ReActLoopEngine {
             if let ToolInvocation::FsWrite { path, .. } = &step {
                 if obs.success {
                     pending_writes.push(path.clone());
+                    written_artifacts.push(path.clone());
                 }
             }
 
-            if matches!(step, ToolInvocation::PythonLint { .. }) {
+            if matches!(
+                step,
+                ToolInvocation::PythonLint { .. } | ToolInvocation::PythonLintFile { .. }
+            ) {
+                if let ToolInvocation::PythonLintFile { path } = &step {
+                    if obs.success {
+                        linted_artifacts.push(path.clone());
+                    }
+                }
                 observations.push(obs.clone());
                 let passed = obs.success;
                 on_event(LoopStreamEvent::Verify {
@@ -679,6 +944,21 @@ impl ReActLoopEngine {
             .map(|o| o.output.clone())
             .unwrap_or_else(|| "loop finished".into());
 
+        // Compose the reply BEFORE `observations` is moved into the result: it is built from the
+        // run's own facts, so it is available on every path that reaches here, model or no model
+        // (P1-8). `written_artifacts` is what the run actually put on disk, which is what makes the
+        // reply's artifact list a `present` list rather than a wish list.
+        let reply = crate::final_reply::FinalReply::compose(
+            &summary,
+            iteration,
+            &observations,
+            &written_artifacts,
+        );
+        on_event(LoopStreamEvent::FinalReply {
+            text: reply.text.clone(),
+            artifacts: reply.artifacts.clone(),
+        });
+
         on_event(LoopStreamEvent::Done { iterations: iteration, summary: summary.clone(), tokens_used: config.tokens_used, provider_input_tokens: config.provider_input_tokens, provider_output_tokens: config.provider_output_tokens, });
         let summary_usage = ProviderTokenUsage { input_tokens: config.provider_input_tokens, output_tokens: config.provider_output_tokens };
         let _ = audit_loop_token_usage(conn, &config.session_id, "loop_structured_summary", summary_usage, None);
@@ -688,6 +968,7 @@ impl ReActLoopEngine {
             tokens_used: config.tokens_used,
             observations,
             summary,
+            reply,
             done: true,
         })
     }
@@ -710,8 +991,38 @@ impl ReActLoopEngine {
     }
 }
 
-fn verify_shell_before_done(observations: &[ToolObservation]) -> Result<(), String> {
-    let wrote = observations.iter().any(|o| o.tool == "fs_write" && o.success);
+/// Extensions whose written artifacts must be linted *as written* before `done` (CHECK-02).
+pub const LINTABLE_ARTIFACT_EXTENSIONS: &[&str] = &[".py"];
+
+/// True when a written path is an artifact the verify shell must see linted on disk.
+pub fn is_lintable_artifact(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    LINTABLE_ARTIFACT_EXTENSIONS
+        .iter()
+        .any(|ext| lower.ends_with(ext))
+}
+
+/// Post-write verification gate, enforced immediately before a `done` step commits the run.
+///
+/// Three requirements, in increasing specificity:
+/// 1. any write at all requires a passing `verify_contains` (the bytes landed);
+/// 2. any write at all requires a passing lint (either flavour) — the historical LOOP-01/02/04 shape;
+/// 3. **every written artifact with a lintable extension requires a passing `python_lint_file` on
+///    that same path** (CHECK-02).
+///
+/// Requirement 3 is the one that closes the theater hole. `python_lint` checks source *supplied in
+/// the plan*, so requirements 1–2 alone are satisfiable by a plan that writes broken Python and
+/// lints an unrelated `def ok(): return 1` snippet — the gate passes while the artifact is broken,
+/// and the run reports `done`. Certifying the file, rather than a string that was never written, is
+/// the whole point of the gate.
+fn verify_shell_before_done(
+    observations: &[ToolObservation],
+    written_artifacts: &[String],
+    linted_artifacts: &[String],
+) -> Result<(), String> {
+    let wrote = observations
+        .iter()
+        .any(|o| o.tool == "fs_write" && o.success);
     if !wrote {
         return Ok(());
     }
@@ -721,11 +1032,24 @@ fn verify_shell_before_done(observations: &[ToolObservation]) -> Result<(), Stri
     if !verified {
         return Err("Loop blocked: done before verify_contains after fs_write".into());
     }
-    let linted = observations
-        .iter()
-        .any(|o| o.tool == "python_lint" && o.success);
+    let linted = observations.iter().any(|o| {
+        (o.tool == "python_lint" || o.tool == "python_lint_file") && o.success
+    });
     if !linted {
         return Err("Loop blocked: done before python_lint after fs_write".into());
+    }
+    for path in written_artifacts {
+        if !is_lintable_artifact(path) {
+            continue;
+        }
+        if linted_artifacts.iter().any(|linted| linted == path) {
+            continue;
+        }
+        return Err(format!(
+            "Loop blocked: {path} was written but never linted as an artifact. python_lint \
+             checks source supplied in the plan, not the file on disk, so it cannot certify this \
+             write. Add {{\"action\":\"python_lint_file\",\"path\":\"{path}\"}} after the write."
+        ));
     }
     Ok(())
 }
@@ -809,7 +1133,9 @@ fn tool_name(step: &ToolInvocation) -> &str {
     match step {
         ToolInvocation::FsWrite { .. } => "fs_write",
         ToolInvocation::FsRead { .. } => "fs_read",
+        ToolInvocation::FsList { .. } => "fs_list",
         ToolInvocation::PythonLint { .. } => "python_lint",
+        ToolInvocation::PythonLintFile { .. } => "python_lint_file",
         ToolInvocation::GitInit { .. } => "git_init",
         ToolInvocation::McpCall { .. } => "mcp_call",
         ToolInvocation::SkillExecute { .. } => "skill_execute",
@@ -841,8 +1167,10 @@ fn estimate_invocation_tokens(step: &ToolInvocation) -> usize {
         ToolInvocation::FsWrite { content, path } => {
             estimate_tokens(content) + estimate_tokens(path)
         }
-        ToolInvocation::FsRead { path } => estimate_tokens(path),
+        ToolInvocation::FsRead { path, .. } => estimate_tokens(path),
+        ToolInvocation::FsList { path } => estimate_tokens(path.as_deref().unwrap_or(".")),
         ToolInvocation::PythonLint { source } => estimate_tokens(source),
+        ToolInvocation::PythonLintFile { path } => estimate_tokens(path),
         ToolInvocation::GitInit { branch } => estimate_tokens(branch),
         ToolInvocation::McpCall {
             server,

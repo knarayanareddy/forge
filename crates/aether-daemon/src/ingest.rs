@@ -4,8 +4,8 @@
 //! validates, and inserts wiki-zone graph rows. Failures are audit-logged — never silently skipped.
 
 use aether_core::{
-    fetch_ollama_embedding, payload_to_graph_inserts, run_graph_extract, GraphExtractPayload,
-    ModelRouter,
+    fetch_ollama_embedding, filter_memory_write, payload_to_graph_inserts, run_graph_extract,
+    GraphExtractPayload, MemoryActor, MemoryKind, MemoryProvenance, ModelRouter, NeverStoreHit,
 };
 use aether_db::Database;
 use aether_permissions::{PermissionDecision, PermissionManager};
@@ -268,14 +268,86 @@ pub fn persist_turn_memory(
     embedding: &[f32],
     linked_node_ids: &[String],
 ) -> Result<String, IngestError> {
-    let (chunk_id, source_uri) = turn_memory_ids(session_id, turn_index);
-    db.insert_memory_chunk(&chunk_id, &source_uri, normalized_text, embedding)
+    // The ingest turn path stores the user's turn, so `user` / `stated` is the honest provenance —
+    // and the never-store filter applies here exactly as it does to any other writer (P1-7).
+    let outcome = persist_turn_memory_with_provenance(
+        db,
+        session_id,
+        turn_index,
+        MemoryActor::User,
+        MemoryKind::Stated,
+        normalized_text,
+        embedding,
+        linked_node_ids,
+    )?;
+    // Clone before the `ok_or_else`: `chunk_id` moving out of `outcome` would leave `outcome.hits`
+    // unreadable inside the closure, and the refusal message is the only record of what was caught.
+    let chunk_id = outcome.chunk_id.clone();
+    let categories: Vec<&str> = outcome.hits.iter().map(|hit| hit.category).collect();
+    chunk_id.ok_or_else(|| {
+        IngestError::Failed(format!(
+            "never-store filter refused the chunk ({}); nothing was written",
+            categories.join(", ")
+        ))
+    })
+}
+
+/// What a filtered memory write did. `chunk_id` is `None` when the never-store filter refused the
+/// write outright; `hits` are masked, so this is safe to log and to show a reviewer.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MemoryWriteOutcome {
+    pub chunk_id: Option<String>,
+    pub stored_text: String,
+    pub kind: MemoryKind,
+    pub hits: Vec<NeverStoreHit>,
+    pub refused: bool,
+    pub notes: Vec<&'static str>,
+}
+
+/// Persist one turn's memory with explicit provenance, through the write-time never-store filter.
+///
+/// Two guarantees, both P1-7. Nothing on the never-store list is persisted **even if the turn asks
+/// for it** — the store outlives the request and the reason it was volunteered. And content the
+/// actor cannot have stated is stored under the kind it *can* support (an assistant's proposal as
+/// `inferred`, tool output as `derived`) rather than being promoted to a fact the user asserted.
+pub fn persist_turn_memory_with_provenance(
+    db: &Database,
+    session_id: &str,
+    turn_index: u32,
+    actor: MemoryActor,
+    kind: MemoryKind,
+    normalized_text: &str,
+    embedding: &[f32],
+    linked_node_ids: &[String],
+) -> Result<MemoryWriteOutcome, IngestError> {
+    let filter = filter_memory_write(normalized_text, actor, kind);
+    if filter.refused {
+        return Ok(MemoryWriteOutcome {
+            chunk_id: None,
+            stored_text: String::new(),
+            kind: filter.kind,
+            hits: filter.hits,
+            refused: true,
+            notes: filter.notes,
+        });
+    }
+    let provenance = MemoryProvenance::new(session_id, turn_index, actor, filter.kind);
+    let chunk_id = provenance.chunk_id();
+    let source_uri = provenance.source_uri();
+    db.insert_memory_chunk(&chunk_id, &source_uri, &filter.text, embedding)
         .map_err(|e| IngestError::Failed(format!("semantic memory insert: {e}")))?;
     for node_id in linked_node_ids {
         db.link_graph_chunk(&chunk_id, node_id, 1.0)
             .map_err(|e| IngestError::GraphInsert(format!("chunk link {node_id}: {e}")))?;
     }
-    Ok(chunk_id)
+    Ok(MemoryWriteOutcome {
+        chunk_id: Some(chunk_id),
+        stored_text: filter.text,
+        kind: filter.kind,
+        hits: filter.hits,
+        refused: false,
+        notes: filter.notes,
+    })
 }
 
 fn embed_config_from_env() -> (String, String) {

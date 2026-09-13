@@ -9,8 +9,11 @@
 //! roadmap examples ("deletions", "unseen-domain egress") are mapped onto their closest real
 //! analogs: overwriting a file that already exists (destroying its prior content, the same
 //! destructive shape as a delete) and any `mcp_call` (the only way this agent reaches outside the
-//! workspace/local tools at all). Read-only and already-vetted operations (`fs_read`,
-//! `verify_contains`, `python_lint`, `git_init`, `skill_execute`, `done`) are never risky.
+//! workspace/local tools at all). Read-only and already-vetted operations (`fs_read`, `fs_list`,
+//! `verify_contains`, `python_lint`, `python_lint_file`, `git_init`, `skill_execute`, `done`) are
+//! never risky. `python_lint_file` (CHECK-02) is read-only: it opens a workspace path and runs
+//! `py_compile` on it in the sandbox scratch dir, and it goes through the same `PreToolUse`
+//! sensitive-path hook and `check_file_access("read")` grant as `fs_read`.
 
 use crate::loop_engine::resolve_workspace_path;
 use crate::ToolInvocation;
@@ -146,7 +149,11 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().to_path_buf();
         let plan = vec![
-            ToolInvocation::FsRead { path: "a.txt".into() },
+            ToolInvocation::FsRead {
+                path: "a.txt".into(),
+                offset: None,
+                limit: None,
+            },
             ToolInvocation::VerifyContains { path: "a.txt".into(), text: "x".into() },
             ToolInvocation::PythonLint { source: "def ok(): pass".into() },
             ToolInvocation::GitInit { branch: "main".into() },

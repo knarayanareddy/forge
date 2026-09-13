@@ -62,6 +62,8 @@ pub fn test_hook02_impl(db: &Database) -> Result<bool, String> {
     let plan = vec![
         ToolInvocation::FsRead {
             path: "secrets.txt".into(),
+            offset: None,
+            limit: None,
         },
         ToolInvocation::Done,
     ];

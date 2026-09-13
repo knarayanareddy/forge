@@ -99,6 +99,10 @@ pub struct EventLine {
     pub nodes_superseded: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runs: Option<Vec<aether_db::ConsolidationRunListItem>>,
+    /// Workspace-relative paths a finished run produced, carried by the `final_reply` event so an
+    /// adapter can present them (P1-8 / REPLY-01).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artifacts: Option<Vec<String>>,
 }
 
 impl EventLine {
@@ -132,6 +136,7 @@ impl EventLine {
             run_id: None,
             nodes_superseded: None,
             runs: None,
+            artifacts: None,
         }
     }
 
@@ -248,6 +253,14 @@ impl EventLine {
         let mut e = Self::base("undo_complete");
         e.reverted_paths = Some(reverted);
         e.not_undone = Some(not_undone);
+        e
+    }
+
+    /// The reply a finished run owes its requester, plus what it produced (P1-8 / REPLY-01).
+    pub fn final_reply(text: &str, artifacts: &[String]) -> Self {
+        let mut e = Self::base("final_reply");
+        e.text = Some(text.to_string());
+        e.artifacts = Some(artifacts.to_vec());
         e
     }
 

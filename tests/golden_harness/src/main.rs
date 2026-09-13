@@ -43,6 +43,27 @@ use undo01::test_undo01_impl;
 mod loop04;
 use loop04::test_loop04_impl;
 
+mod loop05;
+use loop05::test_loop05_impl;
+
+mod read01;
+use read01::test_read01_impl;
+
+mod reply01;
+use reply01::test_reply01_impl;
+
+mod plan02;
+use plan02::test_plan02_impl;
+
+mod mem04;
+use mem04::test_mem04_impl;
+
+mod compact02;
+use compact02::test_compact02_impl;
+
+mod gate04;
+use gate04::test_gate04_impl;
+
 mod hook01;
 use hook01::test_hook01_impl;
 
@@ -67,11 +88,17 @@ use auto01::test_auto01_impl;
 mod check01;
 use check01::test_check01_impl;
 
+mod check02;
+use check02::test_check02_impl;
+
 mod gate01;
 use gate01::test_gate01_impl;
 
 mod gate02;
 use gate02::test_gate02_impl;
+
+mod gate03;
+use gate03::test_gate03_impl;
 
 mod recovery;
 use recovery::CrashRecoveryTest;
@@ -96,6 +123,9 @@ use audit_chain::verify_audit_hash_chain;
 
 mod red01;
 use red01::test_red01_impl;
+
+mod red02;
+use red02::test_red02_impl;
 mod skill02;
 use skill02::test_skill02_impl;
 
@@ -147,7 +177,7 @@ struct TaskSpec {
     fail_closed_off_darwin: bool,
 }
 
-const TASKS: [TaskSpec; 51] = [
+const TASKS: [TaskSpec; 61] = [
     // ROUT-01 first: measure warm TTFT before FS-02 sandbox load and MCP/MEM embedder swap.
     TaskSpec { name: "ROUT-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "FS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -163,17 +193,26 @@ const TASKS: [TaskSpec; 51] = [
     TaskSpec { name: "SKILL-02", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "SAFE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "RED-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "RED-02", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "RES-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "LOOP-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "LOOP-02", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "PLAN-01", hard_on_darwin: true, fail_closed_off_darwin: true },
     TaskSpec { name: "LOOP-04", hard_on_darwin: true, fail_closed_off_darwin: true },
+    TaskSpec { name: "LOOP-05", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "READ-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "REPLY-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "PLAN-02", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "MEM-04", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "COMPACT-02", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "SESS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "UNDO-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "AUTO-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CHECK-01", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "CHECK-02", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "GATE-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "GATE-02", hard_on_darwin: true, fail_closed_off_darwin: false },
+    TaskSpec { name: "GATE-03", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "HOOK-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CKPT-01", hard_on_darwin: true, fail_closed_off_darwin: false },
     TaskSpec { name: "CONS-01", hard_on_darwin: true, fail_closed_off_darwin: false },
@@ -200,6 +239,10 @@ const TASKS: [TaskSpec; 51] = [
     TaskSpec { name: "MEM-03", hard_on_darwin: false, fail_closed_off_darwin: false },
     TaskSpec { name: "MCPS-01", hard_on_darwin: false, fail_closed_off_darwin: false },
     TaskSpec { name: "OFFLINE-01", hard_on_darwin: false, fail_closed_off_darwin: false },
+    // GATE-04 dark-launches gates by setting a process-wide environment variable, so it runs last:
+    // every task that consumes a gate decision (HOOK-01/02, RED-02, INJECT-01, COMPACT-02) has
+    // already finished before the guard is even constructed.
+    TaskSpec { name: "GATE-04", hard_on_darwin: false, fail_closed_off_darwin: false },
 ];
 
 fn is_darwin() -> bool {
@@ -300,6 +343,11 @@ async fn main() {
     match offline01::offline01_fixture_ready() {
         Ok(()) => println!("OFFLINE-01 fixtures: offline degradation matrix ready"),
         Err(e) => eprintln!("Warning: OFFLINE-01 fixture check failed: {}", e),
+    }
+
+    match gate04::gate04_fixture_ready() {
+        Ok(n) => println!("GATE-04 fixtures: {} frozen labelled gate cases loaded", n),
+        Err(e) => eprintln!("Warning: GATE-04 fixture check failed: {}", e),
     }
 
     match reg01::reg01_fixture_ready() {
@@ -504,6 +552,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "SKILL-02" => test_skill_02().await.map(|_| true),
         "SAFE-01" => test_safe_01(db).await.map(|_| true),
         "RED-01" => test_red_01(db).await.map(|_| true),
+        "RED-02" => test_red_02(db).await.map(|_| true),
         "ROUT-01" => test_rout_01().await.map(|_| true),
         "RES-01" => test_res_01().await.map(|_| true),
         "LOOP-01" => test_loop_01(db).await.map(|_| true),
@@ -525,12 +574,20 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
             }
             test_loop04_impl(db).await.map(|_| true)
         }
+        "LOOP-05" => test_loop05(db).await.map(|_| true),
+        "READ-01" => test_read01(db).await.map(|_| true),
+        "REPLY-01" => test_reply01(db).await.map(|_| true),
+        "PLAN-02" => test_plan02(db).await.map(|_| true),
+        "MEM-04" => test_mem04(db).await.map(|_| true),
+        "COMPACT-02" => test_compact02(db).await.map(|_| true),
         "SESS-01" => test_sess01_impl(db).map(|_| true),
         "UNDO-01" => test_undo01_impl(db).map(|_| true),
         "AUTO-01" => test_auto01(db).await.map(|_| true),
         "CHECK-01" => test_check01(db).await.map(|_| true),
+        "CHECK-02" => test_check02(db).await.map(|_| true),
         "GATE-01" => test_gate01(db).await.map(|_| true),
         "GATE-02" => test_gate02(db).await.map(|_| true),
+        "GATE-03" => test_gate03(db).await.map(|_| true),
         "HOOK-01" => test_hook01_impl(db).map(|_| true),
         "CKPT-01" => test_ckpt01_impl(db).map(|_| true),
         "CONS-01" => test_cons01_impl(db).map(|_| true),
@@ -572,6 +629,7 @@ async fn run_named_task(name: &str, db: &Database) -> Result<bool, String> {
         "MEM-03" => async { test_mem03_impl(db).map(|_| false) }.await,
         "MCPS-01" => async { test_mcps01_impl().map(|_| false) }.await,
         "OFFLINE-01" => async { test_offline01_impl().await.map(|_| false) }.await,
+        "GATE-04" => async { test_gate04_impl().map(|_| false) }.await,
         other => Err(format!("Unknown task {}", other)),
     };
 
@@ -938,6 +996,12 @@ async fn test_red_01(db: &Database) -> Result<(), String> {
     test_red01_impl(&conn)
 }
 
+/// RED-02 is deterministic: it calls the production hook gates and the production loop, so it needs
+/// no model and no network.
+async fn test_red_02(db: &Database) -> Result<(), String> {
+    test_red02_impl(db)
+}
+
 async fn test_skill_02() -> Result<(), String> {
     test_skill02_impl()
 }
@@ -1051,6 +1115,11 @@ async fn test_check01(db: &Database) -> Result<(), String> {
     test_check01_impl(&conn).await
 }
 
+/// CHECK-02 drives the same production loop entry point CHECK-01 does, with structured plans only.
+async fn test_check02(db: &Database) -> Result<(), String> {
+    test_check02_impl(db)
+}
+
 async fn test_gate01(db: &Database) -> Result<(), String> {
     test_gate01_impl(db).await
 }
@@ -1079,4 +1148,50 @@ async fn test_res_01() -> Result<(), String> {
 
 async fn test_gate02(db: &Database) -> Result<(), String> {
     test_gate02_impl(db).await
+}
+
+/// GATE-03 exercises the gateway reply contract without a transport, so it is deterministic.
+async fn test_gate03(db: &Database) -> Result<(), String> {
+    test_gate03_impl(db)
+}
+
+/// LOOP-05 is deterministic: every case it runs breaks out of the replan loop *before* a planner
+/// call, so it needs no model and no network. LOOP-04 keeps the live self-correction half.
+async fn test_loop05(db: &Database) -> Result<(), String> {
+    test_loop05_impl(db).await
+}
+
+/// READ-01 is deterministic: it drives `render_read_window`, the production loop's `fs_read`, the
+/// memory injection, and the subagent preview — all bounded surfaces, none of them model-backed.
+async fn test_read01(db: &Database) -> Result<(), String> {
+    test_read01_impl(db)
+}
+
+/// REPLY-01 is deterministic: frozen plans through `execute_structured_loop`, then assertions on the
+/// composed reply, the stream event, the wire mapping, and the session-log record. No model, no
+/// network — the reply is built from the run's own observations and written paths.
+async fn test_reply01(db: &Database) -> Result<(), String> {
+    test_reply01_impl(db)
+}
+
+/// PLAN-02 is deterministic: the planner-prompt half asserts pure functions
+/// (`build_nl_plan_prompt`, `build_capability_context`, `validate_nl_plan`), and the discovery half
+/// drives frozen `fs_list` plans through the production loop. PLAN-01 keeps the model-backed half.
+async fn test_plan02(db: &Database) -> Result<(), String> {
+    test_plan02_impl(db)
+}
+
+/// MEM-04 is deterministic: frozen embeddings and a real in-memory `Database`, no model and no
+/// network. It exercises the write-time never-store filter, provenance tagging through the ingest
+/// path, and the read-time leak check that drops and counts a chunk that should never have been
+/// written.
+async fn test_mem04(db: &Database) -> Result<(), String> {
+    test_mem04_impl(db)
+}
+
+/// COMPACT-02 is deterministic and needs no database: the summarizers are closures, so both a
+/// content-retaining (extractive) summarizer and forge's own `mechanical_summarize` are exercised
+/// without a model, and the re-admission half runs against the real correlation gate.
+async fn test_compact02(_db: &Database) -> Result<(), String> {
+    test_compact02_impl()
 }

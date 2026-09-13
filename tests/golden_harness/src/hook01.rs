@@ -101,6 +101,8 @@ pub fn test_hook01_impl(db: &Database) -> Result<(), String> {
     let plan_read_blocked = vec![
         ToolInvocation::FsRead {
             path: ".ssh/id_rsa".into(),
+            offset: None,
+            limit: None,
         },
         ToolInvocation::Done,
     ];

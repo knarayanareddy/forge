@@ -23,8 +23,10 @@ const NL_PLAN_NUM_PREDICT: u32 = 1024;
 const ALLOWED_NL_TOOLS: &[&str] = &[
     "fs_write",
     "fs_read",
+    "fs_list",
     "verify_contains",
     "python_lint",
+    "python_lint_file",
     "git_init",
     "mcp_call",
     "skill_execute",
@@ -81,14 +83,23 @@ Return ONLY valid JSON, no prose and no markdown fences, shaped as {{"loop":[ ..
 
 Each step is an object with an "action" field. Use only these actions, with exactly these fields:
 
-- {{"action":"fs_read","path":"<relative path>"}}
-    Read a file. Use this for goals that only inspect or summarise existing files.
+- {{"action":"fs_read","path":"<relative path>","offset":<int>,"limit":<int>}}
+    Read a file. Use this for goals that only inspect or summarise existing files. "offset" and
+    "limit" are optional character counts — omit both to read from the start. A long file comes
+    back cut, with a marker naming its true size and how much was omitted.
+- {{"action":"fs_list","path":"<relative directory>"}}
+    List one directory of the workspace. "path" is optional: omit it to list the workspace root.
+    Directories come back with a trailing "/". Use this instead of guessing a path.
 - {{"action":"fs_write","path":"<relative path>","content":"<full file contents>"}}
     Create or overwrite a file. "content" must be the complete text and must not be empty.
 - {{"action":"verify_contains","path":"<relative path>","text":"<exact substring>"}}
     Confirm a file contains a substring. "text" must be a non-empty string you expect to find.
 - {{"action":"python_lint","source":"<python source code>"}}
     Syntax-check Python source given in the goal. Copy the source verbatim.
+- {{"action":"python_lint_file","path":"<relative path>"}}
+    Syntax-check a Python file that an earlier fs_write in this plan put on disk. This is how you
+    certify the file you actually wrote; python_lint only checks source quoted in the goal and
+    proves nothing about any artifact.
 - {{"action":"git_init","branch":"<branch name>"}}
     Initialise a git repository. Use "main" when the goal does not name a branch.
 - {{"action":"mcp_call","server":"<server name>","tool":"<tool name>","args":{{}}}}
@@ -103,6 +114,12 @@ Rules:
 - Preserve the order in which the user requests operations. Do not move a later operation before
   an earlier one.
 - If the goal only reads, opens, inspects, or summarises an existing file, use fs_read then done.
+- If the goal refers to files without naming a path, or you need to know what exists before you can
+  act, use fs_list first and then act on a name you actually saw. Never guess a path: a plan built
+  on an invented path fails in a way that looks like a tool bug.
+- If an fs_read comes back with a truncation marker and the goal needs text that was not shown,
+  issue another fs_read on the same path with "offset"/"limit" to page into it. Never report
+  content as absent when a marker said the read was cut.
 - If the goal initialises version control, use git_init then done.
 - If the goal only asks to lint Python, use python_lint then done.
 - If the goal explicitly names a skill, use skill_execute with that skill id then done.
@@ -111,6 +128,9 @@ Rules:
 - If the goal writes a file, use fs_write, optionally verify_contains, then done.
 - Add verify_contains ONLY after an fs_write whose content you can confirm, and only with a
   non-empty "text" you just wrote. Never emit verify_contains after fs_read.
+- If the goal writes a Python file (a path ending in .py), follow that fs_write with BOTH a
+  verify_contains on that same path and a python_lint_file on that same path. A .py write that was
+  never linted as a file is rejected before done, and python_lint does not count as that lint.
 - Every field listed for an action is required. Never emit an empty string for a required field.
 - Do not repeat the same action on the same target twice in a row.
 - Keep every path relative to the workspace. Never use absolute paths or "..".
@@ -272,32 +292,60 @@ pub fn validate_goal_coverage(
     plan: &[ToolInvocation],
 ) -> Result<(), NlPlanError> {
     let goal = nl_goal.to_ascii_lowercase();
-    let mut required = Vec::new();
+    // Each entry is a set of *alternative* action names that satisfy one piece of stated intent.
+    // Linting is the only intent with two spellings today: `python_lint` checks source quoted in
+    // the goal, `python_lint_file` checks an artifact the plan wrote (CHECK-02). A goal that says
+    // "lint" is satisfied by either, so requiring the literal name `python_lint` would reject a
+    // correct plan that lints the file it just wrote.
+    let mut required: Vec<&[&str]> = Vec::new();
     if goal.contains("write ") || goal.contains("create ") {
-        required.push("fs_write");
+        required.push(&["fs_write"]);
     }
     if goal.contains("read ") || goal.contains("open ") {
-        required.push("fs_read");
+        required.push(&["fs_read"]);
+    }
+    // P0-2: a goal that asks what exists requires the action that can answer it. Without this the
+    // planner could satisfy "list the files" with a guess-shaped fs_read and still pass coverage.
+    //
+    // Deliberately narrower than the intents around it: the goal reaching this function is the
+    // *memory-enriched* prompt (`enrich_prompt_with_memory`), so a bare "list " would fire on any
+    // recalled note that happens to mention a list and demand a listing step the user never asked
+    // for. These phrases are request-shaped, not noun-shaped.
+    const LISTING_REQUESTS: [&str; 6] = [
+        "list the files",
+        "list files",
+        "list the directory",
+        "list the contents",
+        "what files",
+        "which files",
+    ];
+    if LISTING_REQUESTS.iter().any(|phrase| goal.contains(phrase)) {
+        required.push(&["fs_list"]);
     }
     if goal.contains("verify ") || goal.contains("confirm ") {
-        required.push("verify_contains");
+        required.push(&["verify_contains"]);
     }
     if goal.contains("lint ") || goal.contains("python source") {
-        required.push("python_lint");
+        required.push(&["python_lint", "python_lint_file"]);
     }
     if goal.contains("git ") || goal.contains("repository") || goal.contains("version control") {
-        required.push("git_init");
+        required.push(&["git_init"]);
     }
     if goal.contains("mcp ") || goal.contains("mcp server") {
-        required.push("mcp_call");
+        required.push(&["mcp_call"]);
     }
     if goal.contains(" skill") || goal.starts_with("skill ") {
-        required.push("skill_execute");
+        required.push(&["skill_execute"]);
     }
 
-    for tool in required {
-        if !plan.iter().any(|step| tool_name(step) == tool) {
-            return Err(NlPlanError::MissingRequestedTool { tool: tool.into() });
+    for alternatives in required {
+        if !plan
+            .iter()
+            .any(|step| alternatives.contains(&tool_name(step)))
+        {
+            return Err(NlPlanError::MissingRequestedTool {
+                tool: alternatives[0].into(),
+            });
         }
     }
     Ok(())
@@ -349,9 +397,10 @@ pub async fn run_nl_planner(
     router: &ModelRouter,
     nl_goal: &str,
     max_iterations: usize,
+    context: Option<&PlannerContext>,
  ) -> Result<NlPlannerResult, NlPlanError> {
     let schema = nl_plan_schema();
-    let mut prompt = build_nl_plan_prompt(nl_goal);
+    let mut prompt = with_capability_context(build_nl_plan_prompt(nl_goal), context);
     let mut last_error: Option<NlPlanError> = None;
     let mut total_usage = ProviderTokenUsage::default();
 
@@ -364,7 +413,10 @@ pub async fn run_nl_planner(
             Ok(value) => value,
             Err(e) => {
                 if attempt < MAX_PLAN_REPAIRS {
-                    prompt = build_nl_repair_prompt(nl_goal, &json, &e);
+                    prompt = with_capability_context(
+                        build_nl_repair_prompt(nl_goal, &json, &e),
+                        context,
+                    );
                 }
                 last_error = Some(e);
                 continue;
@@ -380,7 +432,10 @@ pub async fn run_nl_planner(
             Ok(plan) => return Ok(NlPlannerResult { plan, token_usage: total_usage }),
             Err(e) => {
                 if attempt < MAX_PLAN_REPAIRS {
-                    prompt = build_nl_repair_prompt(nl_goal, &normalized, &e);
+                    prompt = with_capability_context(
+                        build_nl_repair_prompt(nl_goal, &normalized, &e),
+                        context,
+                    );
                 }
                 last_error = Some(e);
             }
@@ -394,18 +449,32 @@ pub async fn run_nl_planner(
 /// LOOP-04). Distinct from [`build_nl_repair_prompt`]: that one fixes a rejected *plan* before any
 /// tool ran; this one fixes a plan whose execution already ran partway and hit a real tool
 /// failure, so the model must continue from the current state rather than start over.
+///
+/// `remedy` and `constraint` come from [`crate::ToolError`]: the classification of this failure
+/// into what would make it succeed, plus the machine-readable values the retry needs (the path, the
+/// expected substring, the connected-server inventory). Carrying them here is what makes a rejection
+/// repair-enabling rather than a dead end — the model corrects against the actual constraint instead
+/// of resampling blind (P1-9).
 pub fn build_nl_verify_repair_prompt(
     nl_goal: &str,
     completed_tools: &[String],
     failed_tool: &str,
     failure_detail: &str,
+    remedy: &str,
+    constraint: Option<&Value>,
 ) -> String {
+    let constraint_line = match constraint {
+        Some(value) => format!("\nConstraint values for the retry: {value}"),
+        None => String::new(),
+    };
     format!(
         r#"{base}
 
 Execution already started and is NOT starting over. These steps already ran successfully, in
 order: {completed:?}. The next step, "{failed_tool}", FAILED verification with this detail:
 {failure_detail}
+
+What would make it succeed: {remedy}{constraint_line}
 
 Produce a corrected JSON plan for ONLY the remaining work needed to reach the original goal above,
 given what already happened. Do not repeat the already-completed steps. Fix whatever caused the
@@ -415,6 +484,8 @@ actually present — then finish with {{"action":"done"}}."#,
         completed = completed_tools,
         failed_tool = failed_tool,
         failure_detail = failure_detail,
+        remedy = remedy,
+        constraint_line = constraint_line,
     )
 }
 
@@ -431,10 +502,23 @@ pub async fn run_nl_planner_repair(
     completed_tools: &[String],
     failed_tool: &str,
     failure_detail: &str,
+    remedy: &str,
+    constraint: Option<&Value>,
     max_iterations: usize,
+    context: Option<&PlannerContext>,
  ) -> Result<NlPlannerResult, NlPlanError> {
     let schema = nl_plan_schema();
-    let mut prompt = build_nl_verify_repair_prompt(nl_goal, completed_tools, failed_tool, failure_detail);
+    let mut prompt = with_capability_context(
+        build_nl_verify_repair_prompt(
+            nl_goal,
+            completed_tools,
+            failed_tool,
+            failure_detail,
+            remedy,
+            constraint,
+        ),
+        context,
+    );
     let mut last_error: Option<NlPlanError> = None;
     let mut total_usage = ProviderTokenUsage::default();
 
@@ -447,7 +531,10 @@ pub async fn run_nl_planner_repair(
             Ok(value) => value,
             Err(e) => {
                 if attempt < MAX_PLAN_REPAIRS {
-                    prompt = build_nl_repair_prompt(nl_goal, &json, &e);
+                    prompt = with_capability_context(
+                        build_nl_repair_prompt(nl_goal, &json, &e),
+                        context,
+                    );
                 }
                 last_error = Some(e);
                 continue;
@@ -458,7 +545,10 @@ pub async fn run_nl_planner_repair(
             Ok(plan) => return Ok(NlPlannerResult { plan, token_usage: total_usage }),
             Err(e) => {
                 if attempt < MAX_PLAN_REPAIRS {
-                    prompt = build_nl_repair_prompt(nl_goal, &normalized, &e);
+                    prompt = with_capability_context(
+                        build_nl_repair_prompt(nl_goal, &normalized, &e),
+                        context,
+                    );
                 }
                 last_error = Some(e);
             }
@@ -478,9 +568,17 @@ fn forbidden_pattern_detail(step: &ToolInvocation) -> Option<String> {
                 return Some("fs_write requires content".into());
             }
         }
-        ToolInvocation::FsRead { path } => {
+        ToolInvocation::FsRead { path, offset, limit } => {
             if path.trim().is_empty() {
                 return Some("fs_read requires non-empty path".into());
+            }
+            if let (Some(offset), Some(limit)) = (offset, limit) {
+                if limit == &0 {
+                    return Some("fs_read limit must be greater than 0".into());
+                }
+                // Both are usize, so only the pairing needs a sanity check; an offset past the end
+                // is reported by the read itself, with the file's real size (P1-6).
+                let _ = offset;
             }
         }
         ToolInvocation::VerifyContains { path, text } => {
@@ -493,6 +591,9 @@ fn forbidden_pattern_detail(step: &ToolInvocation) -> Option<String> {
         }
         ToolInvocation::PythonLint { source } if source.trim().is_empty() => {
             return Some("python_lint requires non-empty source".into());
+        }
+        ToolInvocation::PythonLintFile { path } if path.trim().is_empty() => {
+            return Some("python_lint_file requires non-empty path".into());
         }
         ToolInvocation::GitInit { branch } if branch.trim().is_empty() => {
             return Some("git_init requires non-empty branch".into());
@@ -519,7 +620,9 @@ fn tool_name(step: &ToolInvocation) -> &'static str {
     match step {
         ToolInvocation::FsWrite { .. } => "fs_write",
         ToolInvocation::FsRead { .. } => "fs_read",
+        ToolInvocation::FsList { .. } => "fs_list",
         ToolInvocation::PythonLint { .. } => "python_lint",
+        ToolInvocation::PythonLintFile { .. } => "python_lint_file",
         ToolInvocation::GitInit { .. } => "git_init",
         ToolInvocation::McpCall { .. } => "mcp_call",
         ToolInvocation::SkillExecute { .. } => "skill_execute",
@@ -532,15 +635,113 @@ fn tool_name(step: &ToolInvocation) -> &'static str {
 fn tool_target_key(step: &ToolInvocation) -> String {
     match step {
         ToolInvocation::FsWrite { path, .. } => path.clone(),
-        ToolInvocation::FsRead { path } => path.clone(),
+        ToolInvocation::FsRead { path, .. } => path.clone(),
+        ToolInvocation::FsList { path } => path.clone().unwrap_or_else(|| ".".to_string()),
         ToolInvocation::VerifyContains { path, .. } => path.clone(),
         ToolInvocation::PythonLint { source } => source.chars().take(32).collect(),
+        ToolInvocation::PythonLintFile { path } => path.clone(),
         ToolInvocation::GitInit { branch } => branch.clone(),
         ToolInvocation::McpCall { server, tool, .. } => format!("{}:{}", server, tool),
         ToolInvocation::SkillExecute { skill_id, .. } => skill_id.clone(),
         ToolInvocation::SubagentTask { paths } => paths.join(","),
         ToolInvocation::Done => "done".into(),
     }
+}
+
+/// What the planner may assume exists right now (P0-2 / PLAN-02).
+///
+/// A planner that is not told what is connected invents MCP servers; one that cannot see the
+/// workspace invents paths. Both produce failures that look like tool bugs and burn a replan. This
+/// is the *push* half of discovery — `fs_list` is the pull half.
+///
+/// Volatile by design: it is appended **after** [`build_nl_plan_prompt`], which is the stable prefix
+/// the prefix cache measures (CACHE-01), so a changed workspace cannot invalidate a cached prefix.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PlannerContext {
+    /// MCP servers connected and pinned right now.
+    pub mcp_servers: Vec<String>,
+    /// Skill ids installed right now.
+    pub skills: Vec<String>,
+    /// Top-level workspace entries, directories suffixed with `/`.
+    pub workspace_entries: Vec<String>,
+}
+
+/// Most workspace entries named to the planner. The rest are discoverable with `fs_list`, which is
+/// the point: the context exists to stop guessing, not to replace looking.
+pub const PLANNER_CONTEXT_MAX_ENTRIES: usize = 40;
+
+/// Render the capability block appended to a planner prompt.
+///
+/// Absence is stated, never omitted. A section that is simply missing reads as "unknown", and
+/// "unknown" is what a model fills with an invention; "none connected" is a fact it can plan around.
+pub fn build_capability_context(context: &PlannerContext) -> String {
+    let mut out = String::from(
+        "\n\nWhat is actually available right now — do not assume anything else exists:\n",
+    );
+    out.push_str(&format!(
+        "- MCP servers connected: {}\n",
+        list_or_none(&context.mcp_servers)
+    ));
+    out.push_str(&format!(
+        "- Skills installed: {}\n",
+        list_or_none(&context.skills)
+    ));
+    let entries: Vec<&String> = context
+        .workspace_entries
+        .iter()
+        .take(PLANNER_CONTEXT_MAX_ENTRIES)
+        .collect();
+    let hidden = context.workspace_entries.len() - entries.len();
+    out.push_str(&format!(
+        "- Workspace top level: {}{}\n",
+        if entries.is_empty() {
+            "empty — nothing has been written here yet".to_string()
+        } else {
+            entries
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<&str>>()
+                .join(", ")
+        },
+        if hidden > 0 {
+            format!(" (+{hidden} more; use fs_list to see them)")
+        } else {
+            String::new()
+        }
+    ));
+    out.push_str(
+        "- To look inside a directory use {\"action\":\"fs_list\",\"path\":\"<relative dir>\"}; \
+         to read a file use fs_read. If a path you want is not listed above and you have not listed \
+         its directory, list first rather than guessing.\n",
+    );
+    if context.mcp_servers.is_empty() {
+        out.push_str(
+            "- No MCP server is connected, so any mcp_call step fails immediately with the \
+             connected inventory in its remedy. Do not emit one.\n",
+        );
+    }
+    if context.skills.is_empty() {
+        out.push_str(
+            "- No skill is installed, so any skill_execute step fails immediately. Do not emit one.\n",
+        );
+    }
+    out
+}
+
+/// Append the volatile capability block to a planner prompt, or return it unchanged when the caller
+/// has no inventory to declare (`None` means "unknown", which is not the same as "none").
+fn with_capability_context(prompt: String, context: Option<&PlannerContext>) -> String {
+    match context {
+        Some(context) => format!("{prompt}{}", build_capability_context(context)),
+        None => prompt,
+    }
+}
+
+fn list_or_none(items: &[String]) -> String {
+    if items.is_empty() {
+        return "none".to_string();
+    }
+    items.join(", ")
 }
 
 #[cfg(test)]

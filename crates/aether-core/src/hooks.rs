@@ -49,7 +49,14 @@ impl HookEngine {
             if let HookRule::DenyPromptPatterns { patterns } = rule {
                 for pattern in *patterns {
                     if lower.contains(pattern) {
-                        return HookDecision::Deny(format!("UserPromptSubmit hook blocked prompt matching {pattern:?}"));
+                        let detail = format!("UserPromptSubmit hook blocked prompt matching {pattern:?}");
+                        // P2-14 dark launch: in `log` mode the would-be denial is recorded and the
+                        // prompt goes through, so the gate can be measured before it is allowed to
+                        // break a run. Absent or unparsable config means enforce.
+                        if crate::gate_mode::moderate_denial("hook.prompt_denylist", &detail).is_some() {
+                            return HookDecision::Allow;
+                        }
+                        return HookDecision::Deny(detail);
                     }
                 }
             }
@@ -76,7 +83,12 @@ pub fn pre_tool_use_path_check(resolved_path: &Path) -> HookDecision {
     let path_str = resolved_path.to_string_lossy().to_ascii_lowercase();
     for pattern in DEFAULT_DENY_PATH_PATTERNS {
         if path_str.contains(pattern) {
-            return HookDecision::Deny(format!("PreToolUse hook blocked access to a sensitive path matching {pattern:?}: {}", resolved_path.display()));
+            let detail = format!("PreToolUse hook blocked access to a sensitive path matching {pattern:?}: {}", resolved_path.display());
+            // P2-14 dark launch, as above: recorded, not enforced, when the gate is in `log` mode.
+            if crate::gate_mode::moderate_denial("hook.path_denylist", &detail).is_some() {
+                return HookDecision::Allow;
+            }
+            return HookDecision::Deny(detail);
         }
     }
     HookDecision::Allow

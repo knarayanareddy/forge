@@ -159,6 +159,9 @@ pub fn loop_event_to_line(event: &LoopStreamEvent) -> Option<EventLine> {
             passed,
             detail,
         } => Some(EventLine::verify(*iteration, *passed, detail)),
+        LoopStreamEvent::FinalReply { text, artifacts } => {
+            Some(EventLine::final_reply(text, artifacts))
+        }
         LoopStreamEvent::ProviderTokens { .. } => None,
         LoopStreamEvent::Budget {
             iteration,

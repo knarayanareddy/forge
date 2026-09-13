@@ -1,5 +1,8 @@
 mod compaction;
 mod cost;
+mod error_detail;
+mod final_reply;
+mod gate_mode;
 mod graph_extract;
 mod hf_hub;
 mod model_registry;
@@ -9,10 +12,12 @@ mod hooks;
 mod inject;
 mod keychain;
 mod loop_engine;
+mod memory_guard;
 mod nl_planner;
 mod orchestration_graph;
 mod risk;
 mod subagent;
+mod tool_error;
 mod tool_reliability;
 mod verifier_node;
 
@@ -26,11 +31,18 @@ pub use graph_extract::{
 };
 
 pub use compaction::{
-    compact_turns, mechanical_summarize, CompactRequest, CompactResult, CompactionError,
-    ContextTurn,
+    compact_turns, compact_turns_guarded, compacted_observation, mechanical_summarize,
+    CompactPolicy, CompactRequest, CompactResult, CompactionError, ContextTurn,
+    GuardedCompactResult,
 };
 
 pub use offline::{probe_offline_degradation, NetworkPath, OfflineMatrix, PathStatus};
+
+pub use gate_mode::{
+    drain_gate_hits, gate_hits, moderate_denial, record_gate_hit, CorpusLabel, GateHit, GateLedger,
+    GateMode, GateSpec, GateSpecError, GateSummary, DARK_LAUNCHABLE_GATES, GATE_ENV_VAR,
+    NEVER_DARK_LAUNCHABLE,
+};
 
 pub use hooks::{
     enforce_user_prompt_submit, post_tool_use_scrub_output, pre_tool_use_path_check, HookDecision,
@@ -39,10 +51,21 @@ pub use hooks::{
 };
 
 pub use inject::{
-    admit_plan_against_observations, tool_result_has_injection_phrase, wrap_untrusted_tool_output,
-    AdmitDecision, CorrelationFinding, ToolDepEdge, ToolDependencyGraph,
+    admit_plan_against_observations, admit_plan_with_confirmation, tool_result_has_injection_phrase,
+    wrap_untrusted_tool_output, AdmitDecision, AdmitOutcome, ApprovalRequest, CorrelationFinding,
+    FindingLeg, ToolDepEdge, ToolDependencyGraph, APPROVAL_EVIDENCE_MAX_CHARS,
     MIN_CORRELATION_SUBSTRING, TOOL_RESULT_INJECTION_PATTERNS,
 };
+
+pub use error_detail::{
+    classify_denial, reference_id, render_denial, DenialCategory, ErrorDetailLevel,
+};
+
+pub use tool_error::{
+    failure_category, is_non_retryable, Inventory, ToolError, REMEDY_SEPARATOR,
+};
+
+pub use final_reply::{FinalReply, MAX_FINAL_REPLY_CHARS};
 
 pub use hf_hub::{download_file, sha256_hex, DownloadPlan, HfHubError};
 pub use prefix_cache::{
@@ -84,16 +107,23 @@ pub use keychain::{
 pub use loop_engine::{
     GoalStopHook, LoopConfig, LoopRunResult, LoopStreamEvent, PythonLintVerifier, ReActLoopEngine,
     record_provider_token_usage, resolve_default_max_loop_tokens, StopHook, ToolInvocation, ToolObservation, ToolRegistry,
-    Verifier, DEFAULT_MAX_LOOP_TOKENS,
+    Verifier, DEFAULT_MAX_LOOP_TOKENS, LINTABLE_ARTIFACT_EXTENSIONS, is_lintable_artifact,
+    render_dir_listing, render_read_window, FS_LIST_MAX_ENTRIES, FS_READ_MAX_CHARS,
 };
 
 pub use nl_planner::{
+    build_capability_context, PlannerContext, PLANNER_CONTEXT_MAX_ENTRIES,
     build_nl_plan_prompt, build_nl_repair_prompt, build_nl_verify_repair_prompt, nl_plan_schema,
     normalize_nl_plan_json, plan_tool_name, run_nl_planner, run_nl_planner_repair, NlPlannerResult,
     validate_nl_plan, validate_nl_plan_gold_trajectory, validate_goal_coverage, NlPlanError,
     LOOP02_EVAL_PROMPT, LOOP02_GOLD_TOOL_ORDER, NL_PLAN_SCHEMA,
 };
 
+pub use memory_guard::{
+    filter_memory_write, mask_secret, memory_leak_hit, never_store_hits, MemoryActor, MemoryKind,
+    MemoryLeakDrop, MemoryProvenance, MemoryWriteFilter, NeverStoreHit, MEMORY_GUARDRAIL_PATTERNS,
+    MIN_STORED_MEMORY_CHARS,
+};
 pub use orchestration_graph::OrchestrationGraph;
 pub use verifier_node::{MakerCheckerGoal, VerifierNode};
 

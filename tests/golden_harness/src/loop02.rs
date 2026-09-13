@@ -49,7 +49,8 @@ pub async fn test_loop_02_impl(conn: &rusqlite::Connection) -> Result<(), String
                 .map_err(|e| format!("Chat model re-warm failed: {}", e))?;
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
-        match aether_core::run_nl_planner(&router, LOOP02_EVAL_PROMPT, max_iterations).await {
+        // `None` context: LOOP-02 measures the planner against a frozen goal, not the capability block.
+        match aether_core::run_nl_planner(&router, LOOP02_EVAL_PROMPT, max_iterations, None).await {
             Ok(planner) => {
                 plan = planner.plan;
                 break;
