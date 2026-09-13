@@ -472,17 +472,33 @@ pub fn test_mem04_impl(db: &Database) -> Result<(), String> {
     }
 
     // D5. End to end through the production seam: the poisoned chunk never reaches a prompt.
-    let assembled =
-        assemble_memory_prompt_with_embedding(db, SESSION, query, &embedding(), 10)?;
-    if assembled.contains("ignore previous") || assembled.contains("elevated permissions") {
+    //
+    // Asserted against the *memory block only*. This query is the poison text, and the seam ends
+    // with "Current user request:\n{query}" — so the phrase legitimately appears in the prompt as
+    // the person's own words. A leak is memory-derived text crossing into context; a request being
+    // echoed back to its author is not one, and a test that cannot tell those apart would pass for
+    // the wrong reason (or fail for one, as this did).
+    let assembled = assemble_memory_prompt_with_embedding(db, SESSION, query, &embedding(), 10)?;
+    let (memory_block, request_tail) = assembled
+        .split_once("Current user request:\n")
+        .ok_or_else(|| format!("the assembled prompt lost its request section:\n{assembled}"))?;
+    if memory_block.contains("ignore previous") || memory_block.contains("elevated permissions") {
         return Err(format!(
-            "the production seam leaked poisoned memory into a prompt:\n{assembled}"
+            "the production seam leaked poisoned memory into the context block:\n{memory_block}"
         ));
     }
-    if !assembled.contains("retrieved chunk(s) dropped") {
+    if !memory_block.contains("retrieved chunk(s) dropped") {
         return Err(format!(
-            "the production seam must report what it dropped:\n{assembled}"
+            "the production seam must report what it dropped:\n{memory_block}"
         ));
+    }
+    if !request_tail.contains(query) {
+        return Err(format!(
+            "the current request must survive the seam verbatim:\n{request_tail}"
+        ));
+    }
+    if !memory_block.contains("The current request overrides retrieved memory") {
+        return Err(format!("the precedence rule must reach the production seam:\n{memory_block}"));
     }
 
     // --- E. masking is safe to show ----------------------------------------------------------
